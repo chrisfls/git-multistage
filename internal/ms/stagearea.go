@@ -108,6 +108,9 @@ type Meta struct {
 	Created time.Time `json:"created"`
 	Pending *Pending  `json:"pending,omitempty"`
 	Commits []string  `json:"commits,omitempty"` // commits made by this stage, oldest first
+	// AppliedEdits names the edit records that the current index already
+	// holds; they are deleted when the stage is next opened.
+	AppliedEdits []string `json:"applied_edits,omitempty"`
 }
 
 // Pending records a commit whose branch update may or may not have happened.
@@ -191,6 +194,10 @@ func (r *Repo) openStage(id string, exclusive bool, timeout time.Duration) (*Sta
 		}
 	}
 	l.removeLeftovers()
+	if err := l.purgeAppliedEdits(); err != nil {
+		lk.Release()
+		return nil, err
+	}
 	if _, err := os.Stat(l.IndexPath()); err != nil {
 		l.Damaged = true
 		return l, nil //nolint:nilerr // a stage without its index is returned as damaged, for drop --force

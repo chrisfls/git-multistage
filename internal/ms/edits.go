@@ -189,12 +189,20 @@ func (l *Stage) AddEdits(paths []string, force bool) ([]string, error) {
 			Hint: "stage those files with `hunks` and `add --hunk`, or forget the records with `git multistage drop --edits <path>`",
 		}
 	}
+	// The metadata save that adopts the index also names the applied
+	// records, so a crash before their deletion cannot apply them twice.
+	l.M.AppliedEdits = nil
+	for _, r := range chosen {
+		l.M.AppliedEdits = append(l.M.AppliedEdits, r.file)
+	}
 	if err := l.adoptIndex(name, gen); err != nil {
+		l.M.AppliedEdits = nil
 		return nil, err
 	}
 	adopted = true
-	for _, r := range chosen {
-		_ = os.Remove(filepath.Join(editsDir(l.Dir), r.file))
+	fault("after-adopt-edits")
+	if err := l.purgeAppliedEdits(); err != nil {
+		l.warn("cannot delete the staged edit records yet; the next command deletes them: %v", err)
 	}
 	var out []string
 	for p := range staged {
@@ -202,6 +210,21 @@ func (l *Stage) AddEdits(paths []string, force bool) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// purgeAppliedEdits deletes the edit records that the current index already
+// holds, then forgets their names.
+func (l *Stage) purgeAppliedEdits() error {
+	if len(l.M.AppliedEdits) == 0 {
+		return nil
+	}
+	for _, n := range l.M.AppliedEdits {
+		if err := os.Remove(filepath.Join(editsDir(l.Dir), n)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	}
+	l.M.AppliedEdits = nil
+	return l.save()
 }
 
 // DropEdits forgets the recorded edits of the given paths (all when none).

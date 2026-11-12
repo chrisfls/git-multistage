@@ -190,3 +190,26 @@ func TestShiftedCopyIDIsStale(t *testing.T) {
 	r.write("f", "p4\np5\ny\np7\np8\ny\np10\n")
 	r.expectCode(4, "a", "add", "f", "--hunk", first)
 }
+
+// TestAddEditsAfterACrashSkipsAppliedRecords records two edits of one line.
+// `add --edits` dies after it adopted the index and before it deleted the
+// records; the next `add --edits` must not apply them again.
+func TestAddEditsAfterACrashSkipsAppliedRecords(t *testing.T) {
+	r := newRepo(t)
+	r.write("f.txt", "a\nb\nc\n")
+	r.write("g.txt", "g\n")
+	r.git("add", ".")
+	r.git("commit", "-q", "-m", "fg")
+	r.hookedEdit("s", "", "f.txt", "a\nB\nc\n")
+	r.hookedEdit("s", "", "f.txt", "a\nBB\nc\n")
+	res := run(r.dir, "", []string{"GIT_MULTISTAGE_FAULT=after-adopt-edits"}, "--stage", "claude-s", "add", "--edits")
+	if res.code != 86 {
+		t.Fatalf("want the fault exit 86:\n%s", res)
+	}
+	r.hookedEdit("s", "", "g.txt", "g\nG\n")
+	r.mustMS("", "--stage", "claude-s", "add", "--edits")
+	r.mustMS("", "--stage", "claude-s", "commit", "-m", "fg")
+	if got := r.git("show", "main:f.txt") + r.git("show", "main:g.txt"); got != "a\nBB\nc\ng\nG\n" {
+		t.Fatalf("committed %q", got)
+	}
+}
