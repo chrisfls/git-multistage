@@ -1,22 +1,24 @@
 # Using git multistage as an agent
 
-Several agents work in this checkout at the same time. Use `git multistage` instead of `git add`, `git commit`, `git restore --staged`, and `git reset` for staging and committing. Other agents' changes stay out of your commits, and you never wait for them.
+Several agents work in this checkout at the same time. Use `git multistage` instead of `git add`, `git commit`, `git restore --staged`, and `git reset` for staging and committing. Each agent stages into its own stage, so other agents' changes stay out of your commits, and you never wait for them.
 
-## Your ID
+## Your stage ID
 
-Your ID is given in your task, such as `agent-a`. Pass it on every command, because each shell call starts with a fresh environment:
-
-```bash
-git multistage --agent agent-a status
-```
-
-If your task gives no ID, create one once and use it from then on:
+Use your agent ID as your stage ID, such as `agent-a` from your task. Pass it on every command, because each shell call starts with a fresh environment:
 
 ```bash
-git multistage init          # prints: Created stage agent-1f3a9c2e ...
+git multistage --stage agent-a status
 ```
 
-Never use another agent's ID.
+If your task gives no ID, create a stage once and use its ID from then on:
+
+```bash
+git multistage init          # prints: Created stage stage-1f3a9c2e ...
+```
+
+If you run as a separate agent session (not a subagent), `--agentic` can take your ID from the environment instead of `--stage`. Subagents share their parent's environment, so a subagent must use `--stage`.
+
+Never use another agent's stage ID.
 
 ## Workflow
 
@@ -24,27 +26,27 @@ Never use another agent's ID.
 2. Stage a file that only you changed:
 
    ```bash
-   git multistage --agent agent-a add src/feature.ts src/new-file.ts
+   git multistage --stage agent-a add src/feature.ts src/new-file.ts
    ```
 
 3. Stage only your part of a file that other agents also change:
 
    ```bash
-   git multistage --agent agent-a hunks src/shared.ts
-   git multistage --agent agent-a add src/shared.ts --hunk 3f2a9c1d0e7a --hunk 88b02c4a91d3
+   git multistage --stage agent-a hunks src/shared.ts
+   git multistage --stage agent-a add src/shared.ts --hunk 3f2a9c1d0e7a --hunk 88b02c4a91d3
    ```
 
-   Pick the hunks whose `+` and `-` lines are your edits. `staged-by=<agent>` marks hunks that another agent already staged; leave those alone.
+   Pick the hunks whose `+` and `-` lines are your edits. `staged-by=<stage>` marks hunks that another stage already staged; leave those alone.
 4. Check what you will commit:
 
    ```bash
-   git multistage --agent agent-a diff --cached
+   git multistage --stage agent-a diff --cached
    ```
 
 5. Commit:
 
    ```bash
-   git multistage --agent agent-a commit -m "Add input validation"
+   git multistage --stage agent-a commit -m "Add input validation"
    ```
 
 Add `--json` to `status`, `hunks`, `add`, and `commit` when you parse the output.
@@ -55,7 +57,7 @@ Add `--json` to `status`, `hunks`, `add`, and `commit` when you parse the output
 | --- | --- | --- |
 | 3 | Your staged change conflicts with a commit that landed on the branch. Your staged changes are kept. | Read the listed paths. Edit the files so that they include both changes, then `restore --staged <path>`, stage again, and commit. |
 | 4 | A hunk ID is stale: the file changed after you listed the hunks. | Run `hunks <path>` again and use the new IDs. |
-| 5 with `shared-path` | Another agent staged changes in that file, so a whole-file `add` could take its changes. | Stage your hunks with `--hunk`. |
+| 5 with `shared-path` | Another stage has staged changes in that file, so a whole-file `add` could take its changes. | Stage your hunks with `--hunk`. |
 | 5, other | HEAD is detached or on another branch, or a merge or rebase is in progress. | Stop and report it. Do not change branches. |
 | 6 | A lock stayed held, such as another Git process holding `.git/index.lock`. | Retry the command after a few seconds. If it fails again, run `git multistage doctor` and report the output. |
 

@@ -39,7 +39,8 @@ func TestMain(m *testing.M) {
 	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	for _, v := range []string{"GIT_MULTISTAGE_ID", "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
-		"GIT_MULTISTAGE_FAULT", "GIT_MULTISTAGE_TEST_RACE", "GIT_MULTISTAGE_TEST_DELAY_MS"} {
+		"GIT_MULTISTAGE_FAULT", "GIT_MULTISTAGE_TEST_RACE", "GIT_MULTISTAGE_TEST_DELAY_MS",
+		"PASEO_AGENT_ID", "CLAUDE_CODE_SESSION_ID"} {
 		os.Unsetenv(v)
 	}
 	code := m.Run()

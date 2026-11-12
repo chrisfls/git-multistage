@@ -168,7 +168,7 @@ func (r *Repo) SyncIndex(from string, timeout time.Duration) (SyncResult, error)
 }
 
 // syncAfterCommit synchronizes the default index after this process moved
-// the branch from parent. The caller holds index.lock, and every agent moves
+// the branch from parent. The caller holds index.lock, and every stage moves
 // the branch only while holding it, so the index matches parent unless
 // another tool moved the branch without updating the index.
 func (r *Repo) syncAfterCommit(parent string) (SyncResult, error) {

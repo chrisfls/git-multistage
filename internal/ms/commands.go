@@ -14,7 +14,7 @@ import (
 
 // StatusInfo is the state of one stage and of the working tree around it.
 type StatusInfo struct {
-	Agent     string       `json:"agent"`
+	ID        string       `json:"stage"`
 	StageDir  string       `json:"stage_dir"`
 	Fresh     Freshness    `json:"freshness"`
 	Staged    []Change     `json:"staged"`
@@ -26,12 +26,12 @@ type StatusInfo struct {
 // SharedPath is a path that this stage and other stages have staged.
 type SharedPath struct {
 	Path   string   `json:"path"`
-	Agents []string `json:"agents"`
+	Stages []string `json:"stages"`
 }
 
 // Status reports the stage's staged, unstaged, and untracked changes.
 func (l *Stage) Status(f Freshness) (*StatusInfo, error) {
-	st := &StatusInfo{Agent: l.Agent, StageDir: l.Dir, Fresh: f, Staged: []Change{}, Unstaged: []Change{}, Untracked: []string{}}
+	st := &StatusInfo{ID: l.ID, StageDir: l.Dir, Fresh: f, Staged: []Change{}, Unstaged: []Change{}, Untracked: []string{}}
 	var err error
 	if st.Staged, err = l.stagedChanges(); err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func (l *Stage) Status(f Freshness) (*StatusInfo, error) {
 
 // StageInfo summarizes one stage for `list` and `doctor`.
 type StageInfo struct {
-	Agent    string   `json:"agent"`
+	ID       string   `json:"stage"`
 	Branch   string   `json:"branch"`
 	Base     string   `json:"base"`
 	Staged   []string `json:"staged"`
@@ -94,7 +94,7 @@ func (r *Repo) Stages() ([]StageInfo, error) {
 			continue
 		}
 		dir := filepath.Join(r.stagesDir(), e.Name())
-		li := StageInfo{Agent: e.Name(), Staged: []string{}}
+		li := StageInfo{ID: e.Name(), Staged: []string{}}
 		if lk, err := filelock.Acquire(filepath.Join(dir, "lock"), 0); err != nil {
 			li.Busy = true
 		} else {
@@ -214,21 +214,21 @@ func (r *Repo) Doctor() (*DoctorReport, error) {
 	staged := map[string][]string{}
 	for _, li := range rep.Stages {
 		for _, p := range li.Staged {
-			staged[p] = append(staged[p], li.Agent)
+			staged[p] = append(staged[p], li.ID)
 		}
 		for _, p := range li.Problems {
-			add("warning", "stage %s: %s", li.Agent, p)
+			add("warning", "stage %s: %s", li.ID, p)
 		}
 	}
 	var shared []string
-	for p, agents := range staged {
-		if len(agents) > 1 {
-			shared = append(shared, fmt.Sprintf("%s (%s)", p, strings.Join(agents, ", ")))
+	for p, ids := range staged {
+		if len(ids) > 1 {
+			shared = append(shared, fmt.Sprintf("%s (%s)", p, strings.Join(ids, ", ")))
 		}
 	}
 	sort.Strings(shared)
 	if len(shared) > 0 {
-		add("warning", "files staged by several agents: %s", strings.Join(shared, "; "))
+		add("warning", "files staged in several stages: %s", strings.Join(shared, "; "))
 	}
 	add("ok", "%d stage(s) in this worktree", len(rep.Stages))
 	return rep, nil
@@ -249,7 +249,7 @@ func (l *Stage) Drop(force bool) (string, error) {
 	}
 	if (staged != base || l.Damaged) && !force {
 		return "", &Error{Code: ExitRefused, Kind: "has-staged",
-			Message: "stage " + l.Agent + " has staged changes or is damaged; nothing was dropped",
+			Message: "stage " + l.ID + " has staged changes or is damaged; nothing was dropped",
 			Hint:    "commit or unstage the changes, or pass --force"}
 	}
 	if _, err := l.r.Run(gitx.Opt{}, "update-ref", "-d", l.keepRef()); err != nil {
@@ -259,7 +259,7 @@ func (l *Stage) Drop(force bool) (string, error) {
 	l.lock = nil
 	// Rename first, so that an interrupted removal never leaves a stage whose
 	// metadata points at a deleted index.
-	trash := filepath.Join(l.r.stagesDir(), fmt.Sprintf(".dropped-%s-%d", l.Agent, os.Getpid()))
+	trash := filepath.Join(l.r.stagesDir(), fmt.Sprintf(".dropped-%s-%d", l.ID, os.Getpid()))
 	if err := rename(l.Dir, trash); err != nil {
 		return "", err
 	}

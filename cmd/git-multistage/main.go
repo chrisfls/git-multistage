@@ -1,5 +1,6 @@
-// Command git-multistage lets several agents stage and commit independently
-// in one Git checkout. Git runs it as `git multistage`.
+// Command git-multistage keeps several independent staging areas in one Git
+// checkout, each of which commits to the current branch on its own. Git runs
+// it as `git multistage`.
 package main
 
 import (

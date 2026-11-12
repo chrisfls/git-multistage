@@ -2,7 +2,7 @@ package ms
 
 import "fmt"
 
-// Exit codes. Every command uses them, so agents can branch on the status.
+// Exit codes. Every command uses them, so scripts and agents can branch on the status.
 const (
 	ExitOK       = 0
 	ExitError    = 1 // a failure, or nothing to commit

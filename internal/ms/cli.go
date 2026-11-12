@@ -14,12 +14,15 @@ import (
 // Version is set at build time with -ldflags "-X ...ms.Version=v1.2.3".
 var Version = "dev"
 
-const usage = `usage: git multistage [--agent <id>] <command> [<args>]
+const usage = `usage: git multistage [--stage <id> | --agentic] <command> [<args>]
 
-Each agent stages into its own stage (a private index) and commits to the
-current branch without waiting for other agents.
+Each stage is a private index with its own staged changes. Several stages
+can stage and commit to the current branch at the same time, from one
+checkout, without waiting for each other.
 
-Agent ID: --agent <id>, or the GIT_MULTISTAGE_ID environment variable.
+Stage ID: --stage <id>, or the GIT_MULTISTAGE_ID environment variable.
+--agentic takes the ID of the calling agent from its environment
+(PASEO_AGENT_ID, then CLAUDE_CODE_SESSION_ID) when no stage ID is given.
 
 Commands:
   init [<id>]                  create a stage; without <id>, pick a unique ID
@@ -62,7 +65,8 @@ func (p *parsed) get(name string) string {
 	return v[len(v)-1]
 }
 
-var globalFlags = []flagSpec{{[]string{"--agent"}, true}, {[]string{"--json"}, false}, {[]string{"--help", "-h"}, false}}
+var globalFlags = []flagSpec{{[]string{"--stage"}, true}, {[]string{"--agentic"}, false},
+	{[]string{"--json"}, false}, {[]string{"--help", "-h"}, false}}
 
 func parseArgs(argv []string, specs []flagSpec) (*parsed, error) {
 	specs = append(append([]flagSpec{}, specs...), globalFlags...)
@@ -112,7 +116,8 @@ func parseArgs(argv []string, specs []flagSpec) (*parsed, error) {
 type app struct {
 	out, errw io.Writer
 	json      bool
-	agent     string
+	stageFlag string // --stage
+	agentic   bool   // --agentic
 	repo      *Repo
 	warnings  []string
 }
@@ -166,39 +171,75 @@ func (a *app) emit(v any) {
 
 func (a *app) printf(format string, args ...any) { fmt.Fprintf(a.out, format, args...) }
 
-// takeAgent removes --agent and --json from a pass-through argument list.
-func takeGlobal(argv []string) (rest []string, agent string, jsonOut bool, err error) {
+// takeGlobal removes the global options from a pass-through argument list.
+func (a *app) takeGlobal(argv []string) (rest []string, err error) {
 	for i := 0; i < len(argv); i++ {
 		switch x := argv[i]; {
 		case x == "--":
-			return append(rest, argv[i:]...), agent, jsonOut, nil
-		case x == "--agent":
+			return append(rest, argv[i:]...), nil
+		case x == "--stage":
 			if i+1 >= len(argv) {
-				return nil, "", false, usageErr("option --agent needs a value")
+				return nil, usageErr("option --stage needs a value")
 			}
 			i++
-			agent = argv[i]
-		case strings.HasPrefix(x, "--agent="):
-			agent = strings.TrimPrefix(x, "--agent=")
+			a.stageFlag = argv[i]
+		case strings.HasPrefix(x, "--stage="):
+			a.stageFlag = strings.TrimPrefix(x, "--stage=")
+		case x == "--agentic":
+			a.agentic = true
 		case x == "--json":
-			jsonOut = true
+			a.json = true
 		default:
 			rest = append(rest, x)
 		}
 	}
-	return rest, agent, jsonOut, nil
+	return rest, nil
+}
+
+// agentSources are environment variables that hold an ID of the calling
+// agent, in the order --agentic tries them. Subagents that share their
+// parent's process environment share these values too.
+var agentSources = []struct{ env, prefix string }{
+	{"PASEO_AGENT_ID", "paseo-"},
+	{"CLAUDE_CODE_SESSION_ID", "claude-"},
+}
+
+// stageID resolves the stage ID: --stage, then GIT_MULTISTAGE_ID, then, with
+// --agentic only, the calling agent's ID.
+func (a *app) stageID() (string, error) {
+	if a.stageFlag != "" {
+		return a.stageFlag, nil
+	}
+	if id := os.Getenv("GIT_MULTISTAGE_ID"); id != "" {
+		return id, nil
+	}
+	if !a.agentic {
+		return "", nil
+	}
+	var names []string
+	for _, s := range agentSources {
+		if v := os.Getenv(s.env); v != "" {
+			return sanitizeID(s.prefix + v), nil
+		}
+		names = append(names, s.env)
+	}
+	return "", &Error{Code: ExitUsage, Kind: "no-agent-id",
+		Message: "--agentic found no agent ID: none of " + strings.Join(names, ", ") + " is set",
+		Hint:    "pass --stage <id>"}
 }
 
 func (a *app) run(argv []string) error {
 	// Global options may come before the command.
-	var agentFlag string
 	for len(argv) > 0 {
 		switch {
-		case argv[0] == "--agent" && len(argv) > 1:
-			agentFlag, argv = argv[1], argv[2:]
+		case argv[0] == "--stage" && len(argv) > 1:
+			a.stageFlag, argv = argv[1], argv[2:]
 			continue
-		case strings.HasPrefix(argv[0], "--agent="):
-			agentFlag, argv = strings.TrimPrefix(argv[0], "--agent="), argv[1:]
+		case strings.HasPrefix(argv[0], "--stage="):
+			a.stageFlag, argv = strings.TrimPrefix(argv[0], "--stage="), argv[1:]
+			continue
+		case argv[0] == "--agentic":
+			a.agentic, argv = true, argv[1:]
 			continue
 		case argv[0] == "--json":
 			a.json, argv = true, argv[1:]
@@ -215,10 +256,6 @@ func (a *app) run(argv []string) error {
 		return nil
 	}
 	cmd, args := argv[0], argv[1:]
-	a.agent = agentFlag
-	if a.agent == "" {
-		a.agent = os.Getenv("GIT_MULTISTAGE_ID")
-	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -230,20 +267,21 @@ func (a *app) run(argv []string) error {
 	// Commands whose arguments go to Git unchanged.
 	switch cmd {
 	case "diff", "log":
-		rest, agent, jsonOut, err := takeGlobal(args)
+		rest, err := a.takeGlobal(args)
 		if err != nil {
 			return err
 		}
-		if agent != "" {
-			a.agent = agent
-		}
-		if jsonOut {
+		if a.json {
 			return usageErr("%s has no --json output", cmd)
 		}
-		if cmd == "diff" {
-			return a.diff(rest, cwd)
+		id, err := a.stageID()
+		if err != nil {
+			return err
 		}
-		return a.log(rest)
+		if cmd == "diff" {
+			return a.diff(rest, cwd, id)
+		}
+		return a.log(rest, id)
 	}
 
 	specs := map[string][]flagSpec{
@@ -274,8 +312,11 @@ func (a *app) run(argv []string) error {
 	if p.has("--json") {
 		a.json = true
 	}
-	if p.has("--agent") {
-		a.agent = p.get("--agent")
+	if p.has("--stage") {
+		a.stageFlag = p.get("--stage")
+	}
+	if p.has("--agentic") {
+		a.agentic = true
 	}
 	switch cmd {
 	case "list":
@@ -284,17 +325,22 @@ func (a *app) run(argv []string) error {
 		return a.doctor()
 	case "sync":
 		return a.sync(p)
-	case "init":
-		return a.init(p)
 	}
-	stage, err := a.repo.OpenStage(a.agent, false)
+	id, err := a.stageID()
+	if err != nil {
+		return err
+	}
+	if cmd == "init" {
+		return a.init(p, id)
+	}
+	stage, err := a.repo.OpenStage(id, false)
 	if err != nil {
 		return err
 	}
 	defer stage.Close()
 	defer func() { a.warnings = append(stage.Warnings, a.warnings...) }()
 	if stage.Created {
-		stage.warn("created stage %s on %s", stage.Agent, stage.M.Branch)
+		stage.warn("created stage %s on %s", stage.ID, stage.M.Branch)
 	}
 	if cmd == "drop" {
 		return a.drop(stage, p)
@@ -339,16 +385,15 @@ func (a *app) noteFreshness(f Freshness) {
 	a.warnings = append(a.warnings, msg)
 }
 
-func (a *app) init(p *parsed) error {
+func (a *app) init(p *parsed, id string) error {
 	if len(p.pos) > 1 {
 		return usageErr("usage: git multistage init [<id>]")
 	}
-	id := a.agent
 	if len(p.pos) == 1 {
 		id = p.pos[0]
 	}
 	if id == "" {
-		id = NewAgentID()
+		id = NewStageID()
 	}
 	stage, err := a.repo.OpenStage(id, true)
 	if err != nil {
@@ -357,11 +402,11 @@ func (a *app) init(p *parsed) error {
 	defer stage.Close()
 	a.warnings = append(a.warnings, stage.Warnings...)
 	if a.json {
-		a.emit(map[string]any{"agent": id, "branch": stage.M.Branch, "base": stage.M.Base, "stage_dir": stage.Dir})
+		a.emit(map[string]any{"stage": id, "branch": stage.M.Branch, "base": stage.M.Base, "stage_dir": stage.Dir})
 		return nil
 	}
 	a.printf("Created stage %s on %s at %s\n", id, strings.TrimPrefix(stage.M.Branch, "refs/heads/"), short(stage.M.Base))
-	a.printf("Use it with --agent %s, or set GIT_MULTISTAGE_ID=%s\n", id, id)
+	a.printf("Use it with --stage %s, or set GIT_MULTISTAGE_ID=%s\n", id, id)
 	return nil
 }
 
@@ -382,7 +427,7 @@ func (a *app) status(l *Stage, f Freshness) error {
 	case f.Base == "":
 		state = "no commits yet"
 	}
-	a.printf("stage %s on %s (base %s, %s)\n", st.Agent, strings.TrimPrefix(f.Branch, "refs/heads/"), short(f.Base), state)
+	a.printf("stage %s on %s (base %s, %s)\n", st.ID, strings.TrimPrefix(f.Branch, "refs/heads/"), short(f.Base), state)
 	section := func(title string, cs []Change) {
 		if len(cs) == 0 {
 			return
@@ -405,9 +450,9 @@ func (a *app) status(l *Stage, f Freshness) error {
 		}
 	}
 	if len(st.Shared) > 0 {
-		a.printf("also staged by other agents:\n")
+		a.printf("also staged in other stages:\n")
 		for _, s := range st.Shared {
-			a.printf("  %s (%s)\n", s.Path, strings.Join(s.Agents, ", "))
+			a.printf("  %s (%s)\n", s.Path, strings.Join(s.Stages, ", "))
 		}
 	}
 	if len(st.Staged)+len(st.Unstaged)+len(st.Untracked) == 0 {
@@ -544,7 +589,7 @@ func (a *app) apply(l *Stage, p *parsed) error {
 		a.warnings = nil
 		return nil
 	}
-	a.printf("applied patch to stage %s\n", l.Agent)
+	a.printf("applied patch to stage %s\n", l.ID)
 	return nil
 }
 
@@ -608,8 +653,8 @@ func (a *app) commit(l *Stage, p *parsed) error {
 	return nil
 }
 
-func (a *app) diff(args []string, cwd string) error {
-	stage, err := a.repo.OpenStage(a.agent, false)
+func (a *app) diff(args []string, cwd, id string) error {
+	stage, err := a.repo.OpenStage(id, false)
 	if err != nil {
 		return err
 	}
@@ -646,13 +691,13 @@ func (a *app) diff(args []string, cwd string) error {
 	return err
 }
 
-func (a *app) log(args []string) error {
-	if err := ValidateAgent(a.agent); err != nil {
+func (a *app) log(args []string, id string) error {
+	if err := ValidateStageID(id); err != nil {
 		return err
 	}
-	m, err := readMeta(a.repo.stagesDir() + string(os.PathSeparator) + a.agent)
+	m, err := readMeta(a.repo.stagesDir() + string(os.PathSeparator) + id)
 	if err != nil {
-		return errorf(ExitError, "no-stage", "stage %q does not exist", a.agent)
+		return errorf(ExitError, "no-stage", "stage %q does not exist", id)
 	}
 	var commits []string
 	for i := len(m.Commits) - 1; i >= 0; i-- {
@@ -661,7 +706,7 @@ func (a *app) log(args []string) error {
 		}
 	}
 	if len(commits) == 0 {
-		a.printf("stage %s has made no commits\n", a.agent)
+		a.printf("stage %s has made no commits\n", id)
 		return nil
 	}
 	gitArgs := append([]string{"log", "--no-walk=unsorted"}, args...)
@@ -692,7 +737,7 @@ func (a *app) list() error {
 		if len(li.Problems) > 0 {
 			flags += " problems"
 		}
-		a.printf("%-20s %-20s base %s  %d staged  %d commit(s)%s\n", li.Agent,
+		a.printf("%-20s %-20s base %s  %d staged  %d commit(s)%s\n", li.ID,
 			strings.TrimPrefix(li.Branch, "refs/heads/"), short(li.Base), len(li.Staged), li.Commits, flags)
 	}
 	return nil
@@ -749,11 +794,11 @@ func (a *app) drop(l *Stage, p *parsed) error {
 		return err
 	}
 	if a.json {
-		a.emit(map[string]any{"dropped": l.Agent, "staged_tree": tree, "warnings": a.warnings})
+		a.emit(map[string]any{"dropped": l.ID, "staged_tree": tree, "warnings": a.warnings})
 		a.warnings = nil
 		return nil
 	}
-	a.printf("dropped stage %s\n", l.Agent)
+	a.printf("dropped stage %s\n", l.ID)
 	if tree != "" {
 		a.printf("its staged tree was %s (inspect it with `git diff %s %s`)\n", tree, short(l.M.Base), tree)
 	}

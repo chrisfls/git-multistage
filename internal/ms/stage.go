@@ -108,7 +108,7 @@ func (l *Stage) stagedChanges() ([]Change, error) {
 }
 
 // otherStagesStaged returns, for each path that another stage of this worktree
-// has staged, the agents that staged it.
+// has staged, the stages that staged it.
 func (l *Stage) otherStagesStaged() (map[string][]string, error) {
 	res := map[string][]string{}
 	entries, err := os.ReadDir(l.r.stagesDir())
@@ -116,7 +116,7 @@ func (l *Stage) otherStagesStaged() (map[string][]string, error) {
 		return res, nil
 	}
 	for _, e := range entries {
-		if !e.IsDir() || e.Name() == l.Agent || strings.HasPrefix(e.Name(), ".") {
+		if !e.IsDir() || e.Name() == l.ID || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
 		paths, err := l.r.stageStagedPaths(filepath.Join(l.r.stagesDir(), e.Name()))
@@ -221,14 +221,14 @@ func (l *Stage) AddPaths(paths []string, force, allowShared bool) ([]gitx.Entry,
 	}
 	var shared, details []string
 	for _, c := range changed {
-		if agents := others[c.Path]; len(agents) > 0 {
+		if ids := others[c.Path]; len(ids) > 0 {
 			shared = append(shared, c.Path)
-			details = append(details, fmt.Sprintf("%s is staged by %s", c.Path, strings.Join(agents, ", ")))
+			details = append(details, fmt.Sprintf("%s is staged in %s", c.Path, strings.Join(ids, ", ")))
 		}
 	}
 	if len(shared) > 0 {
 		return nil, &Error{Code: ExitRefused, Kind: "shared-path",
-			Message: "another agent has staged changes in these files, so the whole file may hold that agent's changes too; nothing was staged",
+			Message: "another stage has staged changes in these files, so the whole file may hold its changes too; nothing was staged",
 			Paths:   shared, Details: details,
 			Hint: "stage only your hunks: `git multistage hunks <path>`, then `git multistage add <path> --hunk <id>`; " +
 				"or pass --allow-shared to stage the whole file anyway"}
@@ -477,14 +477,14 @@ func (l *Stage) Hunks(paths []string, cached bool) ([]FileHunks, error) {
 // markStagedBy notes which other stages have staged a hunk identical to each
 // listed hunk. Hunk IDs depend only on the path and the changed lines, so an
 // equal ID means an equal change.
-func (l *Stage) markStagedBy(fh *FileHunks, agents []string) {
-	for _, agent := range agents {
-		dir := filepath.Join(l.r.stagesDir(), agent)
+func (l *Stage) markStagedBy(fh *FileHunks, ids []string) {
+	for _, id := range ids {
+		dir := filepath.Join(l.r.stagesDir(), id)
 		m, err := readMeta(dir)
 		if err != nil {
 			continue
 		}
-		other := &Stage{r: l.r, Agent: agent, Dir: dir, M: m}
+		other := &Stage{r: l.r, ID: id, Dir: dir, M: m}
 		staged, err := other.stagedHunks(fh.Path)
 		if err != nil {
 			continue
@@ -495,7 +495,7 @@ func (l *Stage) markStagedBy(fh *FileHunks, agents []string) {
 		}
 		for i := range fh.Hunks {
 			if ids[fh.Hunks[i].ID] {
-				fh.Hunks[i].StagedBy = append(fh.Hunks[i].StagedBy, agent)
+				fh.Hunks[i].StagedBy = append(fh.Hunks[i].StagedBy, id)
 			}
 		}
 	}

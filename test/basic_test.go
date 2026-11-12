@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestAgentIDIsRequired(t *testing.T) {
+func TestStageIDIsRequired(t *testing.T) {
 	r := newRepo(t)
 	res := r.expectCode(2, "", "status")
 	if !strings.Contains(res.err, "GIT_MULTISTAGE_ID") {
@@ -26,10 +26,10 @@ func TestAgentIDIsRequired(t *testing.T) {
 
 func TestInitClaimsUniqueStage(t *testing.T) {
 	r := newRepo(t)
-	var out struct{ Agent string }
+	var out struct{ Stage string }
 	decode(t, r.mustMS("", "init", "--json"), &out)
-	if !regexp.MustCompile(`^agent-[0-9a-f]{8}$`).MatchString(out.Agent) {
-		t.Fatalf("generated id %q", out.Agent)
+	if !regexp.MustCompile(`^stage-[0-9a-f]{8}$`).MatchString(out.Stage) {
+		t.Fatalf("generated id %q", out.Stage)
 	}
 	r.mustMS("", "init", "worker-1")
 	res := r.expectCode(5, "", "init", "worker-1")
@@ -38,12 +38,12 @@ func TestInitClaimsUniqueStage(t *testing.T) {
 	}
 	// The flag and the variable both select the stage.
 	r.write("f.txt", "f\n")
-	r.mustMS("", "--agent", "worker-1", "add", "f.txt")
+	r.mustMS("", "--stage", "worker-1", "add", "f.txt")
 	if got := r.stagedPaths("worker-1"); !eq(got, []string{"f.txt"}) {
 		t.Fatalf("staged = %v", got)
 	}
-	// --agent wins over the variable.
-	r.mustMS("other", "add", "--agent", "worker-1", "README")
+	// --stage wins over the variable.
+	r.mustMS("other", "add", "--stage", "worker-1", "README")
 	if got := r.stagedPaths("other"); len(got) != 0 {
 		t.Fatalf("stage other got %v", got)
 	}
@@ -312,12 +312,12 @@ func TestDropAndList(t *testing.T) {
 	r.mustMS("agent-b", "status")
 	var l struct {
 		Stages []struct {
-			Agent  string
+			Stage  string
 			Staged []string
 		}
 	}
 	decode(t, r.mustMS("", "list", "--json"), &l)
-	if len(l.Stages) != 2 || l.Stages[0].Agent != "agent-a" || len(l.Stages[0].Staged) != 1 {
+	if len(l.Stages) != 2 || l.Stages[0].Stage != "agent-a" || len(l.Stages[0].Staged) != 1 {
 		t.Fatalf("list: %+v", l)
 	}
 	r.expectCode(5, "agent-a", "drop")
@@ -330,3 +330,31 @@ func TestDropAndList(t *testing.T) {
 }
 
 func itoa(i int) string { return strconv.Itoa(i) }
+
+// TestAgenticFlag checks that --agentic takes the stage ID from the calling
+// agent's environment, and that nothing does so without the flag.
+func TestAgenticFlag(t *testing.T) {
+	r := newRepo(t)
+	r.write("a.txt", "a\n")
+	paseo := []string{"PASEO_AGENT_ID=B3F659CC-3a31", "CLAUDE_CODE_SESSION_ID=052d8848"}
+	if res := run(r.dir, "", paseo, "add", "a.txt"); res.code != 2 {
+		t.Fatalf("an agent ID was used without --agentic:\n%s", res)
+	}
+	if res := run(r.dir, "", paseo, "--agentic", "add", "a.txt"); res.code != 0 {
+		t.Fatalf("--agentic:\n%s", res)
+	}
+	if got := r.stagedPaths("paseo-b3f659cc-3a31"); !eq(got, []string{"a.txt"}) {
+		t.Fatalf("stage paseo-b3f659cc-3a31 staged %v", got)
+	}
+	if res := run(r.dir, "", paseo[1:], "status", "--agentic", "--json"); res.code != 0 || !strings.Contains(res.out, `"stage": "claude-052d8848"`) {
+		t.Fatalf("CLAUDE_CODE_SESSION_ID:\n%s", res)
+	}
+	// An explicit stage ID wins over --agentic.
+	if res := run(r.dir, "", paseo, "--agentic", "--stage", "mine", "status", "--json"); !strings.Contains(res.out, `"stage": "mine"`) {
+		t.Fatalf("--stage with --agentic:\n%s", res)
+	}
+	res := run(r.dir, "", nil, "--agentic", "status")
+	if res.code != 2 || !strings.Contains(res.err, "PASEO_AGENT_ID") {
+		t.Fatalf("--agentic without an agent ID:\n%s", res)
+	}
+}

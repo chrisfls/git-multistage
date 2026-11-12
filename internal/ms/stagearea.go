@@ -2,6 +2,7 @@ package ms
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -61,35 +62,53 @@ func (r *Repo) configBool(key string, def bool) bool {
 	return v == "true"
 }
 
-var agentRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+var idRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 var reservedRE = regexp.MustCompile(`^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$`)
 
-// ValidateAgent checks that id is usable as a stage directory name on every
-// platform, including case-insensitive file systems.
-func ValidateAgent(id string) error {
+// ValidateStageID checks that id is usable as a directory name on every
+// platform, including case-insensitive file systems, and as a ref name.
+func ValidateStageID(id string) error {
 	if id == "" {
-		return &Error{Code: ExitUsage, Kind: "no-agent",
-			Message: "no agent ID: set GIT_MULTISTAGE_ID or pass --agent <id>",
+		return &Error{Code: ExitUsage, Kind: "no-stage-id",
+			Message: "no stage ID: pass --stage <id>, set GIT_MULTISTAGE_ID, or pass --agentic inside an agent",
 			Hint:    "run `git multistage init` to create a stage with a new unique ID"}
 	}
-	if !agentRE.MatchString(id) || strings.HasSuffix(id, ".") || strings.HasSuffix(id, ".lock") ||
+	if !idRE.MatchString(id) || strings.HasSuffix(id, ".") || strings.HasSuffix(id, ".lock") ||
 		strings.Contains(id, "..") || reservedRE.MatchString(id) {
-		return usageErr("invalid agent ID %q: use 1-64 lowercase letters, digits, '.', '_' or '-', starting with a letter or digit", id)
+		return usageErr("invalid stage ID %q: use 1-64 lowercase letters, digits, '.', '_' or '-', starting with a letter or digit", id)
 	}
 	return nil
 }
 
-// NewAgentID returns a random agent ID.
-func NewAgentID() string {
+// sanitizeID turns an external identifier, such as an agent's session ID,
+// into a valid stage ID.
+func sanitizeID(s string) string {
+	b := []byte(strings.ToLower(s))
+	for i, c := range b {
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+			b[i] = '-'
+		}
+	}
+	id := strings.Trim(string(b), "-_")
+	if len(id) > 64 || id == "" {
+		sum := sha256.Sum256([]byte(s))
+		id = strings.TrimRight(id[:min(len(id), 51)], "-_") + "-" + hex.EncodeToString(sum[:])[:12]
+		id = strings.TrimLeft(id, "-_")
+	}
+	return id
+}
+
+// NewStageID returns a random stage ID.
+func NewStageID() string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
-	return "agent-" + hex.EncodeToString(b)
+	return "stage-" + hex.EncodeToString(b)
 }
 
 // Meta is the persistent state of one stage.
 type Meta struct {
 	Version int       `json:"version"`
-	Agent   string    `json:"agent"`
+	ID      string    `json:"stage"`
 	Branch  string    `json:"branch"` // full ref name that commits go to
 	Base    string    `json:"base"`   // commit the staged changes are relative to; "" for an unborn branch
 	Index   string    `json:"index"`  // current index file name inside the stage directory
@@ -105,10 +124,10 @@ type Pending struct {
 	Parent string `json:"parent"`
 }
 
-// Stage is an agent's staging area, locked by this process.
+// Stage is one staging area, locked by this process.
 type Stage struct {
 	r        *Repo
-	Agent    string
+	ID       string
 	Dir      string
 	M        Meta
 	lock     *filelock.Lock
@@ -126,17 +145,17 @@ func (l *Stage) warn(format string, args ...any) {
 // IndexPath returns the path of the stage's current index file.
 func (l *Stage) IndexPath() string { return filepath.Join(l.Dir, l.M.Index) }
 
-// OpenStage locks the stage of agent, creating it when it does not exist, and
+// OpenStage locks the stage id, creating it when it does not exist, and
 // finishes any interrupted commit. When exclusive is set, an existing stage is
 // an error.
-func (r *Repo) OpenStage(agent string, exclusive bool) (*Stage, error) {
-	if err := ValidateAgent(agent); err != nil {
+func (r *Repo) OpenStage(id string, exclusive bool) (*Stage, error) {
+	if err := ValidateStageID(id); err != nil {
 		return nil, err
 	}
 	if err := r.checkSupported(); err != nil {
 		return nil, err
 	}
-	dir := filepath.Join(r.stagesDir(), agent)
+	dir := filepath.Join(r.stagesDir(), id)
 	if err := os.MkdirAll(r.stagesDir(), 0o777); err != nil {
 		return nil, err
 	}
@@ -144,7 +163,7 @@ func (r *Repo) OpenStage(agent string, exclusive bool) (*Stage, error) {
 		if err := os.Mkdir(dir, 0o777); err != nil {
 			if errors.Is(err, fs.ErrExist) {
 				return nil, &Error{Code: ExitRefused, Kind: "stage-exists",
-					Message: fmt.Sprintf("stage %q already exists", agent),
+					Message: fmt.Sprintf("stage %q already exists", id),
 					Hint:    "if this stage is yours, keep using it; otherwise choose another ID"}
 			}
 			return nil, err
@@ -155,11 +174,11 @@ func (r *Repo) OpenStage(agent string, exclusive bool) (*Stage, error) {
 	lk, err := filelock.Acquire(filepath.Join(dir, "lock"), stageLockTimeout)
 	if err != nil {
 		if errors.Is(err, filelock.ErrBusy) {
-			return nil, errorf(ExitBusy, "busy", "stage %q is busy: another git-multistage process for this agent is running", agent)
+			return nil, errorf(ExitBusy, "busy", "stage %q is busy: another git-multistage process is using it", id)
 		}
 		return nil, err
 	}
-	l := &Stage{r: r, Agent: agent, Dir: dir, lock: lk}
+	l := &Stage{r: r, ID: id, Dir: dir, lock: lk}
 	data, err := os.ReadFile(filepath.Join(dir, "meta.json"))
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -173,7 +192,7 @@ func (r *Repo) OpenStage(agent string, exclusive bool) (*Stage, error) {
 	default:
 		if err := json.Unmarshal(data, &l.M); err != nil {
 			lk.Release()
-			return nil, fmt.Errorf("stage %q has unreadable metadata %s: %w", agent, filepath.Join(dir, "meta.json"), err)
+			return nil, fmt.Errorf("stage %q has unreadable metadata %s: %w", id, filepath.Join(dir, "meta.json"), err)
 		}
 	}
 	l.removeLeftovers()
@@ -195,7 +214,7 @@ func (l *Stage) Close() {
 		return
 	}
 	if err := l.protect(); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: cannot protect the staged objects of %s from garbage collection: %v\n", l.Agent, err)
+		fmt.Fprintf(os.Stderr, "warning: cannot protect the staged objects of %s from garbage collection: %v\n", l.ID, err)
 	}
 	l.lock.Release()
 	l.lock = nil
@@ -204,7 +223,7 @@ func (l *Stage) Close() {
 // errDamaged reports a stage whose index file is missing.
 func (l *Stage) errDamaged() error {
 	return &Error{Code: ExitError, Kind: "damaged-stage",
-		Message: fmt.Sprintf("stage %s is damaged: its index file %s is missing", l.Agent, l.M.Index),
+		Message: fmt.Sprintf("stage %s is damaged: its index file %s is missing", l.ID, l.M.Index),
 		Hint:    "run `git multistage drop --force`; " + l.keepRef() + " holds the last protected staged tree, if any"}
 }
 
@@ -220,7 +239,7 @@ func (l *Stage) create() error {
 	if err != nil {
 		return err
 	}
-	l.M = Meta{Version: 1, Agent: l.Agent, Branch: branch, Created: time.Now().UTC()}
+	l.M = Meta{Version: 1, ID: l.ID, Branch: branch, Created: time.Now().UTC()}
 	if err := l.setIndex(base); err != nil {
 		return err
 	}
@@ -277,7 +296,7 @@ func (l *Stage) adoptIndex(name string, gen int) error {
 
 // keepRef is the per-worktree ref that keeps a stage's staged objects
 // reachable, so that `git gc` does not prune them.
-func (l *Stage) keepRef() string { return "refs/worktree/multistage/" + l.Agent }
+func (l *Stage) keepRef() string { return "refs/worktree/multistage/" + l.ID }
 
 // protect points keepRef at a commit of the staged tree while the stage has
 // staged changes, and deletes it otherwise.
@@ -304,7 +323,7 @@ func (l *Stage) protect() error {
 	if cur == want {
 		return nil
 	}
-	args := []string{"commit-tree", tree, "-m", "git-multistage stage " + l.Agent}
+	args := []string{"commit-tree", tree, "-m", "git-multistage stage " + l.ID}
 	if l.M.Base != "" {
 		args = append(args, "-p", l.M.Base)
 	}

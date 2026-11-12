@@ -110,7 +110,7 @@ func (l *Stage) runPreCommit(tree string) (string, error) {
 }
 
 // Commit commits the stage's staged changes onto the current tip of its
-// branch. Other agents may move the branch at any time: the staged change is
+// branch. Other stages or tools may move the branch at any time: the staged change is
 // replayed onto the newest tip and the branch moves only by compare-and-swap.
 func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
 	r := l.r
@@ -136,7 +136,7 @@ func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
 		return nil, err
 	}
 	if staged == baseTree {
-		return nil, &Error{Code: ExitError, Kind: "nothing-staged", Message: "nothing is staged for " + l.Agent}
+		return nil, &Error{Code: ExitError, Kind: "nothing-staged", Message: "nothing is staged for " + l.ID}
 	}
 	if res.Files, err = l.stagedChanges(); err != nil {
 		return nil, err
@@ -178,7 +178,7 @@ func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
 		if !noVerify {
 			// A retry that introduces exactly the changes that the hook
 			// already accepted does not run the hook again, so a slow hook
-			// cannot starve the commit while other agents commit.
+			// cannot starve the commit while other stages commit.
 			introduced, err := r.DiffTrees(tipTree, tree, false)
 			if err != nil {
 				return nil, err
@@ -190,10 +190,10 @@ func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
 				}
 				if hooked != tree {
 					// The hook took content from the shared working tree,
-					// which may hold other agents' unstaged edits.
+					// which may hold other stages' unstaged edits.
 					return nil, &Error{Code: ExitError, Kind: "hook-modified",
 						Message: "the pre-commit hook changed the staged content; nothing was committed and the staged changes are kept",
-						Hint: "other agents' unstaged edits may be in the files that the hook re-added; " +
+						Hint: "the files that the hook re-added may hold unstaged edits that belong to other stages; " +
 							"check the working tree, stage your changes again, and commit again"}
 				}
 				verified = introduced
@@ -238,7 +238,7 @@ func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
 		if old == "" {
 			old = r.ZeroOID
 		}
-		reflog := fmt.Sprintf("commit (multistage %s): %s", l.Agent, res.Subject)
+		reflog := fmt.Sprintf("commit (multistage %s): %s", l.ID, res.Subject)
 		_, err = r.Run(gitx.Opt{}, "update-ref", "-m", reflog, l.M.Branch, commit, old)
 		if err != nil {
 			lk.release()

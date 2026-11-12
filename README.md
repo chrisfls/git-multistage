@@ -1,22 +1,22 @@
 # git-multistage
 
-`git multistage` lets several coding agents stage and commit in one Git checkout at the same time. Each agent stages into its own index, and commits to the checked-out branch whenever it finishes. Agents do not wait for each other, and they need no extra worktrees or branches.
+`git multistage` gives one Git checkout several independent staging areas, called stages. Each stage has its own index and its own staged changes, and commits to the checked-out branch on its own. Stages do not wait for each other, and they need no extra worktrees or branches.
+
+Select a stage with a stage ID. A person can keep separate stages for separate changes; a coding agent uses its agent ID, so several agents can stage and commit in the same checkout at the same time.
 
 The tool is a thin layer over Git plumbing (`GIT_INDEX_FILE`, `merge-tree`, `commit-tree`, `update-ref`). The history it writes is ordinary, linear Git history, which you can push with any Git client.
 
 ```bash
-export GIT_MULTISTAGE_ID=agent-a
-git multistage add src/a.ts
-git multistage commit -m "Implement A"
+git multistage --stage fix-login add src/login.ts
+git multistage --stage fix-login commit -m "Fix login redirect"
 ```
 
 At the same time, in the same checkout:
 
 ```bash
-export GIT_MULTISTAGE_ID=agent-b
-git multistage hunks src/shared.ts            # list hunks with IDs
-git multistage add src/shared.ts --hunk 3f2a9c1d0e7a
-git multistage commit -m "Update validation"
+git multistage --stage validation hunks src/shared.ts     # list hunks with IDs
+git multistage --stage validation add src/shared.ts --hunk 3f2a9c1d0e7a
+git multistage --stage validation commit -m "Update validation"
 ```
 
 Both commits land on the branch, each with only its own changes.
@@ -41,16 +41,16 @@ Check the installation with `git multistage doctor` inside a repository.
 
 ## Getting started
 
-1. Give each agent its own ID. An ID has 1 to 64 lowercase letters, digits, `.`, `_`, or `-`.
+1. Choose a stage ID. An ID has 1 to 64 lowercase letters, digits, `.`, `_`, or `-`. Pass it on each command, or set it once for a shell:
 
    | Shell | Command |
    | --- | --- |
-   | bash, zsh | `export GIT_MULTISTAGE_ID=agent-a` |
-   | PowerShell | `$env:GIT_MULTISTAGE_ID = "agent-a"` |
-   | cmd.exe | `set GIT_MULTISTAGE_ID=agent-a` |
-   | any, per command | `git multistage --agent agent-a <command>` |
+   | any, per command | `git multistage --stage <id> <command>` |
+   | bash, zsh | `export GIT_MULTISTAGE_ID=<id>` |
+   | PowerShell | `$env:GIT_MULTISTAGE_ID = "<id>"` |
+   | cmd.exe | `set GIT_MULTISTAGE_ID=<id>` |
 
-   When no ID is available, `git multistage init` creates a stage with a new random ID and prints it. `git multistage init <id>` fails when the stage already exists, so two agents cannot claim the same ID by accident. Every command refuses to run without an ID.
+   `--stage` wins over `GIT_MULTISTAGE_ID`. Every command refuses to run without a stage ID. `git multistage init` creates a stage with a new random ID and prints it; `git multistage init <id>` fails when the stage already exists, so two users cannot claim one ID by accident.
 
 2. Edit files. When the file belongs to you alone, stage it whole:
 
@@ -58,7 +58,7 @@ Check the installation with `git multistage doctor` inside a repository.
    git multistage add src/a.ts
    ```
 
-3. When other agents also edit the file, stage only your hunks:
+3. When other stages also change the file, stage only your hunks:
 
    ```bash
    git multistage hunks src/shared.ts
@@ -73,18 +73,22 @@ Check the installation with `git multistage doctor` inside a repository.
    git multistage commit -m "Describe the change"
    ```
 
-A restarted agent that uses the same ID finds its staged changes where it left them.
+A stage keeps its staged changes until they are committed or unstaged, so a restarted process that uses the same ID finds them where it left them.
 
-For Claude Code and other agents, give them [AGENTS.md](AGENTS.md).
+## Coding agents
+
+Give each agent its agent ID as its stage ID, and give it [AGENTS.md](AGENTS.md).
+
+`--agentic` is an opt-in shortcut: when no stage ID is given, it takes the calling agent's ID from its environment, `PASEO_AGENT_ID` and then `CLAUDE_CODE_SESSION_ID`, as `paseo-<id>` or `claude-<id>`. Without the flag, these variables are ignored. Subagents inherit their parent's environment, so Claude Code subagents of one session get the same ID; give each subagent an explicit `--stage` instead.
 
 ## Commands
 
-Every command takes `--agent <id>`. Most commands take `--json` for machine-readable output. The tool never prompts, except `add -p`.
+Every command takes `--stage <id>` and `--agentic`. Most commands take `--json` for machine-readable output. The tool never prompts, except `add -p`.
 
 | Command | What it does |
 | --- | --- |
 | `init [<id>]` | Create a stage. Without `<id>`, pick a unique ID. Fails if the stage exists. |
-| `status` | Show the stage's staged, unstaged, and untracked files, and files that other agents also staged. |
+| `status` | Show the stage's staged, unstaged, and untracked files, and files that other stages also staged. |
 | `diff [--cached] [<git diff args>]` | `git diff` against the stage. `--cached` shows the staged changes against the stage's base commit. |
 | `hunks [--cached] [<path>...]` | List hunks with IDs. Without paths, list every changed tracked file. `--cached` lists staged hunks. |
 | `add <path>...` | Stage whole files: new, modified, deleted, renamed (pass both paths), binary. `-f` stages ignored files. |
@@ -105,10 +109,10 @@ Every command takes `--agent <id>`. Most commands take `--json` for machine-read
 | --- | --- |
 | 0 | Success. |
 | 1 | Error, or nothing to commit. |
-| 2 | Usage error, or no agent ID. |
+| 2 | Usage error, or no stage ID. |
 | 3 | Conflict: the staged changes cannot be replayed safely onto the branch. Nothing was committed. |
 | 4 | A hunk ID does not match the current diff. Nothing was staged. |
-| 5 | Refused: a detached HEAD, a branch switch, an operation in progress, or a file that another agent also staged. |
+| 5 | Refused: a detached HEAD, a branch switch, an operation in progress, or a file that another stage also staged. |
 | 6 | A lock stayed held until the timeout. |
 
 With `--json`, an error prints `{"error": {"kind": ..., "message": ..., "paths": [...], "hint": ...}}` to stdout.
@@ -122,12 +126,12 @@ diff src/shared.ts (modified)
 @@ -10,1 +10,1 @@ id=3f2a9c1d0e7a
 -  if (x) {
 +  if (x && y) {
-@@ -42,0 +43,2 @@ id=88b02c4a91d3 staged-by=agent-b
+@@ -42,0 +43,2 @@ id=88b02c4a91d3 staged-by=validation
 +  log(x);
 +  log(y);
 ```
 
-An ID is a hash of the path and the changed lines. It stays the same when other hunks are staged or committed, and it changes when the hunk's content changes. A selection with an unknown ID fails with exit code 4 and stages nothing. `staged-by` names other agents that staged the same hunk.
+An ID is a hash of the path and the changed lines. It stays the same when other hunks are staged or committed, and it changes when the hunk's content changes. A selection with an unknown ID fails with exit code 4 and stages nothing. `staged-by` names other stages that staged the same hunk.
 
 ### Configuration
 
@@ -140,6 +144,7 @@ An ID is a hash of the path and the changed lines. It stays the same when other 
 ## More documentation
 
 - [AGENTS.md](AGENTS.md): instructions for coding agents.
+- [LICENSE](LICENSE): MIT.
 - [docs/architecture.md](docs/architecture.md): storage, the commit transaction, and the invariants.
 - [docs/limitations.md](docs/limitations.md): what the tool cannot guarantee, unsupported configurations, and recovery steps.
 
