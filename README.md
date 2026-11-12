@@ -98,7 +98,7 @@ The first recorded edit tells the agent its stage ID. The agent then commits wit
 git multistage --stage <id> add --edits && git multistage --stage <id> commit -m "Describe the change"
 ```
 
-`--agentic` is an opt-in shortcut: when no stage ID is given, it takes the calling agent's ID from its environment, `CLAUDE_CODE_SESSION_ID` and then `PASEO_AGENT_ID`, as `claude-<id>` or `paseo-<id>`. In a Claude Code main session, that is the stage the editor hook records into. Without the flag, these variables are ignored. Subagents inherit their parent's environment, so Claude Code subagents of one session get the same ID; with the editor hook they use the stage ID the hook announces, and without it an explicit `--stage`.
+`--agentic` is an opt-in shortcut: when no stage ID is given, it takes the calling agent's ID from its environment, `CLAUDE_CODE_SESSION_ID` and then `PASEO_AGENT_ID`, as `claude-<id>` or `paseo-<id>`. Claude Code sets `CLAUDE_CODE_SESSION_ID` in some launch modes (such as the Agent SDK) but not in all of them; where it is set, it names the stage that the editor hook records into for the main session. The stage ID that the hook announces always works. Without the flag, these variables are ignored. Subagents inherit their parent's environment, so Claude Code subagents of one session get the same ID; with the editor hook they use the stage ID the hook announces, and without it an explicit `--stage`.
 
 ## Commands
 

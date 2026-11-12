@@ -147,6 +147,19 @@ func newEditHook(in hookInput, stage string) (*editHook, error) {
 	if err != nil {
 		return nil, nil
 	}
+	// On a case-insensitive file system, use the index's spelling, so that
+	// the lease and the record name one file whatever case the editor used.
+	if r.configBool("core.ignoreCase", false) {
+		out, err := r.Run(gitx.Opt{Env: []string{"GIT_LITERAL_PATHSPECS=0", "GIT_ICASE_PATHSPECS=1"}}, "ls-files", "-z", "--", rel)
+		if err == nil {
+			for _, name := range strings.Split(string(out), "\x00") {
+				if strings.EqualFold(name, rel) {
+					rel = name
+					break
+				}
+			}
+		}
+	}
 	h := &editHook{r: r, in: in, stage: stage, stageDir: filepath.Join(r.stagesDir(), stage), path: rel}
 	sum := sha256.Sum256([]byte(rel))
 	h.key = in.ToolUseID
