@@ -1,0 +1,652 @@
+package ms
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/chrisfls/git-multistage/internal/gitx"
+	"github.com/chrisfls/git-multistage/internal/hunks"
+)
+
+// RepoPath converts a path argument, relative to the current directory or
+// absolute, into a slash-separated path relative to the worktree root.
+// The worktree root itself is ".".
+func (r *Repo) RepoPath(arg string) (string, error) {
+	var rel string
+	if filepath.IsAbs(arg) {
+		p, err := filepath.Rel(r.Top, arg)
+		if err != nil || p == ".." || strings.HasPrefix(p, ".."+string(filepath.Separator)) {
+			// The argument may reach the worktree through a symbolic link.
+			if dir, err2 := filepath.EvalSymlinks(filepath.Dir(arg)); err2 == nil {
+				p, err = filepath.Rel(r.Top, filepath.Join(dir, filepath.Base(arg)))
+			}
+		}
+		if err != nil {
+			return "", usageErr("path %s is outside the worktree %s", arg, r.Top)
+		}
+		rel = filepath.ToSlash(p)
+	} else {
+		rel = r.Prefix + filepath.ToSlash(arg)
+	}
+	rel = path.Clean(rel)
+	if rel == ".." || strings.HasPrefix(rel, "../") {
+		return "", usageErr("path %s is outside the worktree %s", arg, r.Top)
+	}
+	if rel == ".git" || strings.HasPrefix(rel, ".git/") {
+		return "", usageErr("path %s is inside the Git directory", arg)
+	}
+	return rel, nil
+}
+
+func (r *Repo) repoPaths(args []string) ([]string, error) {
+	out := make([]string, 0, len(args))
+	for _, a := range args {
+		p, err := r.RepoPath(a)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// gitErr turns a failed Git command into an *Error that shows Git's message.
+func gitErr(err error, code int, kind string) error {
+	var ee *gitx.ExitError
+	if errors.As(err, &ee) {
+		msg := strings.TrimSpace(ee.Stderr)
+		msg = strings.TrimPrefix(msg, "fatal: ")
+		msg = strings.TrimPrefix(msg, "error: ")
+		if msg == "" {
+			msg = ee.Error()
+		}
+		return &Error{Code: code, Kind: kind, Message: msg}
+	}
+	return err
+}
+
+// Change is one path in a name-status listing.
+type Change struct {
+	Status  string `json:"status"`
+	Path    string `json:"path"`
+	OldPath string `json:"old_path,omitempty"`
+}
+
+func parseNameStatus(out []byte) []Change {
+	f := strings.Split(string(out), "\x00")
+	var cs []Change
+	for i := 0; i+1 < len(f); i += 2 {
+		c := Change{Status: f[i][:1], Path: f[i+1]}
+		if (c.Status == "R" || c.Status == "C") && i+2 < len(f) {
+			c.OldPath, c.Path = f[i+1], f[i+2]
+			i++
+		}
+		cs = append(cs, c)
+	}
+	return cs
+}
+
+// stagedChanges lists the stage's staged changes relative to its base.
+func (l *Stage) stagedChanges() ([]Change, error) {
+	base, err := l.r.TreeOf(l.M.Base)
+	if err != nil {
+		return nil, err
+	}
+	out, err := l.r.Run(gitx.Opt{Index: l.IndexPath()}, "diff-index", "--cached", "-z", "--name-status", "-M", base)
+	if err != nil {
+		return nil, err
+	}
+	return parseNameStatus(out), nil
+}
+
+// otherStagesStaged returns, for each path that another stage of this worktree
+// has staged, the agents that staged it.
+func (l *Stage) otherStagesStaged() (map[string][]string, error) {
+	res := map[string][]string{}
+	entries, err := os.ReadDir(l.r.stagesDir())
+	if err != nil {
+		return res, nil
+	}
+	for _, e := range entries {
+		if !e.IsDir() || e.Name() == l.Agent {
+			continue
+		}
+		paths, err := l.r.stageStagedPaths(filepath.Join(l.r.stagesDir(), e.Name()))
+		if err != nil {
+			continue // a stage that cannot be read has nothing to compare
+		}
+		for _, p := range paths {
+			res[p] = append(res[p], e.Name())
+		}
+	}
+	return res, nil
+}
+
+// stageStagedPaths reads another stage's staged paths without locking it or
+// writing its index. A stage that replaces its index meanwhile is read again.
+func (r *Repo) stageStagedPaths(dir string) ([]string, error) {
+	for attempt := 0; attempt < 5; attempt++ {
+		m, err := readMeta(dir)
+		if err != nil {
+			return nil, err
+		}
+		idx := filepath.Join(dir, m.Index)
+		if _, err := os.Stat(idx); err != nil {
+			continue
+		}
+		base, err := r.TreeOf(m.Base)
+		if err != nil {
+			return nil, err
+		}
+		out, err := r.Run(gitx.Opt{Index: idx}, "diff-index", "--cached", "-z", "--name-only", "--no-renames", base)
+		if m2, err2 := readMeta(dir); err2 != nil || m2.Index != m.Index {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		var paths []string
+		for _, p := range strings.Split(string(out), "\x00") {
+			if p != "" {
+				paths = append(paths, p)
+			}
+		}
+		return paths, nil
+	}
+	return nil, fmt.Errorf("stage %s keeps changing", filepath.Base(dir))
+}
+
+// AddPaths stages whole files, like `git add`.
+func (l *Stage) AddPaths(paths []string, force, allowShared bool) ([]gitx.Entry, error) {
+	idx := l.IndexPath()
+	before, err := l.r.WriteTree(idx)
+	if err != nil {
+		return nil, err
+	}
+	backup := filepath.Join(l.Dir, "stage-index")
+	if err := copyFile(idx, backup); err != nil {
+		return nil, err
+	}
+	defer os.Remove(backup)
+	args := []string{"add"}
+	if force {
+		args = append(args, "-f")
+	}
+	if _, err := l.r.Run(gitx.Opt{Index: idx}, append(append(args, "--"), paths...)...); err != nil {
+		return nil, gitErr(err, ExitError, "add-failed")
+	}
+	fault("after-add")
+	after, err := l.r.WriteTree(idx)
+	if err != nil {
+		return nil, err
+	}
+	changed, err := l.r.DiffTrees(before, after, false)
+	if err != nil {
+		return nil, err
+	}
+	if allowShared || len(changed) == 0 {
+		return changed, nil
+	}
+	others, err := l.otherStagesStaged()
+	if err != nil {
+		return nil, err
+	}
+	var shared, details []string
+	for _, c := range changed {
+		if agents := others[c.Path]; len(agents) > 0 {
+			shared = append(shared, c.Path)
+			details = append(details, fmt.Sprintf("%s is staged by %s", c.Path, strings.Join(agents, ", ")))
+		}
+	}
+	if len(shared) > 0 {
+		if err := rename(backup, idx); err != nil {
+			return nil, err
+		}
+		return nil, &Error{Code: ExitRefused, Kind: "shared-path",
+			Message: "another agent has staged changes in these files, so the whole file may hold that agent's changes too; nothing was staged",
+			Paths:   shared, Details: details,
+			Hint: "stage only your hunks: `git multistage hunks <path>`, then `git multistage add <path> --hunk <id>`; " +
+				"or pass --allow-shared to stage the whole file anyway"}
+	}
+	return changed, nil
+}
+
+// FileHunks is the hunk listing of one file.
+type FileHunks struct {
+	Path   string     `json:"path"`
+	Status string     `json:"status"` // modified, added, deleted
+	Binary bool       `json:"binary,omitempty"`
+	Note   string     `json:"note,omitempty"` // why the file has no selectable hunks
+	Hunks  []HunkInfo `json:"hunks"`
+
+	mode    string // index mode to stage with
+	oldBlob string
+}
+
+// HunkInfo is one selectable hunk.
+type HunkInfo struct {
+	hunks.Hunk
+	Lines    []string `json:"lines"`
+	StagedBy []string `json:"staged_by,omitempty"`
+}
+
+type indexEntry struct{ mode, oid string }
+
+// lsIndex returns the stage-0 index entry of path in idx.
+func (r *Repo) lsIndex(idx, p string) (indexEntry, bool, error) {
+	out, err := r.Run(gitx.Opt{Index: idx}, "ls-files", "-s", "-z", "--", p)
+	if err != nil {
+		return indexEntry{}, false, err
+	}
+	for _, rec := range strings.Split(string(out), "\x00") {
+		meta, name, ok := strings.Cut(rec, "\t")
+		f := strings.Fields(meta)
+		if ok && name == p && len(f) == 3 && f[2] == "0" {
+			return indexEntry{f[0], f[1]}, true, nil
+		}
+	}
+	return indexEntry{}, false, nil
+}
+
+// lsTree returns the entry of path in commit.
+func (r *Repo) lsTree(commit, p string) (indexEntry, bool, error) {
+	if commit == "" {
+		return indexEntry{}, false, nil
+	}
+	out, err := r.Run(gitx.Opt{}, "ls-tree", "-z", "--full-tree", commit, "--", p)
+	if err != nil {
+		return indexEntry{}, false, err
+	}
+	meta, name, ok := strings.Cut(strings.TrimSuffix(string(out), "\x00"), "\t")
+	f := strings.Fields(meta)
+	if ok && name == p && len(f) == 3 && f[1] == "blob" {
+		return indexEntry{f[0], f[2]}, true, nil
+	}
+	return indexEntry{}, false, nil
+}
+
+func (r *Repo) diffBlobs(p, oldBlob, newBlob string) ([]hunks.Hunk, error) {
+	out, err := r.Run(gitx.Opt{}, "diff", "--no-color", "--no-ext-diff", "--no-textconv",
+		"-U0", "--diff-algorithm=myers", oldBlob, newBlob)
+	if err != nil && gitx.ExitCode(err) != 1 {
+		return nil, err
+	}
+	return hunks.Parse(p, out)
+}
+
+func (r *Repo) catBlob(oid string) ([]byte, error) {
+	return r.Run(gitx.Opt{}, "cat-file", "blob", oid)
+}
+
+// hasFilter reports whether a clean/smudge filter (such as Git LFS) applies to p.
+func (r *Repo) hasFilter(p string) (string, error) {
+	out, err := r.Run(gitx.Opt{}, "check-attr", "-z", "filter", "--", p)
+	if err != nil {
+		return "", err
+	}
+	f := strings.Split(string(out), "\x00")
+	if len(f) >= 3 && f[2] != "unspecified" && f[2] != "unset" {
+		return f[2], nil
+	}
+	return "", nil
+}
+
+// unstagedHunks lists the hunks between the stage index and the working tree.
+func (l *Stage) unstagedHunks(p string) (FileHunks, error) {
+	fh := FileHunks{Path: p, Status: "modified", Hunks: []HunkInfo{}}
+	old, tracked, err := l.r.lsIndex(l.IndexPath(), p)
+	if err != nil {
+		return fh, err
+	}
+	info, err := os.Lstat(filepath.Join(l.r.Top, filepath.FromSlash(p)))
+	if errors.Is(err, fs.ErrNotExist) {
+		if !tracked {
+			return fh, usageErr("path %s is neither in the working tree nor in the stage's index", p)
+		}
+		fh.Status, fh.Note = "deleted", "stage the deletion with `git multistage add "+p+"`"
+		return fh, nil
+	}
+	if err != nil {
+		return fh, err
+	}
+	if info.IsDir() {
+		return fh, usageErr("path %s is a directory; pass files", p)
+	}
+	fh.mode, fh.oldBlob = old.mode, old.oid
+	if !tracked {
+		fh.Status, fh.oldBlob = "added", l.r.EmptyBlob
+		fh.mode = "100644"
+		if info.Mode()&0o111 != 0 && l.r.configBool("core.fileMode", true) {
+			fh.mode = "100755"
+		}
+	}
+	if !info.Mode().IsRegular() || fh.mode == "120000" || fh.mode == "160000" {
+		fh.Note = "not a regular file; stage it whole with `git multistage add " + p + "`"
+		return fh, nil
+	}
+	if f, err := l.r.hasFilter(p); err != nil {
+		return fh, err
+	} else if f != "" {
+		fh.Note = fmt.Sprintf("uses the %q filter; stage it whole with `git multistage add %s`", f, p)
+		return fh, nil
+	}
+	// One snapshot of the file: every hunk comes from this blob, so a
+	// concurrent write to the file cannot mix two versions.
+	newBlob, err := l.r.Line(gitx.Opt{}, "hash-object", "-w", "--path="+p, "--", p)
+	if err != nil {
+		return fh, err
+	}
+	hs, err := l.r.diffBlobs(p, fh.oldBlob, newBlob)
+	if errors.Is(err, hunks.ErrBinary) {
+		fh.Binary, fh.Note = true, "binary file; stage it whole with `git multistage add "+p+"`"
+		return fh, nil
+	}
+	if err != nil {
+		return fh, err
+	}
+	for _, h := range hs {
+		fh.Hunks = append(fh.Hunks, HunkInfo{Hunk: h, Lines: h.Lines()})
+	}
+	return fh, nil
+}
+
+// stagedHunks lists the hunks between the stage's base and its index.
+func (l *Stage) stagedHunks(p string) (FileHunks, error) {
+	fh := FileHunks{Path: p, Status: "modified", Hunks: []HunkInfo{}}
+	base, inBase, err := l.r.lsTree(l.M.Base, p)
+	if err != nil {
+		return fh, err
+	}
+	cur, inIndex, err := l.r.lsIndex(l.IndexPath(), p)
+	if err != nil {
+		return fh, err
+	}
+	switch {
+	case !inBase && !inIndex:
+		return fh, usageErr("path %s has no staged changes", p)
+	case !inIndex:
+		fh.Status, fh.Note = "deleted", "unstage the deletion with `git multistage restore --staged "+p+"`"
+		return fh, nil
+	case !inBase:
+		fh.Status, base.oid = "added", l.r.EmptyBlob
+	}
+	fh.mode, fh.oldBlob = cur.mode, base.oid
+	if inBase && base.mode != cur.mode || cur.mode == "120000" || cur.mode == "160000" {
+		fh.Note = "mode or type change; unstage it whole with `git multistage restore --staged " + p + "`"
+		return fh, nil
+	}
+	hs, err := l.r.diffBlobs(p, base.oid, cur.oid)
+	if errors.Is(err, hunks.ErrBinary) {
+		fh.Binary, fh.Note = true, "binary file; unstage it whole with `git multistage restore --staged "+p+"`"
+		return fh, nil
+	}
+	if err != nil {
+		return fh, err
+	}
+	for _, h := range hs {
+		fh.Hunks = append(fh.Hunks, HunkInfo{Hunk: h, Lines: h.Lines()})
+	}
+	return fh, nil
+}
+
+// Hunks lists hunks of the given paths. With no paths it lists every file
+// that has changes: unstaged tracked files, or staged files when cached.
+func (l *Stage) Hunks(paths []string, cached bool) ([]FileHunks, error) {
+	if len(paths) == 0 {
+		var err error
+		if paths, err = l.changedPaths(cached); err != nil {
+			return nil, err
+		}
+	}
+	var others map[string][]string
+	if !cached {
+		var err error
+		if others, err = l.otherStagesStaged(); err != nil {
+			return nil, err
+		}
+	}
+	var res []FileHunks
+	for _, p := range paths {
+		var fh FileHunks
+		var err error
+		if cached {
+			fh, err = l.stagedHunks(p)
+		} else {
+			fh, err = l.unstagedHunks(p)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if len(others[p]) > 0 {
+			l.markStagedBy(&fh, others[p])
+		}
+		res = append(res, fh)
+	}
+	return res, nil
+}
+
+// markStagedBy notes which other stages have staged a hunk identical to each
+// listed hunk. Hunk IDs depend only on the path and the changed lines, so an
+// equal ID means an equal change.
+func (l *Stage) markStagedBy(fh *FileHunks, agents []string) {
+	for _, agent := range agents {
+		dir := filepath.Join(l.r.stagesDir(), agent)
+		m, err := readMeta(dir)
+		if err != nil {
+			continue
+		}
+		other := &Stage{r: l.r, Agent: agent, Dir: dir, M: m}
+		staged, err := other.stagedHunks(fh.Path)
+		if err != nil {
+			continue
+		}
+		ids := map[string]bool{}
+		for _, h := range staged.Hunks {
+			ids[h.ID] = true
+		}
+		for i := range fh.Hunks {
+			if ids[fh.Hunks[i].ID] {
+				fh.Hunks[i].StagedBy = append(fh.Hunks[i].StagedBy, agent)
+			}
+		}
+	}
+}
+
+// changedPaths lists tracked files that differ between the stage index and
+// the working tree, or, when cached, between the base and the stage index.
+func (l *Stage) changedPaths(cached bool) ([]string, error) {
+	var out []byte
+	var err error
+	if cached {
+		base, err2 := l.r.TreeOf(l.M.Base)
+		if err2 != nil {
+			return nil, err2
+		}
+		out, err = l.r.Run(gitx.Opt{Index: l.IndexPath()}, "diff-index", "--cached", "-z", "--name-only", "--no-renames", base)
+	} else {
+		out, err = l.r.Run(gitx.Opt{Index: l.IndexPath()}, "diff", "-z", "--name-only", "--no-renames")
+	}
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, p := range strings.Split(string(out), "\x00") {
+		if p != "" {
+			paths = append(paths, p)
+		}
+	}
+	return paths, nil
+}
+
+// selectHunks finds each requested ID in the listing. Every ID must match
+// exactly one hunk of the listed files.
+func selectHunks(files []FileHunks, ids []string) (map[string][]hunks.Hunk, error) {
+	byID := map[string][]string{}
+	for _, f := range files {
+		for _, h := range f.Hunks {
+			byID[h.ID] = append(byID[h.ID], f.Path)
+		}
+	}
+	chosen := map[string][]hunks.Hunk{}
+	seen := map[string]bool{}
+	var unknown, ambiguous []string
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		switch len(byID[id]) {
+		case 0:
+			unknown = append(unknown, id)
+		case 1:
+		default:
+			ambiguous = append(ambiguous, id)
+		}
+	}
+	if len(unknown) > 0 || len(ambiguous) > 0 {
+		e := &Error{Code: ExitStale, Kind: "stale-hunk",
+			Message: "hunk IDs do not match the current diff; nothing was changed",
+			Hint:    "the file changed since the hunks were listed; run `git multistage hunks <path>` again"}
+		for _, id := range unknown {
+			e.Details = append(e.Details, "unknown hunk "+id)
+		}
+		for _, id := range ambiguous {
+			e.Details = append(e.Details, "hunk "+id+" matches several files; pass one path")
+		}
+		return nil, e
+	}
+	for _, f := range files {
+		for _, h := range f.Hunks {
+			if seen[h.ID] {
+				chosen[f.Path] = append(chosen[f.Path], h.Hunk)
+			}
+		}
+	}
+	return chosen, nil
+}
+
+// AddHunks stages the chosen hunks of the given files.
+func (l *Stage) AddHunks(paths, ids []string) ([]string, error) {
+	files, err := l.Hunks(paths, false)
+	if err != nil {
+		return nil, err
+	}
+	chosen, err := selectHunks(files, ids)
+	if err != nil {
+		return nil, err
+	}
+	var staged []string
+	for _, f := range files {
+		hs := chosen[f.Path]
+		if len(hs) == 0 {
+			continue
+		}
+		old, err := l.r.catBlob(f.oldBlob)
+		if err != nil {
+			return nil, err
+		}
+		content, err := hunks.Apply(old, hs)
+		if err != nil {
+			return nil, err
+		}
+		if err := l.setBlob(f.Path, f.mode, content); err != nil {
+			return nil, err
+		}
+		staged = append(staged, f.Path)
+	}
+	return staged, nil
+}
+
+// setBlob stores content as the stage index entry of path.
+func (l *Stage) setBlob(p, mode string, content []byte) error {
+	oid, err := l.r.Line(gitx.Opt{Stdin: bytes.NewReader(content)}, "hash-object", "-w", "--stdin")
+	if err != nil {
+		return err
+	}
+	_, err = l.r.Run(gitx.Opt{Index: l.IndexPath()}, "update-index", "--add", "--cacheinfo", mode, oid, p)
+	return err
+}
+
+// RestorePaths unstages whole files: their stage index entries return to the base.
+func (l *Stage) RestorePaths(paths []string) error {
+	var err error
+	if l.M.Base == "" {
+		_, err = l.r.Run(gitx.Opt{Index: l.IndexPath()}, append([]string{"rm", "--cached", "-r", "-q", "--ignore-unmatch", "--"}, paths...)...)
+	} else {
+		_, err = l.r.Run(gitx.Opt{Index: l.IndexPath()}, append([]string{"reset", "-q", l.M.Base, "--"}, paths...)...)
+	}
+	if err != nil {
+		return gitErr(err, ExitError, "restore-failed")
+	}
+	return nil
+}
+
+// RestoreHunks unstages the chosen staged hunks: the stage index keeps every
+// other staged hunk of the file.
+func (l *Stage) RestoreHunks(paths, ids []string) ([]string, error) {
+	files, err := l.Hunks(paths, true)
+	if err != nil {
+		return nil, err
+	}
+	chosen, err := selectHunks(files, ids)
+	if err != nil {
+		return nil, err
+	}
+	var restored []string
+	for _, f := range files {
+		drop := map[string]bool{}
+		for _, h := range chosen[f.Path] {
+			drop[h.ID] = true
+		}
+		if len(drop) == 0 {
+			continue
+		}
+		var keep []hunks.Hunk
+		for _, h := range f.Hunks {
+			if !drop[h.ID] {
+				keep = append(keep, h.Hunk)
+			}
+		}
+		if len(keep) == 0 {
+			if err := l.RestorePaths([]string{f.Path}); err != nil {
+				return nil, err
+			}
+		} else {
+			old, err := l.r.catBlob(f.oldBlob)
+			if err != nil {
+				return nil, err
+			}
+			content, err := hunks.Apply(old, keep)
+			if err != nil {
+				return nil, err
+			}
+			if err := l.setBlob(f.Path, f.mode, content); err != nil {
+				return nil, err
+			}
+		}
+		restored = append(restored, f.Path)
+	}
+	sort.Strings(restored)
+	return restored, nil
+}
+
+// ApplyPatch applies a patch to the stage index only, like `git apply --cached`.
+func (l *Stage) ApplyPatch(patch io.Reader, reverse bool) error {
+	args := []string{"apply", "--cached", "--whitespace=nowarn"}
+	if reverse {
+		args = append(args, "-R")
+	}
+	_, err := l.r.Run(gitx.Opt{Index: l.IndexPath(), Stdin: patch}, append(args, "-")...)
+	if err != nil {
+		return gitErr(err, ExitConflict, "patch-failed")
+	}
+	return nil
+}
