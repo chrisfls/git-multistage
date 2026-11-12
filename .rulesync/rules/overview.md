@@ -6,7 +6,7 @@ description: How an agent commits and pushes its work in the git-multistage repo
 
 # Working in the git-multistage repository
 
-Several agents work in this checkout at the same time. Stage, commit, and push your work with `git multistage`, as [docs/agent-guide.md](docs/agent-guide.md) describes. The guide gives your stage ID, the staging commands, and what to do when a command fails.
+Several agents work in this checkout at the same time. Stage, commit, and push your work with `git multistage`, as the `git-multistage` skill in [skills/git-multistage/SKILL.md](skills/git-multistage/SKILL.md) describes. The skill gives your stage ID, the staging commands, and what to do when a command fails.
 
 If `git multistage` is missing, install it from this checkout:
 
@@ -14,9 +14,17 @@ If `git multistage` is missing, install it from this checkout:
 go install ./cmd/git-multistage
 ```
 
-## Plan changes with OpenSpec
+## Plan every change with OpenSpec
 
-Plan each change to behavior as an OpenSpec change in `openspec/changes/`, and keep the specs of current behavior in `openspec/specs/`. Use the `openspec-*` skills: `openspec-propose` to plan, `openspec-apply-change` to implement, and `openspec-archive-change` when the change ships. The skills run the `openspec` CLI. Install it with `npm install -g @fission-ai/openspec@2.0.0`, the version that `rulesync.jsonc` pins.
+Every change to this repository starts as an OpenSpec change in `openspec/changes/`. This covers code, tests, CI, and tooling. The specs of current behavior are in `openspec/specs/`.
+
+- Plan the change with the `openspec-propose` skill: a proposal, spec deltas, a design when needed, and tasks. A change that alters no behavior sets `skip_specs: true` in its `.openspec.yaml` and still has a proposal and tasks.
+- Show the artifacts to the user, and stop. Do not edit any file outside `openspec/changes/<name>/` before the user approves the change.
+- After the approval, implement the tasks with `openspec-apply-change`. Archive the change with `openspec-archive-change` only after every task is done.
+- Write behavior in specs only. Do not add documentation files. `README.md` holds only the overview, the install, the quick start, the plugin install, the contributing commands, and links to the specs.
+- OpenSpec artifacts take precedence over the plan and spec files of other skills, such as Superpowers' `docs/superpowers/`. Do not write those files here.
+
+The skills run the `openspec` CLI. Install it with `npm install -g @fission-ai/openspec@2.0.0`, the version that `rulesync.jsonc` pins.
 
 ## Commit often
 

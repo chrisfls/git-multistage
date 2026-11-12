@@ -2,7 +2,7 @@
 
 ## 1. Require an approved change
 
-- [ ] 1.1 Replace the "Plan changes with OpenSpec" section of `.rulesync/rules/overview.md` with the gate rule from design.md, and point its first paragraph to the `git-multistage` skill in place of `docs/agent-guide.md`. Run `rulesync generate`, and verify that `rulesync generate --check` passes and that `AGENTS.md` holds the rule
+- [x] 1.1 Replace the "Plan changes with OpenSpec" section of `.rulesync/rules/overview.md` with the gate rule from design.md, and point its first paragraph to the `git-multistage` skill in place of `docs/agent-guide.md`. Run `rulesync generate`, and verify that `rulesync generate --check` passes and that `AGENTS.md` holds the rule
 - [ ] 1.2 Add `rules` entries to `openspec/config.yaml` for `proposal`, `design`, and `tasks` that put behavior in specs and add no documentation file, and verify that `openspec instructions tasks --change adopt-openspec --json` returns them
 
 ## 2. Validate OpenSpec in CI
