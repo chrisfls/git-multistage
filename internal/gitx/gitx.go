@@ -339,9 +339,10 @@ func (r *Repo) DiffTrees(a, b string, renames bool) ([]Entry, error) {
 
 // MergeResult is the outcome of a three-way tree merge.
 type MergeResult struct {
-	Tree      string
-	Conflicts []string // conflicted paths
-	Messages  []string // Git's conflict descriptions
+	Tree        string
+	Conflicts   []string        // conflicted paths
+	Messages    []string        // Git's conflict descriptions
+	ContentOnly map[string]bool // paths whose only conflict is in their content
 }
 
 // MergeTrees merges the changes from base to theirs into ours, without
@@ -364,16 +365,30 @@ func (r *Repo) MergeTrees(base, ours, theirs string) (MergeResult, error) {
 		res.Conflicts = append(res.Conflicts, parts[i])
 	}
 	// Each message: <count> NUL <path>... NUL <type> NUL <text> NUL
+	res.ContentOnly = map[string]bool{}
+	other := map[string]bool{}
 	for i++; i < len(parts); {
 		n, err := strconv.Atoi(parts[i])
 		if err != nil || i+n+2 >= len(parts) {
 			break
 		}
+		paths := parts[i+1 : i+1+n]
 		i += 1 + n
 		typ, text := parts[i], parts[i+1]
 		i += 2
-		if strings.HasPrefix(typ, "CONFLICT") {
-			res.Messages = append(res.Messages, strings.TrimSpace(text))
+		if !strings.HasPrefix(typ, "CONFLICT") {
+			continue
+		}
+		res.Messages = append(res.Messages, strings.TrimSpace(text))
+		for _, p := range paths {
+			if typ == "CONFLICT (contents)" {
+				if _, seen := other[p]; !seen {
+					res.ContentOnly[p] = true
+				}
+			} else {
+				other[p] = true
+				delete(res.ContentOnly, p)
+			}
 		}
 	}
 	if len(res.Conflicts) == 0 {

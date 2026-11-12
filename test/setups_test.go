@@ -174,3 +174,28 @@ func TestManualSyncFindsTheMatchingCommit(t *testing.T) {
 	r.mustMS("", "sync")
 	r.checkClean()
 }
+
+// TestAdjacentLineEditsBothCommit has two stages change neighbouring lines of
+// one file. Git's merge would conflict; the line replay places both.
+func TestAdjacentLineEditsBothCommit(t *testing.T) {
+	r := newRepo(t)
+	r.write("f.txt", "1\n2\n3\n4\n5\n6\n")
+	r.git("add", "f.txt")
+	r.git("commit", "-q", "-m", "f")
+	r.write("f.txt", "1\n2\nA\n4\n5\n6\n")
+	r.mustMS("agent-a", "add", "f.txt")
+	r.write("f.txt", "1\n2\nA\nB\n5\n6\n")
+	patch := "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -3,3 +3,3 @@\n 3\n-4\n+B\n 5\n"
+	p := t.TempDir() + "/b.diff"
+	os.WriteFile(p, []byte(patch), 0o644)
+	r.mustMS("agent-b", "apply", p)
+	r.mustMS("agent-a", "commit", "-m", "a")
+	r.mustMS("agent-b", "commit", "-m", "b")
+	if got := r.git("show", "main:f.txt"); got != "1\n2\nA\nB\n5\n6\n" {
+		t.Fatalf("f.txt = %q", got)
+	}
+	if diff := r.git("show", "-U0", "--format=", "main"); strings.Contains(diff, "+A") || !strings.Contains(diff, "+B") {
+		t.Fatalf("agent-b's commit:\n%s", diff)
+	}
+	r.checkClean()
+}

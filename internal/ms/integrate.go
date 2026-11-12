@@ -22,6 +22,16 @@ func (r *Repo) integrate(baseTree, staged, tip string) (string, error) {
 		return "", err
 	}
 	if len(res.Conflicts) > 0 {
+		replayed, err := r.replayConflicts(baseTree, tipTree, staged, res)
+		if err != nil {
+			return "", err
+		}
+		if replayed != "" {
+			if err := r.verifyIntegration(baseTree, staged, tipTree, replayed); err != nil {
+				return "", err
+			}
+			return replayed, nil
+		}
 		return "", &Error{Code: ExitConflict, Kind: "conflict",
 			Message: fmt.Sprintf("staged changes conflict with %s", short(tip)),
 			Paths:   res.Conflicts, Details: res.Messages,
