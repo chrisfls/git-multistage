@@ -46,7 +46,7 @@ func (r *Repo) runHook(index, name string, args ...string) error {
 	if len(args) > 0 {
 		cmd = append([]string{"hook", "run", "--ignore-missing", name, "--"}, args...)
 	}
-	_, err := r.Run(gitx.Opt{Index: index, Stdout: os.Stderr, Stderr: os.Stderr}, cmd...)
+	_, err := r.Run(gitx.Opt{Index: index, User: true, Stdout: os.Stderr, Stderr: os.Stderr}, cmd...)
 	return err
 }
 
@@ -148,6 +148,7 @@ func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
 	res.Subject, _, _ = strings.Cut(msg, "\n")
 	sign := r.configBool("commit.gpgSign", false)
 	sync := r.syncEnabled()
+	var verified []gitx.Entry // changes that the pre-commit hook accepted
 
 	for attempt := 1; attempt <= maxCommitAttempts; attempt++ {
 		res.Attempts = attempt
@@ -175,24 +176,27 @@ func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
 			return res, nil
 		}
 		if !noVerify {
-			hooked, err := l.runPreCommit(tree)
+			// A retry that introduces exactly the changes that the hook
+			// already accepted does not run the hook again, so a slow hook
+			// cannot starve the commit while other agents commit.
+			introduced, err := r.DiffTrees(tipTree, tree, false)
 			if err != nil {
 				return nil, err
 			}
-			if hooked != tree {
-				// The hook changed the staged content; it must still stay within the staged paths.
-				// A hook may rewrite staged files, as with `git commit`.
-				err := r.verifyIntegration(baseTree, staged, tipTree, hooked)
-				if e, ok := err.(*Error); ok && e.Kind == "outside-paths" {
-					e.Message = "the pre-commit hook changed paths that are not staged; nothing was committed"
-					return nil, e
-				} else if err != nil && !ok {
+			if !sameEntries(introduced, verified) {
+				hooked, err := l.runPreCommit(tree)
+				if err != nil {
 					return nil, err
 				}
-				if hooked == tipTree {
-					return nil, errorf(ExitError, "hook-emptied", "the pre-commit hook removed every staged change; nothing was committed")
+				if hooked != tree {
+					// The hook took content from the shared working tree,
+					// which may hold other agents' unstaged edits.
+					return nil, &Error{Code: ExitError, Kind: "hook-modified",
+						Message: "the pre-commit hook changed the staged content; nothing was committed and the staged changes are kept",
+						Hint: "other agents' unstaged edits may be in the files that the hook re-added; " +
+							"check the working tree, stage your changes again, and commit again"}
 				}
-				tree = hooked
+				verified = introduced
 			}
 		}
 		args := []string{"commit-tree", tree}
@@ -223,6 +227,13 @@ func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
 				return nil, err
 			}
 		}
+		// A native merge or rebase may have started since the first check.
+		if op := r.inProgress(); op != "" {
+			lk.release()
+			l.M.Pending = nil
+			_ = l.save()
+			return nil, errorf(ExitRefused, "operation-in-progress", "%s started in this worktree; nothing was committed", op)
+		}
 		old := tip
 		if old == "" {
 			old = r.ZeroOID
@@ -231,31 +242,24 @@ func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
 		_, err = r.Run(gitx.Opt{}, "update-ref", "-m", reflog, l.M.Branch, commit, old)
 		if err != nil {
 			lk.release()
+			l.M.Pending = nil
+			if err := l.save(); err != nil {
+				return nil, err
+			}
 			now, err2 := r.ResolveRef(l.M.Branch)
 			if err2 != nil {
 				return nil, err2
 			}
-			if landed, _ := r.IsAncestor(commit, now); !landed {
-				l.M.Pending = nil
-				if err := l.save(); err != nil {
-					return nil, err
-				}
-				if now != tip {
-					// Another process moved the branch first: replay onto the new tip.
-					time.Sleep(time.Duration(rand.Intn(10*min(attempt, 10))+1) * time.Millisecond)
-					continue
-				}
-				return nil, gitErr(err, ExitError, "update-ref-failed")
+			if now != tip {
+				// Another process moved the branch first: replay onto the new tip.
+				time.Sleep(time.Duration(rand.Intn(10*min(attempt, 10))+1) * time.Millisecond)
+				continue
 			}
-			// The reference moved even though update-ref reported an error.
+			return nil, gitErr(err, ExitError, "update-ref-failed")
 		}
 		fault("after-update-ref")
 		if lk != nil {
-			from := tip
-			if from == "" {
-				from = r.EmptyTree
-			}
-			res.Sync, err = r.syncIndexLocked(from, false)
+			res.Sync, err = r.syncAfterCommit(tip)
 			lk.release()
 			if err != nil {
 				res.Sync.Warnings = append(res.Sync.Warnings, fmt.Sprintf("default index not synchronized: %v; run `git multistage sync`", err))
@@ -271,6 +275,18 @@ func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
 	}
 	return nil, errorf(ExitBusy, "too-many-retries",
 		"the branch kept moving; gave up after %d attempts. The staged changes are kept; run the commit again", maxCommitAttempts)
+}
+
+func sameEntries(a, b []gitx.Entry) bool {
+	if len(a) != len(b) || a == nil {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // commitMessage joins -m paragraphs as `git commit` does.

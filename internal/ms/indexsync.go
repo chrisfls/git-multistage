@@ -38,40 +38,67 @@ func (r *Repo) syncEnabled() bool { return r.configBool("multistage.syncIndex", 
 
 func (r *Repo) syncRecordPath() string { return filepath.Join(r.Dir, "index-sync") }
 
-// readSyncRecord returns the branch and commit that the default index was last synced to.
-func (r *Repo) readSyncRecord() (branch, commit string) {
+// The sync record names the commit that the default index was last synced
+// to, and the tree of the index right after that sync. The record is trusted
+// only while the index still has that tree: any native change to the index
+// entries (commit, add, rm --cached, reset) invalidates it.
+type syncRecord struct{ branch, commit, tree string }
+
+func (r *Repo) readSyncRecord() syncRecord {
 	data, err := os.ReadFile(r.syncRecordPath())
 	if err != nil {
-		return "", ""
+		return syncRecord{}
 	}
 	f := strings.Fields(string(data))
-	if len(f) != 2 {
-		return "", ""
+	if len(f) != 3 {
+		return syncRecord{}
 	}
-	return f[0], f[1]
+	return syncRecord{f[0], f[1], f[2]}
 }
 
-func (r *Repo) writeSyncRecord(branch, commit string) error {
+func (r *Repo) writeSyncRecord(rec syncRecord) error {
 	if err := os.MkdirAll(r.Dir, 0o777); err != nil {
 		return err
 	}
-	return writeFileAtomic(r.syncRecordPath(), []byte(branch+" "+commit+"\n"))
+	return writeFileAtomic(r.syncRecordPath(), []byte(rec.branch+" "+rec.commit+" "+rec.tree+"\n"))
 }
 
-// ensureSyncRecord records the current tip when no record exists yet, so that
-// the first stage commit knows which version the default index holds.
-func (r *Repo) ensureSyncRecord(tip string) error {
-	if tip == "" {
-		return nil
+// indexTree returns the tree of the index file at path without writing that
+// file, or "" when the index has conflicts. A missing index is empty.
+func (r *Repo) indexTree(path string) (string, error) {
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		return r.EmptyTree, nil
 	}
-	if b, _ := r.readSyncRecord(); b != "" {
+	tmpDir := filepath.Join(r.Dir, "tmp")
+	if err := os.MkdirAll(tmpDir, 0o777); err != nil {
+		return "", err
+	}
+	tmp := filepath.Join(tmpDir, fmt.Sprintf("tree-index-%d", os.Getpid()))
+	defer os.Remove(tmp)
+	if err := copyFile(path, tmp); err != nil {
+		return "", err
+	}
+	tree, err := r.WriteTree(tmp)
+	if gitx.ExitCode(err) > 0 {
+		return "", nil // unmerged entries
+	}
+	return tree, err
+}
+
+// ensureSyncRecord records the current tip when no record exists yet.
+func (r *Repo) ensureSyncRecord(tip string) error {
+	if tip == "" || r.readSyncRecord().branch != "" {
 		return nil
 	}
 	head, err := r.SymbolicHead()
 	if err != nil || head == "" {
 		return err
 	}
-	return r.writeSyncRecord(head, tip)
+	tree, err := r.indexTree(r.IndexPath)
+	if err != nil || tree == "" {
+		return err
+	}
+	return r.writeSyncRecord(syncRecord{head, tip, tree})
 }
 
 // indexLock is Git's index.lock, created by this process.
@@ -104,34 +131,83 @@ func (r *Repo) lockIndex(timeout time.Duration) (*indexLock, error) {
 	}
 }
 
+// release removes the lock once; later calls do nothing, so a second call
+// can never delete a lock that another process took meanwhile.
 func (k *indexLock) release() {
-	if k == nil {
+	if k == nil || k.f == nil {
 		return
 	}
 	k.f.Close()
+	k.f = nil
 	os.Remove(k.path)
 }
 
-// SyncIndex synchronizes the default index with the branch tip. fallback is
-// a commit that the default index is known to match when the sync record is
-// missing or unusable.
-func (r *Repo) SyncIndex(fallback string, timeout time.Duration) (SyncResult, error) {
+// SyncIndex synchronizes the default index with the branch tip. from is the
+// commit that the default index matches; "" uses the sync record.
+func (r *Repo) SyncIndex(from string, timeout time.Duration) (SyncResult, error) {
 	lk, err := r.lockIndex(timeout)
 	if err != nil {
 		return SyncResult{}, err
 	}
 	defer lk.release()
-	return r.syncIndexLocked(fallback, false)
-}
-
-// syncIndexLocked does the work of SyncIndex. The caller holds index.lock,
-// unless dryRun is set: then nothing is written.
-func (r *Repo) syncIndexLocked(fallback string, dryRun bool) (SyncResult, error) {
-	var res SyncResult
 	head, err := r.SymbolicHead()
 	if err != nil {
-		return res, err
+		return SyncResult{}, err
 	}
+	if from == "" {
+		if from, err = r.validRecord(head); err != nil {
+			return SyncResult{}, err
+		}
+		if from == "" {
+			return SyncResult{}, &Error{Code: ExitError, Kind: "sync-unknown",
+				Message: "cannot tell which commit the default index matches: it changed since the last sync",
+				Hint:    "pass the commit with --from, such as --from HEAD@{1}; `git diff --cached` shows the difference"}
+		}
+	}
+	return r.syncIndexLocked(head, from, true, false)
+}
+
+// syncAfterCommit synchronizes the default index after this process moved
+// the branch from parent. The caller holds index.lock, and every agent moves
+// the branch only while holding it, so the index matches parent unless
+// another tool moved the branch without updating the index.
+func (r *Repo) syncAfterCommit(parent string) (SyncResult, error) {
+	head, err := r.SymbolicHead()
+	if err != nil {
+		return SyncResult{}, err
+	}
+	rec, err := r.validRecord(head)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	from := parent
+	if from == "" {
+		from = r.EmptyTree
+	}
+	return r.syncIndexLocked(head, from, rec == parent, false)
+}
+
+// validRecord returns the commit of the sync record when the record belongs
+// to head and the default index still has the recorded tree.
+func (r *Repo) validRecord(head string) (string, error) {
+	rec := r.readSyncRecord()
+	if rec.branch == "" || rec.branch != head {
+		return "", nil
+	}
+	current, err := r.indexTree(r.IndexPath)
+	if err != nil || current != rec.tree {
+		return "", err
+	}
+	return rec.commit, nil
+}
+
+// syncIndexLocked brings each default-index entry that holds its version in
+// from to its version in the tip of head. When keepRecord is set, the result
+// becomes the new sync record; otherwise the record is deleted, because the
+// index may still lag behind changes before from. The caller holds
+// index.lock, unless dryRun is set: then nothing is written.
+func (r *Repo) syncIndexLocked(head, from string, keepRecord, dryRun bool) (SyncResult, error) {
+	var res SyncResult
 	if head == "" {
 		res.Warnings = append(res.Warnings, "HEAD is detached; the default index was not synchronized")
 		return res, nil
@@ -140,40 +216,31 @@ func (r *Repo) syncIndexLocked(fallback string, dryRun bool) (SyncResult, error)
 	if err != nil || tip == "" {
 		return res, err
 	}
-	from := ""
-	if b, c := r.readSyncRecord(); b == head {
-		if ok, _ := r.IsAncestor(c, tip); ok {
-			from = c
+	if from != r.EmptyTree {
+		if ok, _ := r.IsAncestor(from, tip); !ok {
+			res.Warnings = append(res.Warnings, fmt.Sprintf("%s is not an ancestor of %s; the default index was not synchronized", short(from), head))
+			return res, nil
 		}
-	}
-	if from == "" {
-		if fallback == r.EmptyTree {
-			from = fallback // the branch was unborn before this commit
-		} else if ok, _ := r.IsAncestor(fallback, tip); ok {
-			from = fallback
-		}
-	}
-	if from == "" {
-		res.Warnings = append(res.Warnings, "cannot tell which commit the default index matches; it was not synchronized")
-		return res, nil
 	}
 	res.From, res.To = from, tip
-	if from == tip {
-		return res, nil
-	}
 	changes, err := r.DiffTrees(from, tip, false)
 	if err != nil {
 		return res, err
 	}
-	if len(changes) > 0 {
-		if err := r.applyIndexChanges(changes, &res, dryRun); err != nil {
+	tree, err := r.applyIndexChanges(changes, &res, dryRun)
+	if err != nil || dryRun {
+		return res, err
+	}
+	if !keepRecord {
+		os.Remove(r.syncRecordPath())
+		return res, nil
+	}
+	if tree == "" {
+		if tree, err = r.indexTree(r.IndexPath); err != nil || tree == "" {
 			return res, err
 		}
 	}
-	if dryRun {
-		return res, nil
-	}
-	return res, r.writeSyncRecord(head, tip)
+	return res, r.writeSyncRecord(syncRecord{head, tip, tree})
 }
 
 type stagedEntry struct{ mode, oid string }
@@ -181,20 +248,24 @@ type stagedEntry struct{ mode, oid string }
 // applyIndexChanges rewrites a copy of the default index and renames it into
 // place. The caller holds index.lock, so no Git process writes the index
 // meanwhile.
-func (r *Repo) applyIndexChanges(changes []gitx.Entry, res *SyncResult, dryRun bool) error {
+// It returns the tree of the new index, or "" when it wrote nothing.
+func (r *Repo) applyIndexChanges(changes []gitx.Entry, res *SyncResult, dryRun bool) (string, error) {
+	if len(changes) == 0 {
+		return "", nil
+	}
 	// Git treats a missing index as an empty one.
 	info, err := os.Stat(r.IndexPath)
 	missing := errors.Is(err, fs.ErrNotExist)
 	if err != nil && !missing {
-		return err
+		return "", err
 	}
 	if dryRun {
 		_, err := r.planIndexChanges(r.IndexPath, changes, res)
-		return err
+		return "", err
 	}
 	tmpDir := filepath.Join(r.Dir, "tmp")
 	if err := os.MkdirAll(tmpDir, 0o777); err != nil {
-		return err
+		return "", err
 	}
 	tmp := filepath.Join(tmpDir, fmt.Sprintf("index-%d", os.Getpid()))
 	os.Remove(tmp + ".lock")
@@ -202,27 +273,31 @@ func (r *Repo) applyIndexChanges(changes []gitx.Entry, res *SyncResult, dryRun b
 	defer os.Remove(tmp)
 	if !missing {
 		if err := copyFile(r.IndexPath, tmp); err != nil {
-			return err
+			return "", err
 		}
 		// Keep the original timestamp so that Git's racy-entry detection
 		// treats the copy exactly like the original.
 		if err := os.Chtimes(tmp, info.ModTime(), info.ModTime()); err != nil {
-			return err
+			return "", err
 		}
 	}
 
 	input, err := r.planIndexChanges(tmp, changes, res)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if input == "" {
-		return nil
+		return "", nil
 	}
 	if _, err := r.Run(gitx.Opt{Index: tmp, Stdin: strings.NewReader(input)},
 		"update-index", "-z", "--index-info"); err != nil {
-		return err
+		return "", err
 	}
-	return rename(tmp, r.IndexPath)
+	tree, err := r.indexTree(tmp)
+	if err != nil {
+		return "", err
+	}
+	return tree, rename(tmp, r.IndexPath)
 }
 
 // planIndexChanges reads the entries of the changed paths from index and

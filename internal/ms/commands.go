@@ -87,7 +87,10 @@ func (r *Repo) Stages() ([]StageInfo, error) {
 	head, _ := r.SymbolicHead()
 	res := []StageInfo{}
 	for _, e := range entries {
-		if !e.IsDir() {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			if strings.HasPrefix(e.Name(), ".dropped-") {
+				os.RemoveAll(filepath.Join(r.stagesDir(), e.Name()))
+			}
 			continue
 		}
 		dir := filepath.Join(r.stagesDir(), e.Name())
@@ -179,20 +182,31 @@ func (r *Repo) Doctor() (*DoctorReport, error) {
 		add("warning", "multistage.syncIndex is false: commits leave the default index behind the branch")
 	}
 	if head != "" && tip != "" {
-		res, err := r.syncIndexLocked("", true)
-		switch {
-		case err != nil:
-			add("warning", "cannot compare the default index with %s: %v", head, err)
-		case len(res.Updated) > 0:
-			add("warning", "the default index is behind %s at %d path(s): %s; run `git multistage sync`",
-				head, len(res.Updated), strings.Join(res.Updated, ", "))
-		default:
-			add("ok", "the default index is in step with %s", head)
+		from, err := r.validRecord(head)
+		if err != nil {
+			return nil, err
 		}
-		for _, w := range res.Warnings {
-			add("warning", "%s", w)
+		if from == "" {
+			staged, _ := r.Run(gitx.Opt{}, "diff-index", "--cached", "--name-only", "-z", "HEAD")
+			n := strings.Count(string(staged), "\x00")
+			add("ok", "the default index differs from HEAD at %d path(s): natively staged changes, or a lagging index "+
+				"(`git status` shows which; `git multistage sync --from <commit>` brings a lagging index forward)", n)
+		} else {
+			res, err := r.syncIndexLocked(head, from, false, true)
+			switch {
+			case err != nil:
+				add("warning", "cannot compare the default index with %s: %v", head, err)
+			case len(res.Updated) > 0:
+				add("warning", "the default index is behind %s at %d path(s): %s; run `git multistage sync`",
+					head, len(res.Updated), strings.Join(res.Updated, ", "))
+			default:
+				add("ok", "the default index is in step with %s", head)
+			}
+			for _, w := range res.Warnings {
+				add("warning", "%s", w)
+			}
+			rep.Sync = &res
 		}
-		rep.Sync = &res
 	}
 	if rep.Stages, err = r.Stages(); err != nil {
 		return nil, err
@@ -220,23 +234,36 @@ func (r *Repo) Doctor() (*DoctorReport, error) {
 	return rep, nil
 }
 
-// Drop deletes the stage. With staged changes it refuses unless force is set.
+// Drop deletes the stage. With staged changes it refuses unless force is
+// set, and returns the staged tree so that it can still be inspected.
 func (l *Stage) Drop(force bool) (string, error) {
-	staged, err := l.r.WriteTree(l.IndexPath())
-	if err != nil {
+	var staged, base string
+	var err error
+	if l.Damaged {
+		staged, _ = l.r.Line(gitx.Opt{}, "rev-parse", "-q", "--verify", l.keepRef()+"^{tree}")
+	} else if staged, err = l.r.WriteTree(l.IndexPath()); err != nil {
 		return "", err
 	}
-	base, err := l.r.TreeOf(l.M.Base)
-	if err != nil {
+	if base, err = l.r.TreeOf(l.M.Base); err != nil {
 		return "", err
 	}
-	if staged != base && !force {
+	if (staged != base || l.Damaged) && !force {
 		return "", &Error{Code: ExitRefused, Kind: "has-staged",
-			Message: "stage " + l.Agent + " has staged changes; nothing was dropped",
-			Hint:    "commit or unstage them, or pass --force"}
+			Message: "stage " + l.Agent + " has staged changes or is damaged; nothing was dropped",
+			Hint:    "commit or unstage the changes, or pass --force"}
 	}
-	l.Close()
-	if err := os.RemoveAll(l.Dir); err != nil {
+	if _, err := l.r.Run(gitx.Opt{}, "update-ref", "-d", l.keepRef()); err != nil {
+		return "", err
+	}
+	l.lock.Release()
+	l.lock = nil
+	// Rename first, so that an interrupted removal never leaves a stage whose
+	// metadata points at a deleted index.
+	trash := filepath.Join(l.r.stagesDir(), fmt.Sprintf(".dropped-%s-%d", l.Agent, os.Getpid()))
+	if err := rename(l.Dir, trash); err != nil {
+		return "", err
+	}
+	if err := os.RemoveAll(trash); err != nil {
 		return "", err
 	}
 	if staged == base {

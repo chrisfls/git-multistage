@@ -58,10 +58,14 @@ func TestIDsDependOnContentNotPosition(t *testing.T) {
 	}
 }
 
-func TestDuplicateHunksGetOrdinals(t *testing.T) {
+func TestDuplicateHunksGetDistinctIDs(t *testing.T) {
 	hs, _ := Parse("f", gitDiff(t, "a\nx\nb\nx\nc\n", "a\ny\nb\ny\nc\n"))
-	if len(hs) != 2 || hs[1].ID != hs[0].ID+"-2" {
+	if len(hs) != 2 || hs[0].ID == hs[1].ID {
 		t.Fatalf("ids = %v", []string{hs[0].ID, hs[1].ID})
+	}
+	single, _ := Parse("f", gitDiff(t, "a\nx\nb\n", "a\ny\nb\n"))
+	if single[0].ID == hs[0].ID || single[0].ID == hs[1].ID {
+		t.Fatal("a duplicate hunk must not keep the ID of the single hunk")
 	}
 }
 

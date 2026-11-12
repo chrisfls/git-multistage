@@ -256,6 +256,15 @@ func TestRepeatedCompareAndSwapFailures(t *testing.T) {
 		t.Fatalf("tree has %d files", got)
 	}
 	r.checkHealthy()
+	// The race commits moved the branch without touching the default index,
+	// so the index lags behind exactly at their files.
+	for _, p := range strings.Fields(r.git("diff", "--cached", "--name-only")) {
+		if !strings.HasPrefix(p, "race-") {
+			t.Fatalf("default index differs from HEAD at %s", p)
+		}
+	}
+	r.expectCode(1, "", "sync")
+	r.mustMS("", "sync", "--from", "main~7")
 	r.checkIndexSynced()
 }
 

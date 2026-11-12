@@ -110,26 +110,34 @@ func Parse(path string, diff []byte) ([]Hunk, error) {
 	return hs, nil
 }
 
-// assignIDs gives each hunk a 12-hex-digit hash of its path and changed lines.
-// Identical hunks in one file get "-2", "-3", ... in file order.
+// assignIDs gives each hunk a 12-hex-digit hash of its path and changed
+// lines, so the ID survives line shifts. Identical hunks in one file also hash
+// their positions, so a selection cannot silently move to another copy.
 func assignIDs(path string, hs []Hunk) {
-	seen := map[string]int{}
-	for i := range hs {
+	hash := func(h Hunk, pos bool) string {
 		sum := sha256.New()
 		sum.Write([]byte(path))
 		sum.Write([]byte{0})
-		for _, l := range hs[i].Removed {
+		for _, l := range h.Removed {
 			sum.Write([]byte("-" + l + "\x00"))
 		}
-		for _, l := range hs[i].Added {
+		for _, l := range h.Added {
 			sum.Write([]byte("+" + l + "\x00"))
 		}
-		id := hex.EncodeToString(sum.Sum(nil))[:12]
-		seen[id]++
-		if n := seen[id]; n > 1 {
-			id += "-" + strconv.Itoa(n)
+		if pos {
+			fmt.Fprintf(sum, "@%d,%d", h.OldStart, h.NewStart)
 		}
-		hs[i].ID = id
+		return hex.EncodeToString(sum.Sum(nil))[:12]
+	}
+	count := map[string]int{}
+	for i := range hs {
+		hs[i].ID = hash(hs[i], false)
+		count[hs[i].ID]++
+	}
+	for i := range hs {
+		if count[hs[i].ID] > 1 {
+			hs[i].ID = hash(hs[i], true)
+		}
 	}
 }
 

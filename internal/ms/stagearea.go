@@ -72,7 +72,8 @@ func ValidateAgent(id string) error {
 			Message: "no agent ID: set GIT_MULTISTAGE_ID or pass --agent <id>",
 			Hint:    "run `git multistage init` to create a stage with a new unique ID"}
 	}
-	if !agentRE.MatchString(id) || strings.HasSuffix(id, ".") || reservedRE.MatchString(id) {
+	if !agentRE.MatchString(id) || strings.HasSuffix(id, ".") || strings.HasSuffix(id, ".lock") ||
+		strings.Contains(id, "..") || reservedRE.MatchString(id) {
 		return usageErr("invalid agent ID %q: use 1-64 lowercase letters, digits, '.', '_' or '-', starting with a letter or digit", id)
 	}
 	return nil
@@ -112,6 +113,7 @@ type Stage struct {
 	M        Meta
 	lock     *filelock.Lock
 	Created  bool
+	Damaged  bool // the current index file is missing
 	Warnings []string
 }
 
@@ -175,6 +177,10 @@ func (r *Repo) OpenStage(agent string, exclusive bool) (*Stage, error) {
 		}
 	}
 	l.removeLeftovers()
+	if _, err := os.Stat(l.IndexPath()); err != nil {
+		l.Damaged = true
+		return l, nil
+	}
 	if err := l.recover(); err != nil {
 		lk.Release()
 		return nil, err
@@ -182,8 +188,25 @@ func (r *Repo) OpenStage(agent string, exclusive bool) (*Stage, error) {
 	return l, nil
 }
 
-// Close releases the stage lock.
-func (l *Stage) Close() { l.lock.Release() }
+// Close protects the staged objects from garbage collection and releases
+// the stage lock.
+func (l *Stage) Close() {
+	if l.lock == nil {
+		return
+	}
+	if err := l.protect(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: cannot protect the staged objects of %s from garbage collection: %v\n", l.Agent, err)
+	}
+	l.lock.Release()
+	l.lock = nil
+}
+
+// errDamaged reports a stage whose index file is missing.
+func (l *Stage) errDamaged() error {
+	return &Error{Code: ExitError, Kind: "damaged-stage",
+		Message: fmt.Sprintf("stage %s is damaged: its index file %s is missing", l.Agent, l.M.Index),
+		Hint:    "run `git multistage drop --force`; " + l.keepRef() + " holds the last protected staged tree, if any"}
+}
 
 func (l *Stage) create() error {
 	branch, err := l.r.SymbolicHead()
@@ -219,16 +242,30 @@ func (l *Stage) setIndex(base string) error {
 // the stage's base. The metadata rename is the commit point: until it
 // happens, the old index generation stays current.
 func (l *Stage) setIndexTree(tree, base string) error {
-	gen := l.M.Gen + 1
-	name := fmt.Sprintf("index-%d", gen)
+	name, gen := l.newIndexFile()
 	path := filepath.Join(l.Dir, name)
-	os.Remove(path)
-	os.Remove(path + ".lock")
 	if err := l.r.ReadTree(path, tree); err != nil {
 		return err
 	}
+	l.M.Base = base
+	return l.adoptIndex(name, gen)
+}
+
+// newIndexFile returns the name and generation of the next index file, after
+// removing any leftover file of that name.
+func (l *Stage) newIndexFile() (string, int) {
+	gen := l.M.Gen + 1
+	name := fmt.Sprintf("index-%d", gen)
+	os.Remove(filepath.Join(l.Dir, name))
+	os.Remove(filepath.Join(l.Dir, name+".lock"))
+	return name, gen
+}
+
+// adoptIndex makes the index file name current. The metadata rename is the
+// commit point; the previous index file is deleted afterwards.
+func (l *Stage) adoptIndex(name string, gen int) error {
 	old := l.M.Index
-	l.M.Index, l.M.Gen, l.M.Base = name, gen, base
+	l.M.Index, l.M.Gen = name, gen
 	if err := l.save(); err != nil {
 		return err
 	}
@@ -236,6 +273,49 @@ func (l *Stage) setIndexTree(tree, base string) error {
 		os.Remove(filepath.Join(l.Dir, old))
 	}
 	return nil
+}
+
+// keepRef is the per-worktree ref that keeps a stage's staged objects
+// reachable, so that `git gc` does not prune them.
+func (l *Stage) keepRef() string { return "refs/worktree/multistage/" + l.Agent }
+
+// protect points keepRef at a commit of the staged tree while the stage has
+// staged changes, and deletes it otherwise.
+func (l *Stage) protect() error {
+	if l.Damaged {
+		return nil
+	}
+	tree, err := l.r.WriteTree(l.IndexPath())
+	if err != nil {
+		return err
+	}
+	base, err := l.r.TreeOf(l.M.Base)
+	if err != nil {
+		return err
+	}
+	cur, _ := l.r.Line(gitx.Opt{}, "show", "-s", "--format=%T %P", l.keepRef(), "--")
+	if tree == base {
+		if cur != "" {
+			_, err = l.r.Run(gitx.Opt{}, "update-ref", "-d", l.keepRef())
+		}
+		return err
+	}
+	want := strings.TrimSpace(tree + " " + l.M.Base)
+	if cur == want {
+		return nil
+	}
+	args := []string{"commit-tree", tree, "-m", "git-multistage stage " + l.Agent}
+	if l.M.Base != "" {
+		args = append(args, "-p", l.M.Base)
+	}
+	id := []string{"GIT_AUTHOR_NAME=git-multistage", "GIT_AUTHOR_EMAIL=git-multistage@localhost",
+		"GIT_COMMITTER_NAME=git-multistage", "GIT_COMMITTER_EMAIL=git-multistage@localhost"}
+	c, err := l.r.Line(gitx.Opt{Env: id}, args...)
+	if err != nil {
+		return err
+	}
+	_, err = l.r.Run(gitx.Opt{}, "update-ref", l.keepRef(), c)
+	return err
 }
 
 func (l *Stage) save() error {
@@ -255,7 +335,7 @@ func (l *Stage) removeLeftovers() {
 		stale := strings.HasSuffix(n, ".lock") ||
 			strings.Contains(n, ".tmp-") ||
 			(strings.HasPrefix(n, "index-") && n != l.M.Index) ||
-			n == "hook-index" || n == "stage-index"
+			n == "hook-index"
 		if stale {
 			os.Remove(filepath.Join(l.Dir, n))
 		}
@@ -272,9 +352,12 @@ func (l *Stage) recover() error {
 	if err != nil {
 		return err
 	}
-	landed, err := l.r.IsAncestor(p.Commit, tip)
-	if err != nil {
-		return err
+	landed := false
+	// A pending commit that garbage collection pruned never landed.
+	if _, err := l.r.Run(gitx.Opt{}, "cat-file", "-e", p.Commit+"^{commit}"); err == nil {
+		if landed, err = l.r.IsAncestor(p.Commit, tip); err != nil {
+			return err
+		}
 	}
 	if !landed {
 		l.M.Pending = nil
@@ -288,8 +371,14 @@ func (l *Stage) recover() error {
 	if !l.r.syncEnabled() {
 		return nil
 	}
-	if res, err := l.r.SyncIndex(p.Parent, syncTimeoutRecovery); err != nil {
-		l.warn("default index not synchronized: %v; run `git multistage sync`", err)
+	lk, err := l.r.lockIndex(syncTimeoutRecovery)
+	if err != nil {
+		l.warn("default index not synchronized: %v; then run `git multistage sync --from %s`", err, short(p.Parent))
+		return nil
+	}
+	defer lk.release()
+	if res, err := l.r.syncAfterCommit(p.Parent); err != nil {
+		l.warn("default index not synchronized: %v", err)
 	} else {
 		l.Warnings = append(l.Warnings, res.Warnings...)
 	}

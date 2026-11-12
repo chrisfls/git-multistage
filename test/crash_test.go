@@ -68,15 +68,17 @@ func TestCrashDuringStaging(t *testing.T) {
 	if res.code != 86 {
 		t.Fatalf("fault did not fire:\n%s", res)
 	}
-	if got := r.stagedPaths("agent-a"); !eq(got, []string{"a.txt"}) {
+	// The add was not adopted: the previous index is current.
+	if got := r.stagedPaths("agent-a"); len(got) != 0 {
 		t.Fatalf("staged %v", got)
 	}
 	entries, _ := os.ReadDir(r.path(".git/multistage/stages/agent-a"))
 	for _, e := range entries {
-		if e.Name() == "stage-index" || strings.HasSuffix(e.Name(), ".lock") {
+		if strings.HasPrefix(e.Name(), "index-") && e.Name() != "index-1" || strings.HasSuffix(e.Name(), ".lock") {
 			t.Fatalf("leftover %s", e.Name())
 		}
 	}
+	r.mustMS("agent-a", "add", "a.txt")
 	r.mustMS("agent-a", "commit", "-m", "a")
 	r.checkClean()
 }

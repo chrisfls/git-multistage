@@ -116,7 +116,7 @@ func (l *Stage) otherStagesStaged() (map[string][]string, error) {
 		return res, nil
 	}
 	for _, e := range entries {
-		if !e.IsDir() || e.Name() == l.Agent {
+		if !e.IsDir() || e.Name() == l.Agent || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
 		paths, err := l.r.stageStagedPaths(filepath.Join(l.r.stagesDir(), e.Name()))
@@ -166,16 +166,29 @@ func (r *Repo) stageStagedPaths(dir string) ([]string, error) {
 
 // AddPaths stages whole files, like `git add`.
 func (l *Stage) AddPaths(paths []string, force, allowShared bool) ([]gitx.Entry, error) {
-	idx := l.IndexPath()
-	before, err := l.r.WriteTree(idx)
+	for i, p := range paths {
+		var err error
+		if paths[i], err = l.canonical(p); err != nil {
+			return nil, err
+		}
+	}
+	before, err := l.r.WriteTree(l.IndexPath())
 	if err != nil {
 		return nil, err
 	}
-	backup := filepath.Join(l.Dir, "stage-index")
-	if err := copyFile(idx, backup); err != nil {
+	// Stage into a copy that becomes current only after the checks pass, so
+	// a refusal or a crash leaves the previous index in place.
+	name, gen := l.newIndexFile()
+	idx := filepath.Join(l.Dir, name)
+	if err := copyFile(l.IndexPath(), idx); err != nil {
 		return nil, err
 	}
-	defer os.Remove(backup)
+	adopted := false
+	defer func() {
+		if !adopted {
+			os.Remove(idx)
+		}
+	}()
 	args := []string{"add"}
 	if force {
 		args = append(args, "-f")
@@ -192,8 +205,15 @@ func (l *Stage) AddPaths(paths []string, force, allowShared bool) ([]gitx.Entry,
 	if err != nil {
 		return nil, err
 	}
-	if allowShared || len(changed) == 0 {
+	adopt := func() ([]gitx.Entry, error) {
+		if err := l.adoptIndex(name, gen); err != nil {
+			return nil, err
+		}
+		adopted = true
 		return changed, nil
+	}
+	if allowShared || len(changed) == 0 {
+		return adopt()
 	}
 	others, err := l.otherStagesStaged()
 	if err != nil {
@@ -207,16 +227,13 @@ func (l *Stage) AddPaths(paths []string, force, allowShared bool) ([]gitx.Entry,
 		}
 	}
 	if len(shared) > 0 {
-		if err := rename(backup, idx); err != nil {
-			return nil, err
-		}
 		return nil, &Error{Code: ExitRefused, Kind: "shared-path",
 			Message: "another agent has staged changes in these files, so the whole file may hold that agent's changes too; nothing was staged",
 			Paths:   shared, Details: details,
 			Hint: "stage only your hunks: `git multistage hunks <path>`, then `git multistage add <path> --hunk <id>`; " +
 				"or pass --allow-shared to stage the whole file anyway"}
 	}
-	return changed, nil
+	return adopt()
 }
 
 // FileHunks is the hunk listing of one file.
@@ -275,7 +292,7 @@ func (r *Repo) lsTree(commit, p string) (indexEntry, bool, error) {
 
 func (r *Repo) diffBlobs(p, oldBlob, newBlob string) ([]hunks.Hunk, error) {
 	out, err := r.Run(gitx.Opt{}, "diff", "--no-color", "--no-ext-diff", "--no-textconv",
-		"-U0", "--diff-algorithm=myers", oldBlob, newBlob)
+		"-U0", "--inter-hunk-context=0", "--diff-algorithm=myers", oldBlob, newBlob)
 	if err != nil && gitx.ExitCode(err) != 1 {
 		return nil, err
 	}
@@ -297,6 +314,27 @@ func (r *Repo) hasFilter(p string) (string, error) {
 		return f[2], nil
 	}
 	return "", nil
+}
+
+// canonical returns the spelling of p in the stage index. On a
+// case-insensitive file system a path argument may differ in case from the
+// tracked path.
+func (l *Stage) canonical(p string) (string, error) {
+	if _, ok, err := l.r.lsIndex(l.IndexPath(), p); err != nil || ok || !l.r.configBool("core.ignoreCase", false) {
+		return p, err
+	}
+	dir := path.Dir(p)
+	out, err := l.r.Run(gitx.Opt{Index: l.IndexPath(), Env: []string{"GIT_LITERAL_PATHSPECS=0", "GIT_ICASE_PATHSPECS=1"}},
+		"ls-files", "-z", "--", dir)
+	if err != nil {
+		return p, err
+	}
+	for _, name := range strings.Split(string(out), "\x00") {
+		if strings.EqualFold(name, p) {
+			return name, nil
+		}
+	}
+	return p, nil
 }
 
 // unstagedHunks lists the hunks between the stage index and the working tree.
@@ -415,8 +453,11 @@ func (l *Stage) Hunks(paths []string, cached bool) ([]FileHunks, error) {
 	}
 	var res []FileHunks
 	for _, p := range paths {
+		p, err := l.canonical(p)
+		if err != nil {
+			return nil, err
+		}
 		var fh FileHunks
-		var err error
 		if cached {
 			fh, err = l.stagedHunks(p)
 		} else {
@@ -534,7 +575,7 @@ func selectHunks(files []FileHunks, ids []string) (map[string][]hunks.Hunk, erro
 }
 
 // AddHunks stages the chosen hunks of the given files.
-func (l *Stage) AddHunks(paths, ids []string) ([]string, error) {
+func (l *Stage) AddHunks(paths, ids []string, force bool) ([]string, error) {
 	files, err := l.Hunks(paths, false)
 	if err != nil {
 		return nil, err
@@ -548,6 +589,19 @@ func (l *Stage) AddHunks(paths, ids []string) ([]string, error) {
 		hs := chosen[f.Path]
 		if len(hs) == 0 {
 			continue
+		}
+		if f.Status == "added" && !force {
+			// Like `git add`, refuse an ignored untracked file without --force.
+			// check-ignore takes plain paths and rejects literal pathspec mode.
+			_, err := l.r.Run(gitx.Opt{Index: l.IndexPath(), Env: []string{"GIT_LITERAL_PATHSPECS=0"}}, "check-ignore", "-q", "--", f.Path)
+			if err != nil && gitx.ExitCode(err) != 1 {
+				return nil, err
+			}
+			if err == nil {
+				return nil, &Error{Code: ExitError, Kind: "ignored",
+					Message: "the path is ignored by a .gitignore file; nothing was staged", Paths: []string{f.Path},
+					Hint: "pass -f to stage it anyway"}
+			}
 		}
 		old, err := l.r.catBlob(f.oldBlob)
 		if err != nil {

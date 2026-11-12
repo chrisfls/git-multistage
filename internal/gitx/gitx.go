@@ -63,36 +63,42 @@ type Opt struct {
 	Dir    string    // working directory; "" uses Top
 	Stdout io.Writer // when set, output streams here instead of being returned
 	Stderr io.Writer // when set, stderr streams here instead of being captured
+	User   bool      // run with the caller's environment, as hooks and pass-through commands need
 }
 
-// cleanEnv drops variables that would redirect Git away from the state
-// that git-multistage chooses explicitly.
-func cleanEnv() []string {
+// userEnv is the caller's environment without GIT_INDEX_FILE, which
+// git-multistage always sets itself.
+func userEnv() []string {
 	var env []string
 	for _, kv := range os.Environ() {
-		name := kv
-		if i := strings.IndexByte(kv, '='); i >= 0 {
-			name = kv[:i]
-		}
-		switch strings.ToUpper(name) {
-		case "GIT_INDEX_FILE", "GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS",
-			"GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS", "GIT_OPTIONAL_LOCKS",
-			"GIT_TERMINAL_PROMPT", "GIT_EDITOR", "GIT_SEQUENCE_EDITOR":
+		if name, _, _ := strings.Cut(kv, "="); strings.EqualFold(name, "GIT_INDEX_FILE") {
 			continue
 		}
 		env = append(env, kv)
 	}
-	return append(env,
-		"GIT_LITERAL_PATHSPECS=1", // a path argument is never a glob
-		"GIT_OPTIONAL_LOCKS=0",    // read-only commands never rewrite an index
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_EDITOR=:",
-	)
+	return env
+}
+
+// internalEnv is the environment of git-multistage's own Git calls: path
+// arguments are never globs, read-only commands never rewrite an index, and
+// nothing prompts.
+func internalEnv() []string {
+	var env []string
+	for _, kv := range userEnv() {
+		name, _, _ := strings.Cut(kv, "=")
+		switch strings.ToUpper(name) {
+		case "GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS",
+			"GIT_ICASE_PATHSPECS", "GIT_OPTIONAL_LOCKS", "GIT_TERMINAL_PROMPT", "GIT_EDITOR":
+			continue
+		}
+		env = append(env, kv)
+	}
+	return append(env, "GIT_LITERAL_PATHSPECS=1", "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0", "GIT_EDITOR=:")
 }
 
 // Open discovers the repository that contains dir.
 func Open(dir string) (*Repo, error) {
-	r := &Repo{baseEnv: cleanEnv()}
+	r := &Repo{baseEnv: internalEnv()}
 	r.Top = dir
 	if err := r.checkVersion(); err != nil {
 		return nil, err
@@ -159,6 +165,9 @@ func (r *Repo) Run(o Opt, args ...string) ([]byte, error) {
 		cmd.Dir = r.Top
 	}
 	cmd.Env = append([]string{}, r.baseEnv...)
+	if o.User {
+		cmd.Env = userEnv()
+	}
 	if o.Index != "" {
 		cmd.Env = append(cmd.Env, "GIT_INDEX_FILE="+o.Index)
 	}

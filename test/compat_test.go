@@ -59,8 +59,8 @@ func TestPreCommitHookCannotAddUnstagedPaths(t *testing.T) {
 `)
 	r.write("a.txt", "a\n")
 	r.mustMS("agent-a", "add", "a.txt")
-	res := r.expectCode(3, "agent-a", "commit", "-m", "a")
-	if !strings.Contains(res.err, "sneaky.txt") {
+	res := r.expectCode(1, "agent-a", "commit", "-m", "a")
+	if !strings.Contains(res.err, "pre-commit hook changed the staged content") {
 		t.Fatalf("error:\n%s", res)
 	}
 	if len(r.commits()) != 1 {

@@ -36,7 +36,7 @@ Commands:
   log [<git log args>]         show commits made by this stage
   list                         list the stages of this worktree
   doctor                       check the repository, default index, and stages
-  sync                         bring the default index up to the branch tip
+  sync [--from <commit>]       bring the default index up to the branch tip
   drop [--force]               delete this stage
 
 Most commands take --json. Exit codes: 0 ok, 1 error or nothing to commit,
@@ -256,7 +256,7 @@ func (a *app) run(argv []string) error {
 		"commit":  {{[]string{"--message", "-m"}, true}, {[]string{"--file", "-F"}, true}, {[]string{"--no-verify", "-n"}, false}},
 		"list":    nil,
 		"doctor":  nil,
-		"sync":    nil,
+		"sync":    {{[]string{"--from"}, true}},
 		"drop":    {{[]string{"--force", "-f"}, false}},
 	}
 	spec, ok := specs[cmd]
@@ -283,7 +283,7 @@ func (a *app) run(argv []string) error {
 	case "doctor":
 		return a.doctor()
 	case "sync":
-		return a.sync()
+		return a.sync(p)
 	case "init":
 		return a.init(p)
 	}
@@ -298,6 +298,9 @@ func (a *app) run(argv []string) error {
 	}
 	if cmd == "drop" {
 		return a.drop(stage, p)
+	}
+	if stage.Damaged {
+		return stage.errDamaged()
 	}
 	if cmd == "commit" {
 		return a.commit(stage, p)
@@ -466,7 +469,7 @@ func (a *app) add(l *Stage, p *parsed) error {
 		return err
 	}
 	if ids := p.vals["--hunk"]; len(ids) > 0 {
-		staged, err := l.AddHunks(paths, ids)
+		staged, err := l.AddHunks(paths, ids, p.has("--force"))
 		if err != nil {
 			return err
 		}
@@ -611,6 +614,9 @@ func (a *app) diff(args []string, cwd string) error {
 		return err
 	}
 	defer stage.Close()
+	if stage.Damaged {
+		return stage.errDamaged()
+	}
 	f, err := stage.refresh()
 	if err != nil {
 		return err
@@ -632,7 +638,7 @@ func (a *app) diff(args []string, cwd string) error {
 			break
 		}
 	}
-	_, err = a.repo.Run(gitx.Opt{Index: stage.IndexPath(), Dir: cwd, Stdout: os.Stdout, Stderr: os.Stderr},
+	_, err = a.repo.Run(gitx.Opt{Index: stage.IndexPath(), Dir: cwd, User: true, Stdout: os.Stdout, Stderr: os.Stderr},
 		append(gitArgs, args...)...)
 	if err != nil && gitx.ExitCode(err) == 1 {
 		return &Error{Code: ExitError, Kind: "diff"} // --exit-code reported differences
@@ -659,7 +665,7 @@ func (a *app) log(args []string) error {
 		return nil
 	}
 	gitArgs := append([]string{"log", "--no-walk=unsorted"}, args...)
-	_, err = a.repo.Run(gitx.Opt{Stdout: os.Stdout, Stderr: os.Stderr}, append(append(gitArgs, commits...), "--")...)
+	_, err = a.repo.Run(gitx.Opt{User: true, Stdout: os.Stdout, Stderr: os.Stderr}, append(append(gitArgs, commits...), "--")...)
 	return err
 }
 
@@ -714,8 +720,16 @@ func (a *app) doctor() error {
 	return nil
 }
 
-func (a *app) sync() error {
-	res, err := a.repo.SyncIndex("", syncTimeoutCommit)
+func (a *app) sync(p *parsed) error {
+	from := ""
+	if f := p.get("--from"); f != "" {
+		oid, err := a.repo.ResolveRef(f)
+		if err != nil || oid == "" {
+			return usageErr("--from %s is not a commit", f)
+		}
+		from = oid
+	}
+	res, err := a.repo.SyncIndex(from, syncTimeoutCommit)
 	if err != nil {
 		return err
 	}
