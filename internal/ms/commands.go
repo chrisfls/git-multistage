@@ -15,7 +15,7 @@ import (
 // StatusInfo is the state of one stage and of the working tree around it.
 type StatusInfo struct {
 	Agent     string       `json:"agent"`
-	StageDir   string       `json:"stage_dir"`
+	StageDir  string       `json:"stage_dir"`
 	Fresh     Freshness    `json:"freshness"`
 	Staged    []Change     `json:"staged"`
 	Unstaged  []Change     `json:"unstaged"`
@@ -137,7 +137,7 @@ type Check struct {
 // DoctorReport is the result of `doctor`.
 type DoctorReport struct {
 	Checks []Check     `json:"checks"`
-	Stages  []StageInfo  `json:"stages"`
+	Stages []StageInfo `json:"stages"`
 	Sync   *SyncResult `json:"index_sync,omitempty"`
 }
 
@@ -177,7 +177,8 @@ func (r *Repo) Doctor() (*DoctorReport, error) {
 	}
 	if !r.syncEnabled() {
 		add("warning", "multistage.syncIndex is false: commits leave the default index behind the branch")
-	} else if head != "" && tip != "" {
+	}
+	if head != "" && tip != "" {
 		res, err := r.syncIndexLocked("", true)
 		switch {
 		case err != nil:

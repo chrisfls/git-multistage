@@ -285,6 +285,9 @@ func (l *Stage) recover() error {
 	if err := l.finishCommit(p.Commit); err != nil {
 		return err
 	}
+	if !l.r.syncEnabled() {
+		return nil
+	}
 	if res, err := l.r.SyncIndex(p.Parent, syncTimeoutRecovery); err != nil {
 		l.warn("default index not synchronized: %v; run `git multistage sync`", err)
 	} else {

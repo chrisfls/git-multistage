@@ -116,9 +116,6 @@ func (k *indexLock) release() {
 // a commit that the default index is known to match when the sync record is
 // missing or unusable.
 func (r *Repo) SyncIndex(fallback string, timeout time.Duration) (SyncResult, error) {
-	if !r.syncEnabled() {
-		return SyncResult{}, nil
-	}
 	lk, err := r.lockIndex(timeout)
 	if err != nil {
 		return SyncResult{}, err
@@ -150,7 +147,9 @@ func (r *Repo) syncIndexLocked(fallback string, dryRun bool) (SyncResult, error)
 		}
 	}
 	if from == "" {
-		if ok, _ := r.IsAncestor(fallback, tip); ok {
+		if fallback == r.EmptyTree {
+			from = fallback // the branch was unborn before this commit
+		} else if ok, _ := r.IsAncestor(fallback, tip); ok {
 			from = fallback
 		}
 	}
@@ -183,12 +182,10 @@ type stagedEntry struct{ mode, oid string }
 // place. The caller holds index.lock, so no Git process writes the index
 // meanwhile.
 func (r *Repo) applyIndexChanges(changes []gitx.Entry, res *SyncResult, dryRun bool) error {
+	// Git treats a missing index as an empty one.
 	info, err := os.Stat(r.IndexPath)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			res.Warnings = append(res.Warnings, "the worktree has no default index; it was not synchronized")
-			return nil
-		}
+	missing := errors.Is(err, fs.ErrNotExist)
+	if err != nil && !missing {
 		return err
 	}
 	if dryRun {
@@ -201,14 +198,17 @@ func (r *Repo) applyIndexChanges(changes []gitx.Entry, res *SyncResult, dryRun b
 	}
 	tmp := filepath.Join(tmpDir, fmt.Sprintf("index-%d", os.Getpid()))
 	os.Remove(tmp + ".lock")
-	if err := copyFile(r.IndexPath, tmp); err != nil {
-		return err
-	}
+	os.Remove(tmp)
 	defer os.Remove(tmp)
-	// Keep the original timestamp so that Git's racy-entry detection
-	// treats the copy exactly like the original.
-	if err := os.Chtimes(tmp, info.ModTime(), info.ModTime()); err != nil {
-		return err
+	if !missing {
+		if err := copyFile(r.IndexPath, tmp); err != nil {
+			return err
+		}
+		// Keep the original timestamp so that Git's racy-entry detection
+		// treats the copy exactly like the original.
+		if err := os.Chtimes(tmp, info.ModTime(), info.ModTime()); err != nil {
+			return err
+		}
 	}
 
 	input, err := r.planIndexChanges(tmp, changes, res)

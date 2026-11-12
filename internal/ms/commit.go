@@ -251,7 +251,11 @@ func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
 		}
 		fault("after-update-ref")
 		if lk != nil {
-			res.Sync, err = r.syncIndexLocked(tip, false)
+			from := tip
+			if from == "" {
+				from = r.EmptyTree
+			}
+			res.Sync, err = r.syncIndexLocked(from, false)
 			lk.release()
 			if err != nil {
 				res.Sync.Warnings = append(res.Sync.Warnings, fmt.Sprintf("default index not synchronized: %v; run `git multistage sync`", err))
