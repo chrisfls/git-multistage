@@ -389,10 +389,12 @@ func (a *app) run(argv []string) error {
 		return err
 	}
 	defer stage.Close()
-	defer func() { a.warnings = append(stage.Warnings, a.warnings...) }()
 	if stage.Created {
 		stage.warn("created stage %s on %s", stage.ID, stage.M.Branch)
 	}
+	// Take the stage's warnings now, before a command prints its JSON.
+	a.warnings = append(stage.Warnings, a.warnings...)
+	stage.Warnings = nil
 	if cmd == "drop" {
 		return a.drop(stage, p)
 	}
