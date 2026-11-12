@@ -65,6 +65,25 @@ No lock covers the commits of all stages. Commits build their trees and commit o
 
 Files with a `filter` attribute (such as Git LFS), symbolic links, submodules, binary files, and deletions have no hunks; they are staged whole.
 
+## Recorded edits
+
+The editor hook (`git multistage hook claude`) runs before and after each Claude Code `Edit`, `MultiEdit`, and `Write` call.
+
+1. Before the edit, it takes a lease on the file: `leases/<hash>.json` in the multistage directory names the stage, a nonce, and an expiry 15 seconds ahead, written under a short OS lock. Another stage's hook waits until the lease is released or expires, up to 20 seconds, then blocks its edit with exit code 2. It then hashes the file into a blob and writes a pending record keyed by the tool call ID.
+2. After the edit, it hashes the file again and writes an edit record with the before and after blobs into `stages/<id>/edits/`, one file per edit. If the lease changed hands meanwhile, the record is marked uncertain. It then releases the lease.
+
+`add --edits` applies the records, oldest first, to a copy of the stage's index:
+
+- Records whose last edit of a file is no longer on disk (a later change touched the lines that the edit added), and uncertain records, are refused, and nothing is staged.
+- When the index entry equals the record's before blob, the after blob becomes the entry.
+- Otherwise the edit's hunks (before to after) are placed on the index content by the line replay below. Other writers' changes in the same file stay out, even on the neighbouring lines.
+
+The copy becomes current only when every record applies; then the records are deleted. A crash in between re-applies records that are already in the index, which the replay skips as identical changes.
+
+## Line replay
+
+Git's merge conflicts on changes to adjacent lines. When a merge onto the tip reports only content conflicts, each conflicted file is replayed instead: every staged hunk is placed at the tip's position of its lines, which succeeds only when the tip left those lines unchanged and no insertion competes for the same point. The replayed tree passes the same verification as a merge. Recorded edits use the same replay.
+
 ## Keeping a stage current
 
 Before most commands, the stage is refreshed. When the tip has moved past the stage's base:

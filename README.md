@@ -79,6 +79,25 @@ A stage keeps its staged changes until they are committed or unstaged, so a rest
 
 Give each agent its agent ID as its stage ID, and give it [AGENTS.md](AGENTS.md).
 
+### Claude Code editor hook (optional)
+
+With the editor hook, an agent never selects hunks: the hook records each file edit the agent makes, and `add --edits` stages exactly those edits. Two agents can then edit neighbouring lines of one file, and hooked agents take turns writing a file, so no write erases another. Each subagent gets its own stage from its `agent_id`. Add this to the project's `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [{"matcher": "Edit|MultiEdit|Write", "hooks": [{"type": "command", "command": "git multistage hook claude"}]}],
+    "PostToolUse": [{"matcher": "Edit|MultiEdit|Write", "hooks": [{"type": "command", "command": "git multistage hook claude"}]}]
+  }
+}
+```
+
+The first recorded edit tells the agent its stage ID. The agent then commits with:
+
+```bash
+git multistage --stage <id> add --edits && git multistage --stage <id> commit -m "Describe the change"
+```
+
 `--agentic` is an opt-in shortcut: when no stage ID is given, it takes the calling agent's ID from its environment, `PASEO_AGENT_ID` and then `CLAUDE_CODE_SESSION_ID`, as `paseo-<id>` or `claude-<id>`. Without the flag, these variables are ignored. Subagents inherit their parent's environment, so Claude Code subagents of one session get the same ID; give each subagent an explicit `--stage` instead.
 
 ## Commands
@@ -93,6 +112,7 @@ Every command takes `--stage <id>` and `--agentic`. Most commands take `--json` 
 | `hunks [--cached] [<path>...]` | List hunks with IDs. Without paths, list every changed tracked file. `--cached` lists staged hunks. |
 | `add <path>...` | Stage whole files: new, modified, deleted, renamed (pass both paths), binary. `-f` stages ignored files. |
 | `add <path>... --hunk <id>...` | Stage only the listed hunks. `-f` stages hunks of an ignored untracked file. |
+| `add --edits [<path>...]` | Stage the edits that the editor hook recorded. |
 | `add -p <path>...` | Interactive hunk selection for people (`git add -p` on the stage). |
 | `apply [-R] <patch>\|-` | Apply a patch to the stage's index, like `git apply --cached`. The working tree is untouched. |
 | `restore --staged <path>... [--hunk <id>...]` | Unstage files, or only the listed staged hunks. |
@@ -102,6 +122,8 @@ Every command takes `--stage <id>` and `--agentic`. Most commands take `--json` 
 | `doctor` | Check the repository, the default index, and every stage. Changes nothing. |
 | `sync [--from <commit>]` | Bring the default index up to the branch tip, keeping natively staged entries. `--from` names the commit that the index matches when the tool cannot tell. |
 | `drop [--force]` | Delete the stage. Refuses when changes are staged, unless `--force`. |
+| `drop --edits [<path>...]` | Forget recorded edits. |
+| `hook claude` | Claude Code hook that records file edits; see above. |
 
 ### Exit codes
 

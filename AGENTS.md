@@ -20,7 +20,19 @@ If you run as a separate agent session (not a subagent), `--agentic` can take yo
 
 Never use another agent's stage ID.
 
-## Workflow
+## Workflow with the editor hook
+
+When a message says that git-multistage records your file edits in a stage, use that stage ID. Edit files as usual, then:
+
+```bash
+git multistage --stage <id> add --edits
+git multistage --stage <id> diff --cached
+git multistage --stage <id> commit -m "Add input validation"
+```
+
+`add --edits` stages exactly the edits you made with the Edit and Write tools. Stage files that you changed through shell commands with `add` or `add --hunk`. If an edit is blocked because another agent is editing the file, make the edit again.
+
+## Workflow without the hook
 
 1. Edit your files.
 2. Stage a file that only you changed:
@@ -55,6 +67,7 @@ Add `--json` to `status`, `hunks`, `add`, and `commit` when you parse the output
 
 | Exit code | What happened | What to do |
 | --- | --- | --- |
+| 3 with `edit-lost` or `edit-conflict` | Another writer erased or overlapped your recorded edit. | Redo the edit, or stage the file with `hunks` and `add --hunk`. |
 | 3 | Your staged change conflicts with a commit that landed on the branch. Your staged changes are kept. | Read the listed paths. Edit the files so that they include both changes, then `restore --staged <path>`, stage again, and commit. |
 | 4 | A hunk ID is stale: the file changed after you listed the hunks. | Run `hunks <path>` again and use the new IDs. |
 | 5 with `shared-path` | Another stage has staged changes in that file, so a whole-file `add` could take its changes. | Stage your hunks with `--hunk`. |
