@@ -1,0 +1,106 @@
+{
+  "lockfileVersion": 1,
+  "sources": {
+    "samber/cc-skills-golang": {
+      "requestedRef": "main",
+      "resolvedRef": "d68d80aec298e1b74b37c2a472c002b5217248b3",
+      "resolvedAt": "2026-11-12T21:01:37.008Z",
+      "skills": {
+        "golang-benchmark": {
+          "integrity": "sha256-a6e8af4f203ba49ea5a65e94ccd09621689cfadde3d3cd2ce081b2cc67de1188"
+        },
+        "golang-cli": {
+          "integrity": "sha256-e22df06101788351812f640ad6a314bc8115a10f449b0d858b8cb759eeb1e9f6"
+        },
+        "golang-code-style": {
+          "integrity": "sha256-96d501f687fb746216f1375bef504cd1ffaa34a3da08512d6f780ec42a9a5fd0"
+        },
+        "golang-concurrency": {
+          "integrity": "sha256-c7cf249153ed8e1f72a6b9605c42dce5db55bc8f04a6880560918ad59a703f28"
+        },
+        "golang-context": {
+          "integrity": "sha256-55b41e208e25d12ecef1c9fb137053348b8718eb40aebc7c53c975003ea5fa0b"
+        },
+        "golang-continuous-integration": {
+          "integrity": "sha256-a15bea832114b6141c8043bf708f8345a8a809f5cb178583a235487df6a56000"
+        },
+        "golang-data-structures": {
+          "integrity": "sha256-44667ffcb5eb0e56dc3cfa323deecf1f3a664fdc4c069c6bbed3a04c5dae7dbd"
+        },
+        "golang-dependency-management": {
+          "integrity": "sha256-77177a11fd0dffc4f9afa78567df82002d4dc3835f27dc405999adcde699ce68"
+        },
+        "golang-design-patterns": {
+          "integrity": "sha256-2d07c5a9ddf5f41c9137fffa0c99b2ab37b0c7172fb8d38cff1614755375e41a"
+        },
+        "golang-documentation": {
+          "integrity": "sha256-1ae1e3503c7d888d5f2aabc77c944d0ec53a048b07ecf704cae046ec0bf13d42"
+        },
+        "golang-error-handling": {
+          "integrity": "sha256-411995948bb6ef84713f9462f5cc73f8e1be4e114f05e406b5cbfb0f0133114b"
+        },
+        "golang-gopls": {
+          "integrity": "sha256-3f22d01b5c2a6617d6cbe07c45cee811bf7508bddda607bae61944f841bede7e"
+        },
+        "golang-lint": {
+          "integrity": "sha256-23aa1b98c4c39b3dd493e786255fa959ccb472ea246864ddf6a81a179f9f310f"
+        },
+        "golang-modernize": {
+          "integrity": "sha256-437572beee5bd6065cd8c947d4e0652a5daaa8db9d4988bc8582fbfb80fa14ed"
+        },
+        "golang-naming": {
+          "integrity": "sha256-f665a863c28fbcc25777a00a328eb7e441e9690254c2239b0f1c4315df9390e8"
+        },
+        "golang-performance": {
+          "integrity": "sha256-e098644a97d0bb83c4d7787a8f3cc89a76034f4aadfd3b0aca288696bae0cb82"
+        },
+        "golang-project-layout": {
+          "integrity": "sha256-b871a05aa1d73b0400a45348d82126cdfa3052b5dcef64f363fda37b83477797"
+        },
+        "golang-refactoring": {
+          "integrity": "sha256-da38a09d64f1a1f9dce3c44aaea0545230aab3787a83036c88dddfcab0d19254"
+        },
+        "golang-safety": {
+          "integrity": "sha256-86b8e54edeb8114fbe9851f3fe0d9137c6f552f7a6d987748351c6f4128e0474"
+        },
+        "golang-security": {
+          "integrity": "sha256-01b6a8e5445264861297910a51e51aa8315c6837626c943aba5f4cceddc03664"
+        },
+        "golang-structs-interfaces": {
+          "integrity": "sha256-bcb4261303f37d497e6179d6e476be70e2b3dd256a4ffeedd9a868f91d6d0325"
+        },
+        "golang-testing": {
+          "integrity": "sha256-12c5cf9ec01bff86a9880764c9ef9c5beab5fe740c835f60df218467d300b46a"
+        },
+        "golang-troubleshooting": {
+          "integrity": "sha256-967c587d42da9c28f6dad4be6c536cbd97bfbeb1d7beef855664f5bf6916e365"
+        }
+      },
+      "skillSelection": [
+        "golang-benchmark",
+        "golang-cli",
+        "golang-code-style",
+        "golang-concurrency",
+        "golang-context",
+        "golang-continuous-integration",
+        "golang-data-structures",
+        "golang-dependency-management",
+        "golang-design-patterns",
+        "golang-documentation",
+        "golang-error-handling",
+        "golang-gopls",
+        "golang-lint",
+        "golang-modernize",
+        "golang-naming",
+        "golang-performance",
+        "golang-project-layout",
+        "golang-refactoring",
+        "golang-safety",
+        "golang-security",
+        "golang-structs-interfaces",
+        "golang-testing",
+        "golang-troubleshooting"
+      ]
+    }
+  }
+}

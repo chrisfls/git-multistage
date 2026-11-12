@@ -1,0 +1,42 @@
+{
+  "$schema": "https://github.com/dyoshikawa/rulesync/releases/latest/download/config-schema.json",
+  // Claude Code reads AGENTS.md itself, so only Codex takes the generated rules.
+  "targets": {
+    "codexcli": ["rules", "skills"],
+    "claudecode": ["skills"]
+  },
+  "delete": true,
+  "global": false,
+  "sources": [
+    {
+      // Go skills that apply to a standard-library CLI. The framework and
+      // library skills, such as cobra, grpc, and samber/lo, are left out.
+      "source": "samber/cc-skills-golang",
+      "skills": [
+        "golang-benchmark",
+        "golang-cli",
+        "golang-code-style",
+        "golang-concurrency",
+        "golang-context",
+        "golang-continuous-integration",
+        "golang-data-structures",
+        "golang-dependency-management",
+        "golang-design-patterns",
+        "golang-documentation",
+        "golang-error-handling",
+        "golang-gopls",
+        "golang-lint",
+        "golang-modernize",
+        "golang-naming",
+        "golang-performance",
+        "golang-project-layout",
+        "golang-refactoring",
+        "golang-safety",
+        "golang-security",
+        "golang-structs-interfaces",
+        "golang-testing",
+        "golang-troubleshooting"
+      ]
+    }
+  ]
+}

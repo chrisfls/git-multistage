@@ -1,0 +1,119 @@
+version: "2"
+
+# Based on the recommended configuration of the golang-lint skill in
+# samber/cc-skills-golang. The repository-specific changes carry a reason.
+
+run:
+  timeout: 5m
+  tests: true
+  build-tags:
+    - testhooks
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+linters:
+  enable:
+    # correctness
+    - govet
+    - staticcheck
+    - unused
+    - errcheck
+    - errorlint
+    - nilerr
+    - forcetypeassert
+    - copyloopvar
+    - durationcheck
+    - reassign
+    # style
+    - gocritic
+    - revive
+    - whitespace
+    - misspell
+    - dupword
+    - predeclared
+    - errname
+    - asciicheck
+    # performance
+    - perfsprint
+    - unconvert
+    - ineffassign
+    # security and resources
+    - gosec
+    - bidichk
+    - noctx
+    - containedctx
+    - fatcontext
+    # testing
+    - thelper
+    - usetesting
+    # modernization and meta
+    - modernize
+    - intrange
+    - usestdlibvars
+    - exhaustive
+    - nolintlint
+
+  disable:
+    # The blank-line rules flag more than 450 places and change no behavior.
+    - wsl_v5
+    # The end-to-end tests share the process environment and spawn git
+    # processes; running them with t.Parallel needs its own change.
+    - paralleltest
+    # The complexity linters flag existing functions that need a refactor of
+    # their own; enable them with that refactor.
+    - gocyclo
+    - nestif
+    - funlen
+    - dupl
+    - goconst
+    # godot rewrites every comment that lacks a final period.
+    - godot
+    # The recommended configuration disables these as too noisy or too
+    # opinionated for a default.
+    - lll
+    - prealloc
+    - wrapcheck
+    - err113
+    - mnd
+    - nakedret
+    - noinlineerr
+    - gocognit
+    - cyclop
+    - depguard
+    - varnamelen
+    - exhaustruct
+    - gochecknoglobals
+    - gochecknoinits
+    - unparam
+    - testpackage
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      exclude-functions:
+        # Command output to stdout and stderr; a failed write has no recovery.
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    gosec:
+      excludes:
+        # git-multistage runs git with arguments that it builds; it never uses
+        # a shell.
+        - G204
+        # The tool reads and writes files of the repository by design.
+        - G304
+        - G703
+        # Files and directories under .git use the modes that git uses.
+        - G301
+        - G302
+        - G306
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports

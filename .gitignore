@@ -1,3 +1,9 @@
 /git-multistage
 /git-multistage.exe
 /dist/
+
+# RuleSync: fetched skills and the generated skill folders.
+# Run `rulesync install && rulesync generate` to create them.
+/.rulesync/skills/.curated/
+/.claude/skills/
+/.agents/skills/
