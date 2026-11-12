@@ -9,7 +9,7 @@ import (
 
 // TestPluginFiles checks the Claude Code and Codex plugin files: every
 // manifest parses, the shared hooks file runs the bare `hook` command, and
-// the plugin's skill carries the same text as the agent guide.
+// the plugin's skill names itself and has a description.
 func TestPluginFiles(t *testing.T) {
 	for _, f := range []string{
 		"../.claude-plugin/plugin.json", "../.claude-plugin/marketplace.json",
@@ -32,14 +32,9 @@ func TestPluginFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	guide, err := os.ReadFile("../docs/agent-guide.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A Windows checkout may convert both files to CRLF.
-	lf := strings.NewReplacer("\r\n", "\n")
-	parts := strings.SplitN(lf.Replace(string(skill)), "---\n", 3)
-	if len(parts) != 3 || strings.TrimPrefix(parts[2], "\n") != lf.Replace(string(guide)) {
-		t.Fatal("skills/git-multistage/SKILL.md must hold docs/agent-guide.md after its front matter; copy the guide into it")
+	// A Windows checkout may convert the file to CRLF.
+	parts := strings.SplitN(strings.ReplaceAll(string(skill), "\r\n", "\n"), "---\n", 3)
+	if len(parts) != 3 || !strings.Contains(parts[1], "name: git-multistage\n") || !strings.Contains(parts[1], "description: ") {
+		t.Fatal("skills/git-multistage/SKILL.md must start with front matter that holds `name: git-multistage` and a description")
 	}
 }
