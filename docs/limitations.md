@@ -21,7 +21,7 @@ Every stage works on the same files on disk. git-multistage separates staging an
 - After the edit, it records the before and after content in the agent's stage: `<editor>-<agent_id>` inside a subagent, and `GIT_MULTISTAGE_ID` or else `<editor>-<session_id>` in the main session. The first recorded edit tells the agent its stage ID.
 - Edits made through shell commands (`sed`, code generators, formatters) are not recorded; stage those with `add` or `add --hunk`.
 - An edit through a symbolic link is recorded for the link's target. A recorded new file that `.gitignore` ignores needs `add --edits -f`.
-- A lease that expires during a long permission prompt marks the edit as uncertain; `add --edits` then refuses it.
+- A lease that expires during a long permission prompt marks the edit as uncertain. A hook of another stage that takes over the expired lease marks its own edit as uncertain too. `add --edits` of either stage then refuses the uncertain edit with exit code 3; stage that file with `hunks` and `add --hunk`.
 - Codex runs a hook only after its definition is trusted once (in its `/hooks` review), and reads a project's `.codex/hooks.json` only in a trusted project.
 - Codex's `workspace-write` sandbox makes `.git` read-only. Without a Codex rule that allows `git multistage` (see [coding agents](agents.md#codex)), a Codex agent needs the same approval to run it as it needs for `git commit`. The editor hook runs outside the sandbox.
 
