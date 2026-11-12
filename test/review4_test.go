@@ -214,3 +214,66 @@ func TestAgenticTrustsAToolOnlyAsAnAncestor(t *testing.T) {
 		}
 	}
 }
+
+// stageGen reads the current index generation of a stage.
+func (r *repo) stageGen(stage string) int {
+	r.t.Helper()
+	var m struct {
+		Gen int `json:"gen"`
+	}
+	data, err := os.ReadFile(r.path(".git/multistage/stages/" + stage + "/meta.json"))
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &m); err != nil {
+		r.t.Fatal(err)
+	}
+	return m.Gen
+}
+
+// TestOrphanedLockOfTheCurrentIndexIsBypassed leaves the lock file of the
+// current index generation, as a Git child of a killed git-multistage holds
+// it. Each command must move the stage to a new generation instead of
+// failing on the lock, keep the staged changes, and leave the orphan's lock
+// file alone.
+func TestOrphanedLockOfTheCurrentIndexIsBypassed(t *testing.T) {
+	r := newRepo(t)
+	r.write("f.txt", "f\n")
+	r.write("g.txt", "g\n")
+	r.mustMS("a", "add", "f.txt")
+	orphan := func() string {
+		t.Helper()
+		p := r.path(".git/multistage/stages/a/index-" + strconv.Itoa(r.stageGen("a")) + ".lock")
+		if err := os.WriteFile(p, []byte("half-written"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	var orphans []string
+	for _, args := range [][]string{
+		{"status"},
+		{"add", "g.txt"},
+		{"restore", "--staged", "g.txt"},
+		{"add", "g.txt"},
+	} {
+		orphans = append(orphans, orphan())
+		r.mustMS("a", args...)
+	}
+	if got := r.stagedPaths("a"); !eq(got, []string{"f.txt", "g.txt"}) {
+		t.Fatalf("staged %q", got)
+	}
+	orphans = append(orphans, orphan())
+	r.mustMS("a", "commit", "-m", "f and g")
+	if got := r.changedPaths("HEAD"); !eq(got, []string{"f.txt", "g.txt"}) {
+		t.Fatalf("committed %q", got)
+	}
+	for _, p := range orphans {
+		if got, err := os.ReadFile(p); err != nil || string(got) != "half-written" {
+			t.Fatalf("the orphaned lock file %s changed: %q, %v", p, got, err)
+		}
+	}
+	r.write("f.txt", "F\n")
+	r.mustMS("a", "add", "f.txt")
+	orphan()
+	r.mustMS("a", "drop", "--force")
+}

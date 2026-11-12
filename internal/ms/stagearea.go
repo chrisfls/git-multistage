@@ -209,6 +209,10 @@ func (r *Repo) openStage(id string, exclusive bool, timeout time.Duration) (*Sta
 		l.Damaged = true
 		return l, nil //nolint:nilerr // a stage without its index is returned as damaged, for drop --force
 	}
+	if err := l.leaveLockedIndex(); err != nil {
+		lk.Release()
+		return nil, err
+	}
 	if err := l.recover(); err != nil {
 		lk.Release()
 		return nil, err
@@ -295,6 +299,22 @@ func (l *Stage) newIndexFile() (string, int) {
 		}
 		gen++
 	}
+}
+
+// leaveLockedIndex moves the stage to a copy of its index in a new
+// generation when the current index has a lock file. Git commands lock the
+// current index in place, so the lock file of a Git child that outlived a
+// killed process would make them fail until removeLeftovers deletes it. The
+// orphan's late rename then replaces a file that is no longer current.
+func (l *Stage) leaveLockedIndex() error {
+	if !exists(l.IndexPath() + ".lock") {
+		return nil
+	}
+	name, gen := l.newIndexFile()
+	if err := copyFile(l.IndexPath(), filepath.Join(l.Dir, name)); err != nil {
+		return err
+	}
+	return l.adoptIndex(name, gen)
 }
 
 func exists(path string) bool {

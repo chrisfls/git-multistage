@@ -133,7 +133,7 @@ The pending commit in `meta.json` is the journal. At the start of every command,
 
 A stage whose metadata names a missing index file is refused by every command except `drop`, because Git would read the missing index as an empty one and the next commit would delete every file. `drop` renames the stage directory before deleting it, so an interrupted drop cannot leave such a stage.
 
-Either way the change ends up in exactly one commit. A killed staging command leaves either the old or the new index, because Git writes indexes through lock-and-rename; leftover lock files and temporary files are removed when the stage lock is next taken.
+Either way the change ends up in exactly one commit. A killed staging command leaves either the old or the new index, because Git writes indexes through lock-and-rename; temporary files are removed when the stage lock is next taken. A Git child of a killed command can outlive it and still hold an index lock file, so a lock file is removed only after an hour, and a new index generation never reuses a name whose index or lock file exists. When the current index has a lock file, the next command copies the index to a new generation and makes the copy current, because Git commands lock the current index in place; the orphan's late rename then replaces a file that is no longer current.
 
 ## The default index
 
