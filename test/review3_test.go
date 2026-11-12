@@ -2,6 +2,7 @@ package test
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -113,6 +114,54 @@ func TestAddEditsKeepsADeletionNextToAnotherInsertion(t *testing.T) {
 	r.mustMS("", "--stage", "claude-s", "add", "--edits")
 	r.mustMS("", "--stage", "claude-s", "commit", "-m", "delete")
 	if got := r.git("show", "main:f.txt"); got != "a\nb\ne\n" {
+		t.Fatalf("committed %q", got)
+	}
+}
+
+// TestAddHunksIsAllOrNothing selects hunks of a tracked file and of an
+// ignored new file. The ignored file is refused, so nothing is staged.
+func TestAddHunksIsAllOrNothing(t *testing.T) {
+	r := newRepo(t)
+	r.write(".gitignore", "ign.txt\n")
+	r.write("a.txt", "a\n")
+	r.git("add", ".")
+	r.git("commit", "-q", "-m", "a")
+	r.write("a.txt", "a\nA\n")
+	r.write("ign.txt", "secret\n")
+	a, ign := r.hunkID("s", "a.txt", "A"), r.hunkID("s", "ign.txt", "secret")
+	r.expectCode(1, "s", "add", "a.txt", "ign.txt", "--hunk", a, "--hunk", ign)
+	if got := r.stagedPaths("s"); len(got) != 0 {
+		t.Fatalf("staged %v after a refusal", got)
+	}
+}
+
+// TestRestoreHunksOfSeveralFiles unstages hunks of two files in one call:
+// all of one file and one of two hunks of the other.
+func TestRestoreHunksOfSeveralFiles(t *testing.T) {
+	r := newRepo(t)
+	r.write("a.txt", "a\n")
+	r.write("b.txt", "1\n2\n3\n4\n5\n")
+	r.git("add", ".")
+	r.git("commit", "-q", "-m", "ab")
+	r.write("a.txt", "a\nA\n")
+	r.write("b.txt", "ONE\n2\n3\n4\nFIVE\n")
+	r.mustMS("s", "add", "a.txt", "b.txt")
+	var fj filesJSON
+	decode(t, r.mustMS("s", "hunks", "--cached", "--json", "a.txt", "b.txt"), &fj)
+	var ids []string
+	for _, f := range fj.Files {
+		for _, h := range f.Hunks {
+			if f.Path == "a.txt" || slices.Contains(h.Lines, "+FIVE") {
+				ids = append(ids, "--hunk", h.ID)
+			}
+		}
+	}
+	r.mustMS("s", append([]string{"restore", "--staged", "a.txt", "b.txt"}, ids...)...)
+	if got := r.stagedPaths("s"); !eq(got, []string{"b.txt"}) {
+		t.Fatalf("staged %v", got)
+	}
+	r.mustMS("s", "commit", "-m", "one")
+	if got := r.git("show", "main:b.txt"); got != "ONE\n2\n3\n4\n5\n" {
 		t.Fatalf("committed %q", got)
 	}
 }

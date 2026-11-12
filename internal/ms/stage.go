@@ -588,7 +588,9 @@ func selectHunks(files []FileHunks, ids []string) (map[string][]hunks.Hunk, erro
 	return chosen, nil
 }
 
-// AddHunks stages the chosen hunks of the given files.
+// AddHunks stages the chosen hunks of the given files. Every check runs
+// before the stage index changes, and all files change in one new index
+// generation, so a refusal stages nothing.
 func (l *Stage) AddHunks(paths, ids []string, force bool) ([]string, error) {
 	files, err := l.Hunks(paths, false)
 	if err != nil {
@@ -598,7 +600,7 @@ func (l *Stage) AddHunks(paths, ids []string, force bool) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var staged []string
+	var writes []blobWrite
 	for _, f := range files {
 		hs := chosen[f.Path]
 		if len(hs) == 0 {
@@ -627,31 +629,87 @@ func (l *Stage) AddHunks(paths, ids []string, force bool) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := l.setBlob(f.Path, f.mode, content); err != nil {
-			return nil, err
-		}
-		staged = append(staged, f.Path)
+		writes = append(writes, blobWrite{path: f.Path, mode: f.mode, content: content})
+	}
+	if err := l.writeBlobs(writes); err != nil {
+		return nil, err
+	}
+	staged := make([]string, 0, len(writes))
+	for _, w := range writes {
+		staged = append(staged, w.path)
 	}
 	return staged, nil
 }
 
-// setBlob stores content as the stage index entry of path.
-func (l *Stage) setBlob(p, mode string, content []byte) error {
+// blobWrite is one change of a stage index entry: new content for path, or,
+// when restore is set, the entry of the base.
+type blobWrite struct {
+	path, mode string
+	content    []byte
+	restore    bool
+}
+
+// writeBlobs applies writes to a copy of the stage index and adopts the copy,
+// so that the stage index changes once, or not at all.
+func (l *Stage) writeBlobs(writes []blobWrite) error {
+	if len(writes) == 0 {
+		return nil
+	}
+	name, gen := l.newIndexFile()
+	idx := filepath.Join(l.Dir, name)
+	if err := copyFile(l.IndexPath(), idx); err != nil {
+		return err
+	}
+	adopted := false
+	defer func() {
+		if !adopted {
+			_ = os.Remove(idx)
+		}
+	}()
+	var restore []string
+	for _, w := range writes {
+		if w.restore {
+			restore = append(restore, w.path)
+			continue
+		}
+		if err := l.setBlob(idx, w.path, w.mode, w.content); err != nil {
+			return err
+		}
+	}
+	if len(restore) > 0 {
+		if err := l.restorePaths(idx, restore); err != nil {
+			return err
+		}
+	}
+	if err := l.adoptIndex(name, gen); err != nil {
+		return err
+	}
+	adopted = true
+	return nil
+}
+
+// setBlob stores content as the entry of path in the index file idx.
+func (l *Stage) setBlob(idx, p, mode string, content []byte) error {
 	oid, err := l.r.Line(gitx.Opt{Stdin: bytes.NewReader(content)}, "hash-object", "-w", "--stdin")
 	if err != nil {
 		return err
 	}
-	_, err = l.r.Run(gitx.Opt{Index: l.IndexPath()}, "update-index", "--add", "--cacheinfo", mode, oid, p)
+	_, err = l.r.Run(gitx.Opt{Index: idx}, "update-index", "--add", "--cacheinfo", mode, oid, p)
 	return err
 }
 
 // RestorePaths unstages whole files: their stage index entries return to the base.
 func (l *Stage) RestorePaths(paths []string) error {
+	return l.restorePaths(l.IndexPath(), paths)
+}
+
+// restorePaths returns the entries of paths in the index file idx to the base.
+func (l *Stage) restorePaths(idx string, paths []string) error {
 	var err error
 	if l.M.Base == "" {
-		_, err = l.r.Run(gitx.Opt{Index: l.IndexPath()}, append([]string{"rm", "--cached", "-r", "-q", "--ignore-unmatch", "--"}, paths...)...)
+		_, err = l.r.Run(gitx.Opt{Index: idx}, append([]string{"rm", "--cached", "-r", "-q", "--ignore-unmatch", "--"}, paths...)...)
 	} else {
-		_, err = l.r.Run(gitx.Opt{Index: l.IndexPath()}, append([]string{"reset", "-q", l.M.Base, "--"}, paths...)...)
+		_, err = l.r.Run(gitx.Opt{Index: idx}, append([]string{"reset", "-q", l.M.Base, "--"}, paths...)...)
 	}
 	if err != nil {
 		return gitErr(err, ExitError, "restore-failed")
@@ -660,7 +718,8 @@ func (l *Stage) RestorePaths(paths []string) error {
 }
 
 // RestoreHunks unstages the chosen staged hunks: the stage index keeps every
-// other staged hunk of the file.
+// other staged hunk of the file. All files change in one new index
+// generation.
 func (l *Stage) RestoreHunks(paths, ids []string) ([]string, error) {
 	files, err := l.Hunks(paths, true)
 	if err != nil {
@@ -670,7 +729,7 @@ func (l *Stage) RestoreHunks(paths, ids []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var restored []string
+	var writes []blobWrite
 	for _, f := range files {
 		drop := map[string]bool{}
 		for _, h := range chosen[f.Path] {
@@ -686,23 +745,25 @@ func (l *Stage) RestoreHunks(paths, ids []string) ([]string, error) {
 			}
 		}
 		if len(keep) == 0 {
-			if err := l.RestorePaths([]string{f.Path}); err != nil {
-				return nil, err
-			}
-		} else {
-			old, err := l.r.catBlob(f.oldBlob)
-			if err != nil {
-				return nil, err
-			}
-			content, err := hunks.Apply(old, keep)
-			if err != nil {
-				return nil, err
-			}
-			if err := l.setBlob(f.Path, f.mode, content); err != nil {
-				return nil, err
-			}
+			writes = append(writes, blobWrite{path: f.Path, restore: true})
+			continue
 		}
-		restored = append(restored, f.Path)
+		old, err := l.r.catBlob(f.oldBlob)
+		if err != nil {
+			return nil, err
+		}
+		content, err := hunks.Apply(old, keep)
+		if err != nil {
+			return nil, err
+		}
+		writes = append(writes, blobWrite{path: f.Path, mode: f.mode, content: content})
+	}
+	if err := l.writeBlobs(writes); err != nil {
+		return nil, err
+	}
+	restored := make([]string, 0, len(writes))
+	for _, w := range writes {
+		restored = append(restored, w.path)
 	}
 	sort.Strings(restored)
 	return restored, nil
