@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -259,12 +260,20 @@ func (l *Stage) Drop(force bool) (string, error) {
 	if _, err := l.r.Run(gitx.Opt{}, "update-ref", "-d", l.keepRef()); err != nil {
 		return "", err
 	}
+	// Rename first, so that an interrupted removal never leaves a stage whose
+	// metadata points at a deleted index. The lock is held through the rename
+	// where the system allows renaming a directory with an open file; a
+	// process that waited for the lock finds that its lock file moved, and
+	// locks the lock path again.
+	if runtime.GOOS == "windows" {
+		l.lock.Release()
+		l.lock = nil
+	}
+	trash := filepath.Join(l.r.stagesDir(), fmt.Sprintf(".dropped-%s-%d", l.ID, os.Getpid()))
+	err = rename(l.Dir, trash)
 	l.lock.Release()
 	l.lock = nil
-	// Rename first, so that an interrupted removal never leaves a stage whose
-	// metadata points at a deleted index.
-	trash := filepath.Join(l.r.stagesDir(), fmt.Sprintf(".dropped-%s-%d", l.ID, os.Getpid()))
-	if err := rename(l.Dir, trash); err != nil {
+	if err != nil {
 		return "", err
 	}
 	if err := os.RemoveAll(trash); err != nil {

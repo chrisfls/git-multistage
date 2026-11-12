@@ -5,6 +5,7 @@ package filelock
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"time"
 )
@@ -16,6 +17,10 @@ var ErrBusy = errors.New("lock is held by another process")
 type Lock struct{ f *os.File }
 
 // Acquire locks path, creating it when needed, and waits up to timeout.
+// A lock file that another process renames or deletes while this process
+// waits is not the lock of path any more, so Acquire then locks the file at
+// path instead. When the directory of path is gone, it returns an error that
+// wraps fs.ErrNotExist.
 func Acquire(path string, timeout time.Duration) (*Lock, error) {
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o666)
 	if err != nil {
@@ -26,7 +31,21 @@ func Acquire(path string, timeout time.Duration) (*Lock, error) {
 	for {
 		err := tryLock(f)
 		if err == nil {
-			return &Lock{f: f}, nil
+			same, err := isFileAt(f, path)
+			if err != nil {
+				unlock(f)
+				_ = f.Close()
+				return nil, err
+			}
+			if same {
+				return &Lock{f: f}, nil
+			}
+			unlock(f)
+			_ = f.Close()
+			if f, err = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o666); err != nil {
+				return nil, err
+			}
+			continue
 		}
 		if !errors.Is(err, ErrBusy) {
 			_ = f.Close()
@@ -41,6 +60,22 @@ func Acquire(path string, timeout time.Duration) (*Lock, error) {
 			delay *= 2
 		}
 	}
+}
+
+// isFileAt reports whether the open file f is still the file at path.
+func isFileAt(f *os.File, path string) (bool, error) {
+	held, err := f.Stat()
+	if err != nil {
+		return false, err
+	}
+	cur, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return os.SameFile(held, cur), nil
 }
 
 // Release unlocks and closes the lock file.

@@ -170,6 +170,13 @@ func (r *Repo) openStage(id string, exclusive bool, timeout time.Duration) (*Sta
 		return nil, err
 	}
 	lk, err := filelock.Acquire(filepath.Join(dir, "lock"), timeout)
+	// A drop that renamed the stage directory away while this process waited
+	// leaves no lock file to lock; the stage is then created again.
+	for i := 0; i < 5 && errors.Is(err, fs.ErrNotExist); i++ {
+		if err = os.MkdirAll(dir, 0o777); err == nil {
+			lk, err = filelock.Acquire(filepath.Join(dir, "lock"), timeout)
+		}
+	}
 	if err != nil {
 		if errors.Is(err, filelock.ErrBusy) {
 			return nil, errorf(ExitBusy, "busy", "stage %q is busy: another git-multistage process is using it", id)
