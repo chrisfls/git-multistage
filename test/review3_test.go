@@ -293,3 +293,46 @@ func TestBusyStageExits6(t *testing.T) {
 	lk.Release()
 	r.mustMS("a", "status")
 }
+
+// TestAddHunkKeepsRacyEntriesRacy rewrites a staged file, with the same size,
+// in the second in which the stage index recorded it, then stages a hunk of
+// another file. The hunk is staged in a copy of the stage index; the copy must
+// keep the rewritten entry racy, or a later whole-file add keeps the old
+// content. The test pins the file and the stage index to one past second, so
+// the outcome does not depend on how fast the commands run.
+func TestAddHunkKeepsRacyEntriesRacy(t *testing.T) {
+	r := newRepo(t)
+	// The test sets modification times but cannot set change times.
+	r.git("config", "core.trustctime", "false")
+	sec := time.Now().Add(-time.Hour).Truncate(time.Second)
+	pin := func(p string) {
+		t.Helper()
+		if err := os.Chtimes(p, sec, sec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.write("f.txt", "a\nb\n")
+	r.write("g.txt", "g\n")
+	r.git("add", "f.txt", "g.txt")
+	r.git("commit", "-q", "-m", "f and g")
+	r.write("f.txt", "a\nB\n")
+	pin(r.path("f.txt"))
+	r.mustMS("agent-a", "add", "f.txt")
+	r.write("g.txt", "g\nG\n")
+	hunk := r.hunkID("agent-a", "g.txt", "G")
+	indexes, err := filepath.Glob(r.path(".git/multistage/stages/agent-a/index-*"))
+	if err != nil || len(indexes) == 0 {
+		t.Fatalf("stage index not found: %v", err)
+	}
+	for _, p := range indexes {
+		pin(p)
+	}
+	r.write("f.txt", "a\nC\n")
+	pin(r.path("f.txt"))
+	r.mustMS("agent-a", "add", "g.txt", "--hunk", hunk)
+	r.mustMS("agent-a", "add", "f.txt")
+	r.mustMS("agent-a", "commit", "-m", "f and g")
+	if got := r.git("show", "main:f.txt"); got != "a\nC\n" {
+		t.Fatalf("committed f.txt = %q, want the rewritten content", got)
+	}
+}
