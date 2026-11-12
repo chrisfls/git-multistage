@@ -21,9 +21,9 @@ can stage and commit to the current branch at the same time, from one
 checkout, without waiting for each other.
 
 Stage ID: --stage <id>, or the GIT_MULTISTAGE_ID environment variable.
---agentic takes the ID of the calling agent from its environment
-(CLAUDE_CODE_SESSION_ID or CODEX_THREAD_ID, else PASEO_AGENT_ID) when no
-stage ID is given.
+--agentic takes the ID of the calling agent from its environment when no
+stage ID is given: CLAUDE_CODE_SESSION_ID or CODEX_THREAD_ID (the innermost
+tool wins), else ORCA_AGENT_SESSION_ID or PASEO_AGENT_ID.
 
 Commands:
   init [<id>]                  create a stage; without <id>, pick a unique ID
@@ -219,28 +219,45 @@ func (a *app) stageID() (string, error) {
 }
 
 // agentStageID derives a stage ID from the calling agent's environment, the
-// same ID that the agent's editor hook records into. A tool that starts
-// another tool passes its variables on, so when both Claude Code and Codex
-// variables are present, the caller cannot be told apart and nothing is
-// guessed. Paseo wraps the other tools, so its ID is used only when neither
-// is present.
+// same ID that the agent's editor hook records into. Agent tools come first:
+// Claude Code and Codex set their variable for each agent, including a
+// nested one. A tool started by another tool inherits the outer tool's
+// variable too, so when both are set, the nearer ancestor process wins.
+// Orchestrators (Orca, Paseo) set one ID per agent they start, which nested
+// agents and subagents inherit, so they count only when no tool variable is.
 func agentStageID() (string, error) {
 	claude, codex := os.Getenv("CLAUDE_CODE_SESSION_ID"), os.Getenv("CODEX_THREAD_ID")
+	if claude != "" && codex != "" {
+		switch innermostTool() {
+		case "claude":
+			codex = ""
+		case "codex":
+			claude = ""
+		default:
+			return "", &Error{Code: ExitUsage, Kind: "ambiguous-agent",
+				Message: "--agentic found both CLAUDE_CODE_SESSION_ID and CODEX_THREAD_ID, and neither tool is an ancestor process",
+				Hint:    "pass --stage <id>; the editor hook's message names the stage"}
+		}
+	}
 	switch {
-	case claude != "" && codex != "":
-		return "", &Error{Code: ExitUsage, Kind: "ambiguous-agent",
-			Message: "--agentic found both CLAUDE_CODE_SESSION_ID and CODEX_THREAD_ID, so it cannot tell which agent is calling",
-			Hint:    "pass --stage <id>; the editor hook's message names the stage"}
 	case claude != "":
 		return sanitizeID("claude-" + claude), nil
 	case codex != "":
 		return sanitizeID("codex-" + codex), nil
 	}
-	if paseo := os.Getenv("PASEO_AGENT_ID"); paseo != "" {
+	orca, paseo := os.Getenv("ORCA_AGENT_SESSION_ID"), os.Getenv("PASEO_AGENT_ID")
+	switch {
+	case orca != "" && paseo != "":
+		return "", &Error{Code: ExitUsage, Kind: "ambiguous-agent",
+			Message: "--agentic found both ORCA_AGENT_SESSION_ID and PASEO_AGENT_ID, so it cannot tell which agent is calling",
+			Hint:    "pass --stage <id>"}
+	case orca != "":
+		return sanitizeID("orca-" + orca), nil
+	case paseo != "":
 		return sanitizeID("paseo-" + paseo), nil
 	}
 	return "", &Error{Code: ExitUsage, Kind: "no-agent-id",
-		Message: "--agentic found no agent ID: none of CLAUDE_CODE_SESSION_ID, CODEX_THREAD_ID, PASEO_AGENT_ID is set",
+		Message: "--agentic found no agent ID: none of CLAUDE_CODE_SESSION_ID, CODEX_THREAD_ID, ORCA_AGENT_SESSION_ID, PASEO_AGENT_ID is set",
 		Hint:    "pass --stage <id>"}
 }
 

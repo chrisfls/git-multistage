@@ -23,6 +23,7 @@ Every stage works on the same files on disk. git-multistage separates staging an
 - An edit through a symbolic link is recorded for the link's target. A recorded new file that `.gitignore` ignores needs `add --edits -f`.
 - A lease that expires during a long permission prompt marks the edit as uncertain; `add --edits` then refuses it.
 - Codex runs a hook only after its definition is trusted once (in its `/hooks` review), and reads a project's `.codex/hooks.json` only in a trusted project.
+- Codex's `workspace-write` sandbox makes `.git` read-only. A Codex agent needs the same approval or access mode to run `git multistage` as it needs for `git commit`. The editor hook runs outside the sandbox.
 
 ## Supported and refused setups
 

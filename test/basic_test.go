@@ -1,7 +1,9 @@
 package test
 
 import (
+	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -362,13 +364,71 @@ func TestAgenticFlag(t *testing.T) {
 	if res := run(r.dir, "", []string{"CODEX_THREAD_ID=01A1D160-ef16", "PASEO_AGENT_ID=p"}, "--agentic", "status", "--json"); !strings.Contains(res.out, `"stage": "codex-01a1d160-ef16"`) {
 		t.Fatalf("CODEX_THREAD_ID:\n%s", res)
 	}
-	// Both tools' variables: one tool started the other, and the caller is unknown.
-	res := run(r.dir, "", []string{"CLAUDE_CODE_SESSION_ID=c", "CODEX_THREAD_ID=x"}, "--agentic", "status")
-	if res.code != 2 || !strings.Contains(res.err, "cannot tell which agent") {
-		t.Fatalf("both Claude Code and Codex variables:\n%s", res)
+	// Orchestrators count only without a tool variable, and two of them are ambiguous.
+	if res := run(r.dir, "", []string{"ORCA_AGENT_SESSION_ID=o1", "PASEO_AGENT_ID=p"}, "--agentic", "status"); res.code != 2 {
+		t.Fatalf("Orca and Paseo:\n%s", res)
 	}
-	res = run(r.dir, "", nil, "--agentic", "status")
+	if res := run(r.dir, "", []string{"ORCA_AGENT_SESSION_ID=o1"}, "--agentic", "status", "--json"); !strings.Contains(res.out, `"stage": "orca-o1"`) {
+		t.Fatalf("ORCA_AGENT_SESSION_ID:\n%s", res)
+	}
+	if res := run(r.dir, "", []string{"ORCA_AGENT_SESSION_ID=o1", "CODEX_THREAD_ID=x1"}, "--agentic", "status", "--json"); !strings.Contains(res.out, `"stage": "codex-x1"`) {
+		t.Fatalf("Codex under Orca:\n%s", res)
+	}
+	res := run(r.dir, "", nil, "--agentic", "status")
 	if res.code != 2 || !strings.Contains(res.err, "CODEX_THREAD_ID") {
 		t.Fatalf("--agentic without an agent ID:\n%s", res)
+	}
+}
+
+// TestAgenticPicksTheInnermostTool runs git-multistage under fake "codex"
+// and "claude" processes, as nested agents would.
+func TestAgenticPicksTheInnermostTool(t *testing.T) {
+	r := newRepo(t)
+	dir := t.TempDir()
+	// A launcher that runs its arguments as a child process and waits, so it
+	// stays in the process chain under the name it was built with.
+	src := filepath.Join(dir, "launcher.go")
+	os.WriteFile(src, []byte(`package main
+
+import (
+	"os"
+	"os/exec"
+)
+
+func main() {
+	c := exec.Command(os.Args[1], os.Args[2:]...)
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	c.Run()
+	os.Exit(c.ProcessState.ExitCode())
+}
+`), 0o644)
+	exe := ""
+	if runtime.GOOS == "windows" {
+		exe = ".exe"
+	}
+	codex, claude := filepath.Join(dir, "codex"+exe), filepath.Join(dir, "claude"+exe)
+	for _, out := range []string{codex, claude} {
+		if b, err := exec.Command("go", "build", "-o", out, src).CombinedOutput(); err != nil {
+			t.Fatalf("build launcher: %v\n%s", err, b)
+		}
+	}
+	stage := func(chain ...string) string {
+		args := append(chain[1:], bin, "--agentic", "status", "--json")
+		cmd := exec.Command(chain[0], args...)
+		cmd.Dir = r.dir
+		cmd.Env = append(os.Environ(), "CLAUDE_CODE_SESSION_ID=c1", "CODEX_THREAD_ID=x1")
+		out, _ := cmd.Output()
+		var st struct{ Status struct{ Stage string } }
+		json.Unmarshal(out, &st)
+		return st.Status.Stage
+	}
+	if got := stage(codex); got != "codex-x1" {
+		t.Fatalf("under codex: stage %q", got)
+	}
+	if got := stage(codex, claude); got != "claude-c1" {
+		t.Fatalf("claude started by codex: stage %q", got)
+	}
+	if got := stage(claude, codex); got != "codex-x1" {
+		t.Fatalf("codex started by claude: stage %q", got)
 	}
 }

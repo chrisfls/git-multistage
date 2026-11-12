@@ -62,17 +62,22 @@ A hook command with `--stage <id>` records every edit into that stage.
 
 ## --agentic
 
-`--agentic` is an opt-in shortcut for agents that have no stage ID of their own. With no stage ID given, it reads the agent's ID from the environment and returns the stage that the editor hook uses for that agent's main session:
+`--agentic` is an opt-in shortcut for agents that have no stage ID of their own. With no stage ID given, it reads the agent's ID from the environment. Without the flag, git-multistage ignores these variables.
 
-| Variable | Set by | Stage |
-| --- | --- | --- |
-| `CLAUDE_CODE_SESSION_ID` | Claude Code, in some launch modes such as the Agent SDK | `claude-<id>` |
-| `CODEX_THREAD_ID` | Codex | `codex-<id>` |
-| `PASEO_AGENT_ID` | Paseo, used only when neither of the above is set | `paseo-<id>` |
+| Priority | Variable | Set by | Stage |
+| --- | --- | --- | --- |
+| 1 | `CLAUDE_CODE_SESSION_ID` | Claude Code, for each agent's commands | `claude-<id>` |
+| 1 | `CODEX_THREAD_ID` | Codex, for each agent's commands | `codex-<id>` |
+| 2 | `ORCA_AGENT_SESSION_ID` | Orca, for each agent session it starts | `orca-<id>` |
+| 2 | `PASEO_AGENT_ID` | Paseo, for each agent it starts | `paseo-<id>` |
 
-Without the flag, git-multistage ignores these variables.
+Priority 1 names the same stage that the editor hook uses for the agent's main session.
 
-A tool started from another tool inherits its variables. A Codex agent launched from a Claude Code session sees both `CLAUDE_CODE_SESSION_ID` and `CODEX_THREAD_ID`, so `--agentic` refuses with exit code 2 instead of guessing. Subagents also inherit their parent's variables. A subagent uses the stage ID that the hook gives it, or an explicit `--stage`.
+Agents can be nested, as when an agent runs `claude -p` or `codex exec`. A nested Claude Code or Codex agent sets its own variable, and also inherits the outer tool's. When both priority-1 variables are set, git-multistage looks at its own parent processes and takes the tool that is nearer: `CLAUDE_PID` or a process named `claude`, against a process named `codex`. If neither is an ancestor, it refuses with exit code 2.
+
+Priority 2 applies only when no priority-1 variable is set, for example for OpenCode or Pi started by Orca. Orca and Paseo set one ID per agent they start, and the agent's subagents and nested agents inherit it, so these IDs cannot tell those apart. When both are set, `--agentic` refuses.
+
+Subagents inherit their parent's variables at every level. A subagent uses the stage ID that the hook gives it, or an explicit `--stage`.
 
 ## Limits
 
