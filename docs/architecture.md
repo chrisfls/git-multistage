@@ -78,7 +78,7 @@ The editor hook runs before and after each file edit: `git multistage hook claud
 - When the index entry equals the record's before blob, the after blob becomes the entry.
 - Otherwise the edit's hunks (before to after) are placed on the index content by the line replay below. Other writers' changes in the same file stay out, even on the neighbouring lines.
 
-The copy becomes current only when every record applies; then the records are deleted. The metadata save that makes the copy current also lists the applied records, so after a crash in between, the next command that opens the stage deletes them instead of applying them again.
+The copy becomes current only when every record applies; then the records are deleted. The metadata save that makes the copy current also lists the applied records, so after a crash in between, the next command that opens the stage deletes them instead of applying them again. When a record cannot be deleted, such as in a read-only directory, the command warns, and the metadata keeps its name until a later command deletes it; `add --edits` skips the records that the metadata names.
 
 ## Line replay
 

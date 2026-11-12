@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -83,9 +84,26 @@ func readRecords(stageDir string) ([]EditRecord, error) {
 	return recs, nil
 }
 
+// records returns the stage's recorded edits that the index does not hold
+// yet, oldest first. Records that the metadata names as applied stay on disk
+// only while they cannot be deleted.
+func (l *Stage) records() ([]EditRecord, error) {
+	recs, err := readRecords(l.Dir)
+	if err != nil || len(l.M.AppliedEdits) == 0 {
+		return recs, err
+	}
+	var out []EditRecord
+	for _, r := range recs {
+		if !slices.Contains(l.M.AppliedEdits, r.file) {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
 // RecordedPaths lists the paths that have recorded edits.
 func (l *Stage) RecordedPaths() ([]string, error) {
-	recs, err := readRecords(l.Dir)
+	recs, err := l.records()
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +121,7 @@ func (l *Stage) RecordedPaths() ([]string, error) {
 // AddEdits stages the recorded edits of the given paths (all when none),
 // and removes the records it staged.
 func (l *Stage) AddEdits(paths []string, force bool) ([]string, error) {
-	recs, err := readRecords(l.Dir)
+	recs, err := l.records()
 	if err != nil {
 		return nil, err
 	}
@@ -191,12 +209,13 @@ func (l *Stage) AddEdits(paths []string, force bool) ([]string, error) {
 	}
 	// The metadata save that adopts the index also names the applied
 	// records, so a crash before their deletion cannot apply them twice.
-	l.M.AppliedEdits = nil
+	// Names of earlier records that could not be deleted stay.
+	applied := l.M.AppliedEdits
 	for _, r := range chosen {
 		l.M.AppliedEdits = append(l.M.AppliedEdits, r.file)
 	}
 	if err := l.adoptIndex(name, gen); err != nil {
-		l.M.AppliedEdits = nil
+		l.M.AppliedEdits = applied
 		return nil, err
 	}
 	adopted = true
@@ -229,7 +248,7 @@ func (l *Stage) purgeAppliedEdits() error {
 
 // DropEdits forgets the recorded edits of the given paths (all when none).
 func (l *Stage) DropEdits(paths []string) (int, error) {
-	recs, err := readRecords(l.Dir)
+	recs, err := l.records()
 	if err != nil {
 		return 0, err
 	}

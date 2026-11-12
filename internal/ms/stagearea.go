@@ -202,8 +202,9 @@ func (r *Repo) openStage(id string, exclusive bool, timeout time.Duration) (*Sta
 	}
 	l.removeLeftovers()
 	if err := l.purgeAppliedEdits(); err != nil {
-		lk.Release()
-		return nil, err
+		// The metadata keeps the records' names, so they are never applied
+		// again; a later command deletes them.
+		l.warn("cannot delete the staged edit records yet; the next command deletes them: %v", err)
 	}
 	if _, err := os.Stat(l.IndexPath()); err != nil {
 		l.Damaged = true

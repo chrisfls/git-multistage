@@ -328,3 +328,64 @@ func TestCopyIDIsStaleAfterAPeriodicShift(t *testing.T) {
 	r.mustMS("b", "commit", "-m", "delete ABC")
 	r.expectCode(4, "a", "add", "f.txt", "--hunk", first)
 }
+
+// TestUndeletableEditRecordsWarn stages a recorded edit while its record
+// cannot be deleted. The warning about it prints once, in text and in JSON.
+// Later commands warn instead of failing, and never apply the record again;
+// once the record can be deleted, the next command deletes it.
+func TestUndeletableEditRecordsWarn(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a read-only directory on Windows does not stop deletion")
+	}
+	for _, asJSON := range []bool{false, true} {
+		t.Run(map[bool]string{false: "text", true: "json"}[asJSON], func(t *testing.T) {
+			r := newRepo(t)
+			r.write("f.txt", "a\n")
+			r.git("add", "f.txt")
+			r.git("commit", "-q", "-m", "f")
+			r.hookedEdit("s", "", "f.txt", "a\nb\n")
+			edits := r.path(".git/multistage/stages/claude-s/edits")
+			if err := os.Chmod(edits, 0o555); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(edits, 0o755) })
+			const warning = "cannot delete the staged edit records"
+			args := []string{"--stage", "claude-s", "add", "--edits"}
+			if asJSON {
+				args = append(args, "--json")
+			}
+			res := r.mustMS("", args...)
+			if asJSON {
+				var out struct {
+					Warnings []string `json:"warnings"`
+				}
+				decode(t, res, &out)
+				if n := strings.Count(strings.Join(out.Warnings, "\n"), warning); n != 1 {
+					t.Fatalf("JSON warnings = %q", out.Warnings)
+				}
+			} else if n := strings.Count(res.err, warning); n != 1 {
+				t.Fatalf("printed the warning %d times:\n%s", n, res)
+			}
+			res = r.mustMS("", "--stage", "claude-s", "status")
+			if n := strings.Count(res.err, warning); n != 1 {
+				t.Fatalf("status printed the warning %d times:\n%s", n, res)
+			}
+			r.mustMS("", "--stage", "claude-s", "commit", "-m", "b")
+			r.write("f.txt", "a\nb\nc\n")
+			r.expectCode(1, "", "--stage", "claude-s", "add", "--edits")
+			if got := r.stagedPaths("claude-s"); len(got) != 0 {
+				t.Fatalf("staged %q again", got)
+			}
+			if err := os.Chmod(edits, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			res = r.mustMS("", "--stage", "claude-s", "status")
+			if strings.Contains(res.err, warning) {
+				t.Fatalf("warned after the records became deletable:\n%s", res)
+			}
+			if left, _ := filepath.Glob(filepath.Join(edits, "*.json")); len(left) != 0 {
+				t.Fatalf("records left: %q", left)
+			}
+		})
+	}
+}

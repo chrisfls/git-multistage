@@ -130,6 +130,7 @@ type app struct {
 	agentic   bool   // --agentic
 	repo      *Repo
 	warnings  []string
+	stage     *Stage // the open stage, whose late warnings are collected before output
 }
 
 // Main runs the command line and returns the exit code.
@@ -184,7 +185,18 @@ func commandIndex(argv []string) int {
 	return len(argv)
 }
 
+// collectStageWarnings moves the warnings that the open stage raised since
+// the last collection into a.warnings, so each prints once.
+func (a *app) collectStageWarnings() {
+	if a.stage == nil {
+		return
+	}
+	a.warnings = append(a.warnings, a.stage.Warnings...)
+	a.stage.Warnings = nil
+}
+
 func (a *app) flushWarnings() {
+	a.collectStageWarnings()
 	if a.json {
 		return
 	}
@@ -194,7 +206,15 @@ func (a *app) flushWarnings() {
 	a.warnings = nil
 }
 
+// emit prints v as JSON. A "warnings" entry of v gets the stage's warnings
+// that are not collected yet.
 func (a *app) emit(v any) {
+	if m, ok := v.(map[string]any); ok {
+		if _, ok := m["warnings"]; ok {
+			a.collectStageWarnings()
+			m["warnings"] = a.warnings
+		}
+	}
 	enc := json.NewEncoder(a.out)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(v)
@@ -418,6 +438,7 @@ func (a *app) run(argv []string) error {
 		return err
 	}
 	defer stage.Close()
+	a.stage = stage
 	if stage.Created {
 		stage.warn("created stage %s on %s", stage.ID, stage.M.Branch)
 	}
