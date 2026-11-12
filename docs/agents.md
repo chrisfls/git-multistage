@@ -2,6 +2,28 @@
 
 Several agents can share one checkout when each one has its own stage. Give every agent a stage ID, usually its own agent ID, and the instructions in [the agent guide](agent-guide.md). From there an agent either selects hunks by ID, or, with an editor hook installed, stages exactly the edits it made.
 
+## Plugins
+
+The repository is a plugin for Claude Code and for Codex. The plugin installs the editor hook below and a `git-multistage` skill that holds [the agent guide](agent-guide.md). It calls the `git-multistage` binary, so install that first.
+
+Claude Code:
+
+```text
+/plugin marketplace add chrisfls/git-multistage
+/plugin install git-multistage@git-multistage
+```
+
+Codex:
+
+```bash
+codex plugin marketplace add chrisfls/git-multistage
+codex plugin add git-multistage@git-multistage
+```
+
+The next time Codex starts, it asks you to review the plugin's two hooks; trust them, or the hooks do not run. Codex installs a plugin from a local marketplace path from that repository's committed files.
+
+To configure the hooks by hand instead, use the sections below.
+
 ## Editor hooks
 
 Hunk selection asks an agent to recognize its own lines in a diff, and it cannot split edits on adjacent lines. An editor hook removes both problems. It runs before and after each file edit, records the file's content on both sides of the edit in the agent's stage, and `add --edits` replays those recorded edits:
@@ -24,7 +46,7 @@ The hook records only the editor's own file tools. Files that an agent changes t
 
 ### Claude Code
 
-Add the hook for the `Edit`, `MultiEdit`, and `Write` tools to the project's `.claude/settings.json`:
+Without the plugin, add the hook for the `Edit`, `MultiEdit`, and `Write` tools to the project's `.claude/settings.json`:
 
 ```json
 {
@@ -39,7 +61,7 @@ The main session records into `claude-<session_id>`. A subagent records into `cl
 
 ### Codex
 
-Add the hook for the `apply_patch` tool to the project's `.codex/hooks.json`, or to `~/.codex/hooks.json` for every project:
+Without the plugin, add the hook for the `apply_patch` tool to the project's `.codex/hooks.json`, or to `~/.codex/hooks.json` for every project:
 
 ```json
 {

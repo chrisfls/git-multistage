@@ -160,19 +160,35 @@ $env:GIT_MULTISTAGE_ID = "fix-login"
 
 Give each agent a stage ID, such as its agent ID, and [the agent guide](docs/agent-guide.md).
 
-In Claude Code or Codex, an editor hook can record each edit the agent makes. The agent then commits its edits with:
+For Claude Code and Codex, install the plugin. It records each edit an agent makes in that agent's stage and teaches the agent the commands. The `git-multistage` binary must be on your `PATH`.
+
+Claude Code:
+
+```text
+/plugin marketplace add chrisfls/git-multistage
+/plugin install git-multistage@git-multistage
+```
+
+Codex:
+
+```bash
+codex plugin marketplace add chrisfls/git-multistage
+codex plugin add git-multistage@git-multistage
+```
+
+Codex asks you to trust the plugin's hooks the next time it starts. Its default sandbox also blocks writes to `.git`; [docs/agents.md](docs/agents.md#codex) shows the rule that allows `git multistage`.
+
+An agent then commits its own edits with:
 
 ```bash
 git multistage --stage <id> add --edits
 git multistage --stage <id> commit -m "Add input validation"
 ```
 
-Hook setup: [docs/agents.md](docs/agents.md).
-
 ## Documentation
 
 - [Command reference](docs/cli.md): all commands, stage IDs, exit codes, and settings.
-- [Coding agents](docs/agents.md): editor hooks for Claude Code and Codex.
+- [Coding agents](docs/agents.md): the Claude Code and Codex plugins, and the editor hooks.
 - [Agent guide](docs/agent-guide.md): a short guide to give to an agent.
 - [Architecture](docs/architecture.md): storage, commits, and crash recovery.
 - [Limitations and recovery](docs/limitations.md): what a shared checkout cannot guarantee, and how to fix each error.
