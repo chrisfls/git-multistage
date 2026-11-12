@@ -6,4 +6,7 @@
 # Run `rulesync install && rulesync generate` to create them.
 /.rulesync/skills/.curated/
 /.claude/skills/
-/.agents/skills/
+# Everything under .agents/ except the Codex plugin marketplace.
+/.agents/**
+!/.agents/plugins/
+!/.agents/plugins/**
