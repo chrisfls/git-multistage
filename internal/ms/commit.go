@@ -27,16 +27,58 @@ type CommitResult struct {
 }
 
 // inProgress names a Git operation that is in progress in this worktree.
-func (r *Repo) inProgress() string {
-	for _, f := range []struct{ name, op string }{
-		{"MERGE_HEAD", "a merge"}, {"CHERRY_PICK_HEAD", "a cherry-pick"},
-		{"REVERT_HEAD", "a revert"}, {"rebase-merge", "a rebase"}, {"rebase-apply", "a rebase or am"},
+// blocking is set for operations that a moving HEAD would break: a rebase
+// finishes by moving the branch from the commit it started on.
+func (r *Repo) inProgress() (op string, blocking bool) {
+	for _, f := range []struct {
+		name, op string
+		blocking bool
+	}{
+		{"rebase-merge", "a rebase", true}, {"rebase-apply", "a rebase or am", true},
+		{"MERGE_HEAD", "a merge", false}, {"CHERRY_PICK_HEAD", "a cherry-pick", false}, {"REVERT_HEAD", "a revert", false},
 	} {
 		if _, err := os.Stat(filepath.Join(r.GitDir, f.name)); err == nil {
-			return f.op
+			return f.op, f.blocking
 		}
 	}
-	return ""
+	return "", false
+}
+
+// checkOperation decides whether a commit from parent to commit may land
+// while a merge, cherry-pick, or revert is in progress. It may when the
+// default index holds the parent's version of every path the commit changes:
+// the sync then adds the commit's changes, and the operation's own commit
+// later includes them. The caller holds index.lock.
+func (r *Repo) checkOperation(parent, commit string, sync bool) error {
+	op, blocking := r.inProgress()
+	if op == "" {
+		return nil
+	}
+	if blocking {
+		return errorf(ExitRefused, "operation-in-progress", "%s is in progress in this worktree; nothing was committed", op)
+	}
+	if !sync {
+		return errorf(ExitRefused, "operation-in-progress",
+			"%s is in progress and multistage.syncIndex is false, so its commit would undo this one; nothing was committed", op)
+	}
+	from := parent
+	if from == "" {
+		from = r.EmptyTree
+	}
+	changes, err := r.DiffTrees(from, commit, false)
+	if err != nil {
+		return err
+	}
+	var res SyncResult
+	if _, err := r.planIndexChanges(r.IndexPath, changes, &res); err != nil {
+		return err
+	}
+	if len(res.Kept) > 0 {
+		return &Error{Code: ExitRefused, Kind: "operation-in-progress",
+			Message: fmt.Sprintf("%s is in progress and has changed these paths in the index; nothing was committed", op),
+			Paths:   res.Kept, Hint: "finish or abort " + op + ", then commit again"}
+	}
+	return nil
 }
 
 // runHook runs a Git hook through `git hook run`, so core.hooksPath and
@@ -115,16 +157,16 @@ func (l *Stage) runPreCommit(tree string) (string, error) {
 func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
 	r := l.r
 	res := &CommitResult{Branch: l.M.Branch}
-	head, err := r.SymbolicHead()
+	head, err := r.headTarget()
 	if err != nil {
 		return nil, err
 	}
 	if head != l.M.Branch {
 		return nil, &Error{Code: ExitRefused, Kind: "branch-mismatch",
-			Message: fmt.Sprintf("HEAD is on %s, but this stage targets %s; nothing was committed", orDetached(head), l.M.Branch),
+			Message: fmt.Sprintf("HEAD is %s, but this stage targets %s; nothing was committed", describeTarget(head), describeTarget(l.M.Branch)),
 			Hint:    "check out " + strings.TrimPrefix(l.M.Branch, "refs/heads/") + " again, or drop the stage"}
 	}
-	if op := r.inProgress(); op != "" {
+	if op, blocking := r.inProgress(); blocking {
 		return nil, errorf(ExitRefused, "operation-in-progress", "%s is in progress in this worktree; finish or abort it before committing", op)
 	}
 	staged, err := r.WriteTree(l.IndexPath())
@@ -228,18 +270,21 @@ func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
 			}
 		}
 		// A native merge or rebase may have started since the first check.
-		if op := r.inProgress(); op != "" {
+		if err := r.checkOperation(tip, commit, sync); err != nil {
 			lk.release()
 			l.M.Pending = nil
 			_ = l.save()
-			return nil, errorf(ExitRefused, "operation-in-progress", "%s started in this worktree; nothing was committed", op)
+			return nil, err
 		}
 		old := tip
 		if old == "" {
 			old = r.ZeroOID
 		}
-		reflog := fmt.Sprintf("commit (multistage %s): %s", l.ID, res.Subject)
-		_, err = r.Run(gitx.Opt{}, "update-ref", "-m", reflog, l.M.Branch, commit, old)
+		refArgs := []string{"update-ref", "-m", reflogMessage(l.ID, res.Subject, sync)}
+		if l.M.Branch == "HEAD" {
+			refArgs = append(refArgs, "--no-deref")
+		}
+		_, err = r.Run(gitx.Opt{}, append(refArgs, l.M.Branch, commit, old)...)
 		if err != nil {
 			lk.release()
 			l.M.Pending = nil

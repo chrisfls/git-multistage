@@ -84,7 +84,7 @@ func (r *Repo) Stages() ([]StageInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	head, _ := r.SymbolicHead()
+	head, _ := r.headTarget()
 	res := []StageInfo{}
 	for _, e := range entries {
 		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
@@ -112,7 +112,7 @@ func (r *Repo) Stages() ([]StageInfo, error) {
 			li.Problems = append(li.Problems, "an interrupted commit is pending; the next command of this stage finishes it")
 		}
 		if m.Branch != head {
-			li.Problems = append(li.Problems, fmt.Sprintf("targets %s, but HEAD is on %s", m.Branch, orDetached(head)))
+			li.Problems = append(li.Problems, fmt.Sprintf("targets %s, but HEAD is %s", m.Branch, describeTarget(head)))
 		}
 		if m.Base != "" {
 			if _, err := r.Run(gitx.Opt{}, "cat-file", "-e", m.Base+"^{commit}"); err != nil {
@@ -153,27 +153,21 @@ func (r *Repo) Doctor() (*DoctorReport, error) {
 	}
 	v, _ := r.Line(gitx.Opt{}, "version")
 	add("ok", "%s", v)
-	head, err := r.SymbolicHead()
+	head, err := r.headTarget()
 	if err != nil {
 		return nil, err
 	}
-	tip := ""
+	tip, _ := r.ResolveRef(head)
 	switch {
-	case head == "":
-		add("error", "HEAD is detached; stages need a checked-out branch")
+	case tip == "":
+		add("ok", "HEAD is %s, which has no commits yet", describeTarget(head))
 	default:
-		tip, _ = r.ResolveRef(head)
-		if tip == "" {
-			add("ok", "HEAD is on %s, which has no commits yet", head)
-		} else {
-			add("ok", "HEAD is on %s at %s", head, short(tip))
-		}
+		add("ok", "HEAD is %s at %s", describeTarget(head), short(tip))
 	}
-	if op := r.inProgress(); op != "" {
+	if op, blocking := r.inProgress(); blocking {
 		add("warning", "%s is in progress; commits are refused until it ends", op)
-	}
-	if err := r.checkSupported(); err != nil {
-		add("error", "%s", err.Error())
+	} else if op != "" {
+		add("ok", "%s is in progress; a commit is refused only when that operation has changed the same paths in the index", op)
 	}
 	if _, err := os.Stat(r.IndexPath + ".lock"); err == nil {
 		add("warning", "%s exists: a Git process is running, or one crashed; if none is running, delete it", r.IndexPath+".lock")
@@ -181,16 +175,22 @@ func (r *Repo) Doctor() (*DoctorReport, error) {
 	if !r.syncEnabled() {
 		add("warning", "multistage.syncIndex is false: commits leave the default index behind the branch")
 	}
-	if head != "" && tip != "" {
+	if tip != "" {
 		from, err := r.validRecord(head)
 		if err != nil {
 			return nil, err
 		}
 		if from == "" {
-			staged, _ := r.Run(gitx.Opt{}, "diff-index", "--cached", "--name-only", "-z", "HEAD")
-			n := strings.Count(string(staged), "\x00")
-			add("ok", "the default index differs from HEAD at %d path(s): natively staged changes, or a lagging index "+
-				"(`git status` shows which; `git multistage sync --from <commit>` brings a lagging index forward)", n)
+			if from, err = r.matchingAncestor(head); err != nil {
+				return nil, err
+			}
+		}
+		if from == "" {
+			msg := "the default index holds natively staged changes (`git status` shows them)"
+			if c, n := r.nearestAncestor(head); c != "" && c != tip {
+				msg += fmt.Sprintf("; it is closest to %s (%d path(s) differ), so it may also lag behind: `git multistage sync --from %s` brings it forward", short(c), n, short(c))
+			}
+			add("ok", "%s", msg)
 		} else {
 			res, err := r.syncIndexLocked(head, from, false, true)
 			switch {

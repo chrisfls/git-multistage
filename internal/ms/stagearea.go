@@ -41,18 +41,6 @@ func OpenRepo(dir string) (*Repo, error) {
 
 func (r *Repo) stagesDir() string { return filepath.Join(r.Dir, "stages") }
 
-// checkSupported refuses repository layouts whose index semantics the
-// stages cannot reproduce.
-func (r *Repo) checkSupported() error {
-	for _, key := range []string{"core.sparseCheckout", "core.splitIndex", "index.sparse"} {
-		v, _ := r.Line(gitx.Opt{}, "config", "--type=bool", "--get", key)
-		if v == "true" {
-			return errorf(ExitRefused, "unsupported", "%s is enabled; git-multistage does not support it", key)
-		}
-	}
-	return nil
-}
-
 // configBool reads a boolean Git setting.
 func (r *Repo) configBool(key string, def bool) bool {
 	v, err := r.Line(gitx.Opt{}, "config", "--type=bool", "--get", key)
@@ -152,9 +140,6 @@ func (r *Repo) OpenStage(id string, exclusive bool) (*Stage, error) {
 	if err := ValidateStageID(id); err != nil {
 		return nil, err
 	}
-	if err := r.checkSupported(); err != nil {
-		return nil, err
-	}
 	dir := filepath.Join(r.stagesDir(), id)
 	if err := os.MkdirAll(r.stagesDir(), 0o777); err != nil {
 		return nil, err
@@ -228,12 +213,10 @@ func (l *Stage) errDamaged() error {
 }
 
 func (l *Stage) create() error {
-	branch, err := l.r.SymbolicHead()
+	// A stage targets the branch that HEAD points to, or a detached HEAD itself.
+	branch, err := l.r.headTarget()
 	if err != nil {
 		return err
-	}
-	if !strings.HasPrefix(branch, "refs/heads/") {
-		return errorf(ExitRefused, "detached-head", "HEAD is detached; check out a branch before using git-multistage")
 	}
 	base, err := l.r.ResolveRef(branch)
 	if err != nil {
@@ -264,6 +247,9 @@ func (l *Stage) setIndexTree(tree, base string) error {
 	name, gen := l.newIndexFile()
 	path := filepath.Join(l.Dir, name)
 	if err := l.r.ReadTree(path, tree); err != nil {
+		return err
+	}
+	if err := l.r.copySkipWorktree(path, nil, false); err != nil {
 		return err
 	}
 	l.M.Base = base
@@ -300,6 +286,59 @@ func (l *Stage) keepRef() string { return "refs/worktree/multistage/" + l.ID }
 
 // protect points keepRef at a commit of the staged tree while the stage has
 // staged changes, and deletes it otherwise.
+// skipWorktree returns the paths that a sparse checkout leaves out of the
+// working tree, from the default index; nil without a sparse checkout.
+func (r *Repo) skipWorktree() (map[string]bool, error) {
+	if !r.configBool("core.sparseCheckout", false) {
+		return nil, nil
+	}
+	out, err := r.Run(gitx.Opt{}, "ls-files", "-t", "-z")
+	if err != nil {
+		return nil, err
+	}
+	skip := map[string]bool{}
+	for _, rec := range strings.Split(string(out), "\x00") {
+		if strings.HasPrefix(rec, "S ") {
+			skip[rec[2:]] = true
+		}
+	}
+	return skip, nil
+}
+
+// copySkipWorktree marks the entries of index that the default index marks
+// skip-worktree, so a sparse checkout's missing files do not look deleted.
+// When only is set, it limits the marking to those paths.
+func (r *Repo) copySkipWorktree(index string, only []string, keepFormat bool) error {
+	skip, err := r.skipWorktree()
+	if err != nil || len(skip) == 0 {
+		return err
+	}
+	var paths []string
+	if only != nil {
+		for _, p := range only {
+			if skip[p] {
+				paths = append(paths, p)
+			}
+		}
+	} else {
+		out, err := r.Run(gitx.Opt{Index: index}, "ls-files", "-z")
+		if err != nil {
+			return err
+		}
+		for _, p := range strings.Split(string(out), "\x00") {
+			if skip[p] {
+				paths = append(paths, p)
+			}
+		}
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	_, err = r.Run(gitx.Opt{Index: index, KeepFormat: keepFormat, Stdin: strings.NewReader(strings.Join(paths, "\x00") + "\x00")},
+		"update-index", "--skip-worktree", "-z", "--stdin")
+	return err
+}
+
 func (l *Stage) protect() error {
 	if l.Damaged {
 		return nil

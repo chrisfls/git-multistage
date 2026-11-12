@@ -264,7 +264,7 @@ func TestSubdirectoryAndUnusualPaths(t *testing.T) {
 	r.expectCode(2, "agent-a", "add", filepath.Join(t.TempDir(), "outside.txt"))
 }
 
-func TestRefusesDetachedHeadAndBranchSwitch(t *testing.T) {
+func TestRefusesBranchSwitch(t *testing.T) {
 	r := newRepo(t)
 	r.write("a.txt", "a\n")
 	r.mustMS("agent-a", "add", "a.txt")
@@ -275,8 +275,11 @@ func TestRefusesDetachedHeadAndBranchSwitch(t *testing.T) {
 	}
 	r.git("switch", "-q", "main")
 	r.mustMS("agent-a", "commit", "-m", "a")
+	// A stage of a branch refuses to commit on a detached HEAD.
+	r.write("b.txt", "b\n")
+	r.mustMS("agent-a", "add", "b.txt")
 	r.git("switch", "-q", "--detach")
-	r.expectCode(5, "agent-new", "status")
+	r.expectCode(5, "agent-a", "commit", "-m", "b")
 }
 
 func TestUnbornBranch(t *testing.T) {

@@ -90,8 +90,8 @@ func (r *Repo) ensureSyncRecord(tip string) error {
 	if tip == "" || r.readSyncRecord().branch != "" {
 		return nil
 	}
-	head, err := r.SymbolicHead()
-	if err != nil || head == "" {
+	head, err := r.headTarget()
+	if err != nil {
 		return err
 	}
 	tree, err := r.indexTree(r.IndexPath)
@@ -142,15 +142,16 @@ func (k *indexLock) release() {
 	os.Remove(k.path)
 }
 
-// SyncIndex synchronizes the default index with the branch tip. from is the
-// commit that the default index matches; "" uses the sync record.
+// SyncIndex synchronizes the default index with the tip of HEAD. from is the
+// commit that the default index matches; "" uses the sync record, or else the
+// newest ancestor of the tip whose tree equals the index.
 func (r *Repo) SyncIndex(from string, timeout time.Duration) (SyncResult, error) {
 	lk, err := r.lockIndex(timeout)
 	if err != nil {
 		return SyncResult{}, err
 	}
 	defer lk.release()
-	head, err := r.SymbolicHead()
+	head, err := r.headTarget()
 	if err != nil {
 		return SyncResult{}, err
 	}
@@ -158,21 +159,32 @@ func (r *Repo) SyncIndex(from string, timeout time.Duration) (SyncResult, error)
 		if from, err = r.validRecord(head); err != nil {
 			return SyncResult{}, err
 		}
-		if from == "" {
-			return SyncResult{}, &Error{Code: ExitError, Kind: "sync-unknown",
-				Message: "cannot tell which commit the default index matches: it changed since the last sync",
-				Hint:    "pass the commit with --from, such as --from HEAD@{1}; `git diff --cached` shows the difference"}
+	}
+	if from == "" {
+		if from, err = r.matchingAncestor(head); err != nil {
+			return SyncResult{}, err
 		}
+	}
+	if from == "" {
+		hint := "pass the commit that the index matches with --from; `git diff --cached` shows the difference"
+		if c, n := r.nearestAncestor(head); c != "" {
+			hint = fmt.Sprintf("the closest commit is %s, which differs from the index at %d path(s): pass --from %s if the index lags behind it", short(c), n, short(c))
+		}
+		return SyncResult{}, &Error{Code: ExitError, Kind: "sync-unknown",
+			Message: "cannot tell which commit the default index matches: it holds changes that no commit of " + head + " has",
+			Hint:    hint}
 	}
 	return r.syncIndexLocked(head, from, true, false)
 }
 
 // syncAfterCommit synchronizes the default index after this process moved
 // the branch from parent. The caller holds index.lock, and every stage moves
-// the branch only while holding it, so the index matches parent unless
-// another tool moved the branch without updating the index.
+// the branch only while holding it, so the index matches parent, unless a
+// tool moved the branch without updating the index. That lag is caught up
+// only when it is certain: the index equals an older commit exactly, and the
+// reflog shows that only index-free updates happened since.
 func (r *Repo) syncAfterCommit(parent string) (SyncResult, error) {
-	head, err := r.SymbolicHead()
+	head, err := r.headTarget()
 	if err != nil {
 		return SyncResult{}, err
 	}
@@ -180,11 +192,134 @@ func (r *Repo) syncAfterCommit(parent string) (SyncResult, error) {
 	if err != nil {
 		return SyncResult{}, err
 	}
-	from := parent
-	if from == "" {
-		from = r.EmptyTree
+	if parent == "" {
+		return r.syncIndexLocked(head, r.EmptyTree, true, false)
 	}
-	return r.syncIndexLocked(head, from, rec == parent, false)
+	from, keep := parent, rec == parent
+	if !keep {
+		current, err := r.indexTree(r.IndexPath)
+		if err != nil {
+			return SyncResult{}, err
+		}
+		parentTree, err := r.TreeOf(parent)
+		if err != nil {
+			return SyncResult{}, err
+		}
+		keep = current == parentTree
+		if current != "" && current != parentTree {
+			if c, _ := r.ancestorWithTree(parent, current); c != "" && r.lagOnly(head, parent, c) {
+				from, keep = c, true
+			}
+		}
+	}
+	return r.syncIndexLocked(head, from, keep, false)
+}
+
+// matchingAncestor returns the newest commit of head's first-parent history
+// whose tree equals the default index, or "".
+func (r *Repo) matchingAncestor(head string) (string, error) {
+	tip, err := r.ResolveRef(head)
+	if err != nil || tip == "" {
+		return "", err
+	}
+	current, err := r.indexTree(r.IndexPath)
+	if err != nil || current == "" {
+		return "", err
+	}
+	return r.ancestorWithTree(tip, current)
+}
+
+const historyScan = 200
+
+// ancestorWithTree returns the newest of the first historyScan first-parent
+// ancestors of tip (tip included) whose tree is tree.
+func (r *Repo) ancestorWithTree(tip, tree string) (string, error) {
+	out, err := r.Run(gitx.Opt{}, "rev-list", "--first-parent", fmt.Sprintf("--max-count=%d", historyScan), "--format=%T", tip)
+	if err != nil {
+		return "", err
+	}
+	f := strings.Fields(string(out)) // commit <oid> <tree> ...
+	for i := 0; i+2 < len(f); i += 3 {
+		if f[i+2] == tree {
+			return f[i+1], nil
+		}
+	}
+	return "", nil
+}
+
+// nearestAncestor returns the recent first-parent ancestor of head whose tree
+// differs from the default index at the fewest paths.
+func (r *Repo) nearestAncestor(head string) (string, int) {
+	out, err := r.Run(gitx.Opt{}, "rev-list", "--first-parent", "--max-count=50", head)
+	if err != nil {
+		return "", 0
+	}
+	best, bestN := "", -1
+	for _, c := range strings.Fields(string(out)) {
+		diff, err := r.Run(gitx.Opt{Index: r.IndexPath}, "diff-index", "--cached", "--name-only", "-z", c)
+		if err != nil {
+			continue
+		}
+		if n := strings.Count(string(diff), "\x00"); bestN < 0 || n < bestN {
+			best, bestN = c, n
+		}
+	}
+	return best, bestN
+}
+
+// lagOnly reports whether every update of ref from older (exclusive) up to
+// newer (inclusive) was one that leaves the default index alone: an update-ref
+// without a reflog message, or a stage commit made with multistage.syncIndex
+// off.
+func (r *Repo) lagOnly(ref, newer, older string) bool {
+	out, err := r.Run(gitx.Opt{}, "reflog", "show", "--format=%H%x00%gs", fmt.Sprintf("-n%d", historyScan), ref, "--")
+	if err != nil {
+		return false
+	}
+	started := false
+	for _, line := range strings.Split(string(out), "\n") {
+		oid, msg, ok := strings.Cut(line, "\x00")
+		if !ok {
+			continue
+		}
+		if !started {
+			started = oid == newer
+		}
+		if !started {
+			continue
+		}
+		if oid == older {
+			return true
+		}
+		if msg != "" && !notSyncedReflog(msg) {
+			return false
+		}
+	}
+	return false
+}
+
+// reflogMessage is the reflog subject of a stage commit. A commit made with
+// multistage.syncIndex off says so, which lets lagOnly recognize it.
+func reflogMessage(stage, subject string, synced bool) string {
+	if synced {
+		return fmt.Sprintf("commit (multistage %s): %s", stage, subject)
+	}
+	return fmt.Sprintf("commit (multistage %s, index not synced): %s", stage, subject)
+}
+
+func notSyncedReflog(msg string) bool {
+	head, _, ok := strings.Cut(msg, "): ")
+	return ok && strings.HasPrefix(head, "commit (multistage ") && strings.HasSuffix(head, ", index not synced")
+}
+
+// headTarget returns the branch that HEAD points to, or "HEAD" when HEAD is
+// detached.
+func (r *Repo) headTarget() (string, error) {
+	b, err := r.SymbolicHead()
+	if err != nil || b != "" {
+		return b, err
+	}
+	return "HEAD", nil
 }
 
 // validRecord returns the commit of the sync record when the record belongs
@@ -208,10 +343,6 @@ func (r *Repo) validRecord(head string) (string, error) {
 // index.lock, unless dryRun is set: then nothing is written.
 func (r *Repo) syncIndexLocked(head, from string, keepRecord, dryRun bool) (SyncResult, error) {
 	var res SyncResult
-	if head == "" {
-		res.Warnings = append(res.Warnings, "HEAD is detached; the default index was not synchronized")
-		return res, nil
-	}
 	tip, err := r.ResolveRef(head)
 	if err != nil || tip == "" {
 		return res, err
@@ -289,8 +420,12 @@ func (r *Repo) applyIndexChanges(changes []gitx.Entry, res *SyncResult, dryRun b
 	if input == "" {
 		return "", nil
 	}
-	if _, err := r.Run(gitx.Opt{Index: tmp, Stdin: strings.NewReader(input)},
+	if _, err := r.Run(gitx.Opt{Index: tmp, KeepFormat: true, Stdin: strings.NewReader(input)},
 		"update-index", "-z", "--index-info"); err != nil {
+		return "", err
+	}
+	// --index-info drops the skip-worktree bit of the entries it replaces.
+	if err := r.copySkipWorktree(tmp, res.Updated, true); err != nil {
 		return "", err
 	}
 	tree, err := r.indexTree(tmp)

@@ -64,6 +64,9 @@ type Opt struct {
 	Stdout io.Writer // when set, output streams here instead of being returned
 	Stderr io.Writer // when set, stderr streams here instead of being captured
 	User   bool      // run with the caller's environment, as hooks and pass-through commands need
+	// KeepFormat writes an index in the format that the repository's
+	// configuration asks for, as the default index needs.
+	KeepFormat bool
 }
 
 // userEnv is the caller's environment without GIT_INDEX_FILE, which
@@ -159,7 +162,14 @@ func (r *Repo) checkVersion() error {
 
 // Run runs git with args and returns its stdout.
 func (r *Repo) Run(o Opt, args ...string) ([]byte, error) {
-	cmd := exec.Command("git", args...)
+	gitArgs := args
+	if !o.User && !o.KeepFormat {
+		// Stage indexes and rewritten copies of the default index are full,
+		// unsplit indexes: Git expires the shared index files of a split
+		// index, which would break an idle stage.
+		gitArgs = append([]string{"-c", "core.splitIndex=false", "-c", "index.sparse=false"}, args...)
+	}
+	cmd := exec.Command("git", gitArgs...)
 	cmd.Dir = o.Dir
 	if cmd.Dir == "" {
 		cmd.Dir = r.Top

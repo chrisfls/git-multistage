@@ -115,7 +115,7 @@ type Freshness struct {
 // the result reports it as stale.
 func (l *Stage) refresh() (Freshness, error) {
 	f := Freshness{Branch: l.M.Branch, Base: l.M.Base}
-	head, err := l.r.SymbolicHead()
+	head, err := l.r.headTarget()
 	if err != nil {
 		return f, err
 	}
@@ -127,7 +127,7 @@ func (l *Stage) refresh() (Freshness, error) {
 	f.Tip = tip
 	if head != l.M.Branch {
 		f.Stale = tip != l.M.Base
-		f.Reason = fmt.Sprintf("HEAD is on %s, but this stage targets %s", orDetached(head), l.M.Branch)
+		f.Reason = fmt.Sprintf("HEAD is %s, but this stage targets %s", describeTarget(head), describeTarget(l.M.Branch))
 		return f, nil
 	}
 	if tip == l.M.Base {
@@ -170,9 +170,10 @@ func (l *Stage) refresh() (Freshness, error) {
 	return f, nil
 }
 
-func orDetached(ref string) string {
-	if ref == "" {
+// describeTarget names a stage target for messages.
+func describeTarget(ref string) string {
+	if ref == "HEAD" {
 		return "a detached HEAD"
 	}
-	return ref
+	return "on " + ref
 }
