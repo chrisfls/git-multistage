@@ -163,3 +163,17 @@ func TestHookAcceptsAPathInAnotherCase(t *testing.T) {
 		t.Fatalf("staged %q", got)
 	}
 }
+
+func TestHookKeepsCRLFOfACommittedFile(t *testing.T) {
+	r := newRepo(t)
+	r.write("crlf.txt", "one\r\ntwo\r\nthree\r\n")
+	r.git("add", "crlf.txt")
+	r.git("commit", "-q", "-m", "crlf")
+	r.git("config", "core.autocrlf", "true")
+	r.hookedEdit("s", "", "crlf.txt", "one\r\nTWO\r\nthree\r\n")
+	r.mustMS("", "--stage", "claude-s", "add", "--edits")
+	r.mustMS("", "--stage", "claude-s", "commit", "-m", "two")
+	if got := r.git("cat-file", "blob", "main:crlf.txt"); got != "one\r\nTWO\r\nthree\r\n" {
+		t.Fatalf("crlf.txt = %q", got)
+	}
+}

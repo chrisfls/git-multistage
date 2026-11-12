@@ -282,7 +282,19 @@ func (h *editHook) snapshot() (string, error) {
 	if _, err := os.Lstat(filepath.Join(h.r.Top, filepath.FromSlash(h.path))); errors.Is(err, fs.ErrNotExist) {
 		return "", nil
 	}
-	return h.r.Line(gitx.Opt{}, "hash-object", "-w", "--path="+h.path, "--", h.path)
+	return h.r.snapshotBlob(h.indexFile(), h.path)
+}
+
+// indexFile names the index that the stage's `add --edits` applies records
+// to: the stage's own index, or the default index before the stage has one.
+func (h *editHook) indexFile() string {
+	if m, err := readMeta(h.stageDir); err == nil {
+		idx := filepath.Join(h.stageDir, m.Index)
+		if _, err := os.Stat(idx); err == nil {
+			return idx
+		}
+	}
+	return h.r.IndexPath
 }
 
 func (h *editHook) before(stderr io.Writer) int {
