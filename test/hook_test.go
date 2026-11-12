@@ -2,6 +2,7 @@ package test
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -156,4 +157,78 @@ func TestHookIgnoresOtherToolsAndPaths(t *testing.T) {
 			t.Fatalf("outside a repository:\n%s", res)
 		}
 	}
+}
+
+// codexCall runs `git multistage hook codex` with a Codex-style input.
+func (r *repo) codexCall(event, session, agentID, toolUseID, patch string) result {
+	in := map[string]any{
+		"hook_event_name": event, "tool_name": "apply_patch", "session_id": session,
+		"tool_use_id": toolUseID, "cwd": r.dir,
+		"tool_input": map[string]any{"command": patch},
+	}
+	if agentID != "" {
+		in["agent_id"] = agentID
+	}
+	data, _ := json.Marshal(in)
+	return runStdin(r.dir, "", nil, string(data), "hook", "codex")
+}
+
+// codexEdit runs the hooks around fn, the way Codex runs apply_patch.
+func (r *repo) codexEdit(session, agentID, id, patch string, fn func()) {
+	r.t.Helper()
+	if res := r.codexCall("PreToolUse", session, agentID, id, patch); res.code != 0 {
+		r.t.Fatalf("PreToolUse:\n%s", res)
+	}
+	fn()
+	if res := r.codexCall("PostToolUse", session, agentID, id, patch); res.code != 0 {
+		r.t.Fatalf("PostToolUse:\n%s", res)
+	}
+}
+
+func TestCodexHookSeparatesSessionAndSubagent(t *testing.T) {
+	r := newRepo(t)
+	r.write("notes.txt", "one\ntwo\nthree\nfour\n")
+	r.git("add", "notes.txt")
+	r.git("commit", "-q", "-m", "notes")
+	r.codexEdit("sess", "", "exec-1", "*** Begin Patch\n*** Update File: notes.txt\n@@\n-two\n+TWO\n*** End Patch",
+		func() { r.write("notes.txt", "one\nTWO\nthree\nfour\n") })
+	r.codexEdit("sess", "sub-7", "exec-2", "*** Begin Patch\n*** Update File: notes.txt\n@@\n-three\n+THREE\n*** End Patch",
+		func() { r.write("notes.txt", "one\nTWO\nTHREE\nfour\n") })
+	for stage, subject := range map[string]string{"codex-sess": "two", "codex-sub-7": "three"} {
+		r.mustMS("", "--stage", stage, "add", "--edits")
+		r.mustMS("", "--stage", stage, "commit", "-m", subject)
+	}
+	if got := r.git("show", "main:notes.txt"); got != "one\nTWO\nTHREE\nfour\n" {
+		t.Fatalf("notes.txt = %q", got)
+	}
+	bySubject := r.commitBySubject()
+	if d := r.git("show", "-U0", "--format=", bySubject["three"]); strings.Contains(d, "+TWO") || !strings.Contains(d, "+THREE") {
+		t.Fatalf("the subagent's commit:\n%s", d)
+	}
+	r.checkClean()
+}
+
+func TestCodexHookMultiFilePatch(t *testing.T) {
+	r := newRepo(t)
+	r.write("old.txt", "old\n")
+	r.write("gone.txt", "gone\n")
+	r.git("add", ".")
+	r.git("commit", "-q", "-m", "files")
+	patch := "*** Begin Patch\n*** Add File: src/new.txt\n+new\n*** Delete File: gone.txt\n" +
+		"*** Update File: old.txt\n*** Move to: moved.txt\n@@\n-old\n+moved\n*** End Patch"
+	r.codexEdit("s", "", "exec-9", patch, func() {
+		r.write("src/new.txt", "new\n")
+		os.Remove(r.path("gone.txt"))
+		os.Remove(r.path("old.txt"))
+		r.write("moved.txt", "moved\n")
+	})
+	r.mustMS("", "--stage", "codex-s", "add", "--edits")
+	r.mustMS("", "--stage", "codex-s", "commit", "-m", "patch")
+	out := r.git("show", "--name-status", "--format=", "--no-renames", "main")
+	for _, want := range []string{"A\tsrc/new.txt", "D\tgone.txt", "D\told.txt", "A\tmoved.txt"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("commit lacks %q:\n%s", want, out)
+		}
+	}
+	r.checkClean()
 }

@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -20,7 +21,8 @@ import (
 )
 
 // `git multistage hook claude` runs as a Claude Code PreToolUse and
-// PostToolUse hook on the file tools. Before an edit it takes a short lease
+// PostToolUse hook on the file tools, and `git multistage hook codex` as a
+// Codex hook on apply_patch. Before an edit it takes a short lease
 // on the file, so that two hooked agents never write one file at the same
 // moment, and snapshots the file. After the edit it records the before and
 // after content in the editing agent's stage. A hook error never blocks the
@@ -31,16 +33,46 @@ const (
 	leaseTimeout = 20 * time.Second
 )
 
-// hookInput is the part of Claude Code's hook input that the hook reads.
+// hookInput is the part of a Claude Code or Codex hook input that the hook
+// reads. Both put the editing subagent's ID in agent_id.
 type hookInput struct {
 	Event     string `json:"hook_event_name"`
 	Tool      string `json:"tool_name"`
 	SessionID string `json:"session_id"`
 	AgentID   string `json:"agent_id"` // set inside a subagent
 	ToolUseID string `json:"tool_use_id"`
+	Cwd       string `json:"cwd"`
 	Input     struct {
-		FilePath string `json:"file_path"`
+		FilePath string `json:"file_path"` // Claude Code Edit, MultiEdit, Write
+		Command  string `json:"command"`   // Codex apply_patch: the patch text
 	} `json:"tool_input"`
+}
+
+// editedFiles returns the files that the tool call edits, as absolute
+// paths, for the editor family kind.
+func editedFiles(kind string, in hookInput) []string {
+	switch {
+	case kind == "claude" && (in.Tool == "Edit" || in.Tool == "MultiEdit" || in.Tool == "Write"):
+		if in.Input.FilePath != "" {
+			return []string{in.Input.FilePath}
+		}
+	case kind == "codex" && in.Tool == "apply_patch":
+		var files []string
+		for _, line := range strings.Split(in.Input.Command, "\n") {
+			line = strings.TrimRight(line, "\r")
+			for _, prefix := range []string{"*** Update File: ", "*** Add File: ", "*** Delete File: ", "*** Move to: "} {
+				if p, ok := strings.CutPrefix(line, prefix); ok && strings.TrimSpace(p) != "" {
+					p = strings.TrimSpace(p)
+					if !filepath.IsAbs(p) {
+						p = filepath.Join(in.Cwd, p)
+					}
+					files = append(files, p)
+				}
+			}
+		}
+		return files
+	}
+	return nil
 }
 
 type pendingEdit struct {
@@ -57,18 +89,14 @@ type lease struct {
 
 // runEditHook handles one hook call. It returns the exit code for Claude
 // Code: 0 lets the edit proceed, 2 blocks it with the stderr message.
-func runEditHook(stdin io.Reader, stdout, stderr io.Writer, stageFlag string) int {
+func runEditHook(kind string, stdin io.Reader, stdout, stderr io.Writer, stageFlag string) int {
 	var in hookInput
 	if err := json.NewDecoder(stdin).Decode(&in); err != nil {
 		fmt.Fprintf(stderr, "git-multistage hook: cannot read the hook input: %v\n", err)
 		return 0
 	}
-	switch in.Tool {
-	case "Edit", "MultiEdit", "Write":
-	default:
-		return 0
-	}
-	if in.Input.FilePath == "" {
+	files := editedFiles(kind, in)
+	if len(files) == 0 {
 		return 0
 	}
 	id := stageFlag
@@ -83,22 +111,42 @@ func runEditHook(stdin io.Reader, stdout, stderr io.Writer, stageFlag string) in
 		if owner == "" {
 			return 0
 		}
-		id = sanitizeID("claude-" + owner)
+		id = sanitizeID(kind + "-" + owner)
 	}
-	h, err := newEditHook(in, id)
-	if err != nil || h == nil {
+	var hooks []*editHook
+	seen := map[string]bool{}
+	for _, f := range files {
+		h, err := newEditHook(in, id, f)
 		if err != nil {
 			fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
+			continue
 		}
-		return 0
+		if h != nil && !seen[h.r.Top+"\x00"+h.path] {
+			seen[h.r.Top+"\x00"+h.path] = true
+			hooks = append(hooks, h)
+		}
 	}
+	// Lease files in one order, so that two multi-file edits never wait for
+	// each other's leases in a cycle.
+	sort.Slice(hooks, func(i, j int) bool { return hooks[i].leasePath() < hooks[j].leasePath() })
 	switch in.Event {
 	case "PreToolUse":
-		return h.before(stderr)
+		for i, h := range hooks {
+			if code := h.before(stderr); code != 0 {
+				for _, prev := range hooks[:i] {
+					prev.abandon()
+				}
+				return code
+			}
+		}
 	case "PostToolUse":
-		h.after(stdout, stderr, true)
+		for _, h := range hooks {
+			h.after(stdout, stderr, true)
+		}
 	case "PostToolUseFailure":
-		h.after(stdout, stderr, false)
+		for _, h := range hooks {
+			h.after(stdout, stderr, false)
+		}
 	}
 	return 0
 }
@@ -114,11 +162,11 @@ type editHook struct {
 
 // newEditHook resolves the repository and path of the edited file. It
 // returns nil for a file outside any Git worktree.
-func newEditHook(in hookInput, stage string) (*editHook, error) {
+func newEditHook(in hookInput, stage, file string) (*editHook, error) {
 	if err := ValidateStageID(stage); err != nil {
 		return nil, err
 	}
-	abs, err := filepath.Abs(in.Input.FilePath)
+	abs, err := filepath.Abs(file)
 	if err != nil {
 		return nil, err
 	}
@@ -162,11 +210,7 @@ func newEditHook(in hookInput, stage string) (*editHook, error) {
 	}
 	h := &editHook{r: r, in: in, stage: stage, stageDir: filepath.Join(r.stagesDir(), stage), path: rel}
 	sum := sha256.Sum256([]byte(rel))
-	h.key = in.ToolUseID
-	if h.key == "" {
-		h.key = hex.EncodeToString(sum[:8])
-	}
-	h.key = sanitizeID(h.key)
+	h.key = sanitizeID(in.ToolUseID + "-" + hex.EncodeToString(sum[:8]))
 	return h, nil
 }
 
@@ -275,6 +319,20 @@ func (h *editHook) after(stdout, stderr io.Writer, succeeded bool) {
 	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{
 		"hookEventName": "PostToolUse", "additionalContext": msg}})
 	fmt.Fprintln(stdout, string(out))
+}
+
+// abandon releases the lease and pending snapshot of a PreToolUse call
+// whose edit will not happen.
+func (h *editHook) abandon() {
+	data, err := os.ReadFile(h.pendingPath())
+	if err != nil {
+		return
+	}
+	os.Remove(h.pendingPath())
+	var p pendingEdit
+	if json.Unmarshal(data, &p) == nil {
+		h.releaseLease(p.Nonce)
+	}
 }
 
 // withLeaseFile runs f while holding the guard lock of the file's lease.

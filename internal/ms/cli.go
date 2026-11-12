@@ -43,7 +43,7 @@ Commands:
   sync [--from <commit>]       bring the default index up to the branch tip
   drop [--force]               delete this stage
   drop --edits [<path>...]     forget recorded edits
-  hook claude                  Claude Code PreToolUse/PostToolUse hook for file edits
+  hook claude|codex            editor hook that records file edits (Claude Code, Codex)
 
 Most commands take --json. Exit codes: 0 ok, 1 error or nothing to commit,
 2 usage, 3 conflict, 4 stale hunk ID, 5 refused, 6 lock timeout.
@@ -852,12 +852,12 @@ func (a *app) drop(l *Stage, p *parsed) error {
 	return nil
 }
 
-// hookMain runs `git multistage hook claude [--stage <id>]`.
+// hookMain runs `git multistage hook claude|codex [--stage <id>]`.
 func hookMain(argv []string, stdout, stderr io.Writer) int {
 	p, err := parseArgs(argv, nil)
-	if err != nil || len(p.pos) != 1 || p.pos[0] != "claude" {
-		fmt.Fprintln(stderr, "usage: git multistage hook claude [--stage <id>]")
+	if err != nil || len(p.pos) != 1 || p.pos[0] != "claude" && p.pos[0] != "codex" {
+		fmt.Fprintln(stderr, "usage: git multistage hook claude|codex [--stage <id>]")
 		return ExitUsage
 	}
-	return runEditHook(os.Stdin, stdout, stderr, p.get("--stage"))
+	return runEditHook(p.pos[0], os.Stdin, stdout, stderr, p.get("--stage"))
 }
