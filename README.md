@@ -1,197 +1,146 @@
 # git-multistage
 
-`git multistage` gives one Git checkout several independent staging areas, called stages. Each stage has its own index and its own staged changes, and commits to the checked-out branch on its own. Stages do not wait for each other, and they need no extra worktrees or branches.
+[![CI](https://img.shields.io/github/actions/workflow/status/chrisfls/git-multistage/ci.yml?branch=main&style=for-the-badge&logo=github)](https://github.com/chrisfls/git-multistage/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
-Select a stage with a stage ID. A person can keep separate stages for separate changes; a coding agent uses its agent ID, so several agents can stage and commit in the same checkout at the same time.
+git-multistage gives a Git checkout more than one staging area. Each stage has its own index and commits to the checked-out branch on its own, so several coding agents, or one person with several changes in flight, can stage and commit in the same checkout at the same time.
 
-The tool is a thin layer over Git plumbing (`GIT_INDEX_FILE`, `merge-tree`, `commit-tree`, `update-ref`). The history it writes is ordinary, linear Git history, which you can push with any Git client.
+It runs as `git multistage` and makes every change through Git's own plumbing, so the result is ordinary linear history that any Git client can push.
 
-```bash
-git multistage --stage fix-login add src/login.ts
-git multistage --stage fix-login commit -m "Fix login redirect"
-```
+## Context: one index per checkout
 
-At the same time, in the same checkout:
+A Git checkout has one index. When two agents work in the same checkout, `git add` puts both agents' changes into that index, and the next `git commit` takes all of it. If both agents edited the same file, the only way to split their changes is `git add -p`, which waits at a prompt for someone to answer.
 
-```bash
-git multistage --stage validation hunks src/shared.ts     # list hunks with IDs
-git multistage --stage validation add src/shared.ts --hunk 3f2a9c1d0e7a
-git multistage --stage validation commit -m "Update validation"
-```
+The usual workaround is a worktree per agent. That works, but each worktree is a separate directory with its own build and dependencies, and its branch has to be merged back. git-multistage keeps the single checkout and gives each agent its own index.
 
-Both commits land on the branch, each with only its own changes.
+## Compared with plain Git
+
+| Task | git-multistage | Plain Git |
+| --- | --- | --- |
+| Stage your file | `git multistage --stage a add src/a.ts` | `git add src/a.ts`, into the index that every agent shares |
+| Stage one hunk from a script | `git multistage --stage a add src/shared.ts --hunk d94c87b26e90` | `git add -p`, which asks at a prompt |
+| See what you staged | `git multistage --stage a diff --cached` | `git diff --cached`, which shows every agent's staged changes |
+| Commit while others commit | `git multistage --stage a commit -m "Fix login"` | `git commit`, which takes the whole shared index and fails while another commit holds `index.lock` |
+| Keep agents apart | One stage per agent, in one checkout | One worktree per agent |
+
+Beyond the core commands:
+
+- Agents select hunks of a shared file [by ID](docs/cli.md#hunk-ids), without prompts. An ID stays the same while other hunks are staged or committed, and is refused once the file changes under it.
+- A [commit](docs/architecture.md#the-commit-transaction) replays the stage's changes onto the branch tip as it is at that moment, and moves the branch only if nobody else moved it first. Edits that two stages made on neighbouring lines both land.
+- Optional [editor hooks](docs/agents.md) for Claude Code and Codex record each edit an agent makes, so `add --edits` stages exactly that agent's edits. Subagents get stages of their own.
+- `git status` keeps working. After each commit, the [ordinary index](docs/architecture.md#the-default-index) catches up with the branch, and entries that someone staged by hand stay as they were.
+- A commit killed halfway leaves no commit or exactly one, and the stage's next command [finishes or discards it](docs/architecture.md#crash-recovery).
 
 ## Install
 
-Requirements: Git 2.45 or newer, and Go 1.22 or newer to build.
+git-multistage needs Git 2.45 or newer.
 
 ```bash
-git clone <repository> git-multistage
+go install github.com/chrisfls/git-multistage/cmd/git-multistage@latest
+```
+
+To build from a clone instead:
+
+```bash
+git clone https://github.com/chrisfls/git-multistage
 cd git-multistage
 go build -o "$HOME/.local/bin/git-multistage" ./cmd/git-multistage
 ```
 
-Put the binary in a directory on your `PATH`. Git then runs it as `git multistage`. On Windows, build `git-multistage.exe` and put it in a directory on `%PATH%`:
+Git runs any `git-multistage` binary on your `PATH` as `git multistage`. On Windows, build `git-multistage.exe` into a directory on `%PATH%`:
 
 ```powershell
 go build -o "$env:USERPROFILE\bin\git-multistage.exe" .\cmd\git-multistage
 ```
 
-Check the installation with `git multistage doctor` inside a repository.
+Run `git multistage doctor` inside a repository to check the setup.
 
-## Getting started
+## Quick start
 
-1. Choose a stage ID. An ID has 1 to 64 lowercase letters, digits, `.`, `_`, or `-`. Pass it on each command, or set it once for a shell:
+Two changes are in progress in one checkout: a fix in `src/login.ts`, and an input check in `src/shared.ts`, a file that also holds an unrelated edit. Each change gets its own stage. `src/login.ts` belongs to the fix alone, so it is staged whole:
 
-   | Shell | Command |
-   | --- | --- |
-   | any, per command | `git multistage --stage <id> <command>` |
-   | bash, zsh | `export GIT_MULTISTAGE_ID=<id>` |
-   | PowerShell | `$env:GIT_MULTISTAGE_ID = "<id>"` |
-   | cmd.exe | `set GIT_MULTISTAGE_ID=<id>` |
+```console
+$ git multistage --stage fix-login add src/login.ts
+staged: M  src/login.ts
+warning: created stage fix-login on refs/heads/main
+```
 
-   `--stage` wins over `GIT_MULTISTAGE_ID`. Every command refuses to run without a stage ID. `git multistage init` creates a stage with a new random ID and prints it; `git multistage init <id>` fails when the stage already exists, so two users cannot claim one ID by accident.
+`src/shared.ts` has two edits, and only the first belongs to the validation change. List the hunks, then stage that one by its ID:
 
-2. Edit files. When the file belongs to you alone, stage it whole:
+```console
+$ git multistage --stage validation hunks src/shared.ts
+diff src/shared.ts (modified)
+@@ -2,1 +2,1 @@ id=d94c87b26e90
+-  if (!input) return false;
++  if (!input || input.length > 256) return false;
+@@ -7,1 +7,1 @@ id=3c16c257727c
+-  return input.trim();
++  return input.trim().toLowerCase();
+warning: created stage validation on refs/heads/main
+$ git multistage --stage validation add src/shared.ts --hunk d94c87b26e90
+staged 1 hunk(s) in src/shared.ts
+```
 
-   ```bash
-   git multistage add src/a.ts
-   ```
+Each stage shows only what it staged:
 
-3. When other stages also change the file, stage only your hunks:
+```console
+$ git multistage --stage validation status
+stage validation on main (base a1accad774, up to date)
+staged:
+  M  src/shared.ts
+not staged:
+  M  src/login.ts
+  M  src/shared.ts
+```
 
-   ```bash
-   git multistage hunks src/shared.ts
-   git multistage add src/shared.ts --hunk <id> --hunk <id>
-   ```
+Commit each stage when its work is done, in any order or at the same moment:
 
-4. Check and commit:
+```console
+$ git multistage --stage fix-login commit -m "Honor returnTo after login"
+[main f147d75797] Honor returnTo after login
+ 1 file(s) changed
+$ git multistage --stage validation commit -m "Cap input length"
+[main 0858e389c5] Cap input length
+ 1 file(s) changed
+$ git log --oneline
+0858e38 Cap input length
+f147d75 Honor returnTo after login
+a1accad Initial commit
+$ git status --short
+ M src/shared.ts
+```
 
-   ```bash
-   git multistage status
-   git multistage diff --cached
-   git multistage commit -m "Describe the change"
-   ```
+Each commit holds one change. The `toLowerCase` edit, which nobody staged, is still in the working tree.
 
-A stage keeps its staged changes until they are committed or unstaged, so a restarted process that uses the same ID finds them where it left them.
+A shell can set the stage once with `GIT_MULTISTAGE_ID` (`export GIT_MULTISTAGE_ID=fix-login`, or `$env:GIT_MULTISTAGE_ID = "fix-login"` in PowerShell) instead of passing `--stage` each time. `git multistage init` creates a stage with a random ID when you would rather not pick one.
 
 ## Coding agents
 
-Give each agent its agent ID as its stage ID, and give it [AGENTS.md](AGENTS.md).
-
-### Claude Code editor hook (optional)
-
-With the editor hook, an agent never selects hunks: the hook records each file edit the agent makes, and `add --edits` stages exactly those edits. Two agents can then edit neighbouring lines of one file, and hooked agents take turns writing a file, so no write erases another. Each subagent gets its own stage from its `agent_id`. Add this to the project's `.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [{"matcher": "Edit|MultiEdit|Write", "hooks": [{"type": "command", "command": "git multistage hook claude"}]}],
-    "PostToolUse": [{"matcher": "Edit|MultiEdit|Write", "hooks": [{"type": "command", "command": "git multistage hook claude"}]}]
-  }
-}
-```
-
-### Codex editor hook (optional)
-
-The same hook works for Codex's `apply_patch` tool: each Codex session, and each Codex subagent, gets its own stage (`codex-<id>`). Add this to the project's `.codex/hooks.json` (or `~/.codex/hooks.json`):
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [{"matcher": "^apply_patch$", "hooks": [{"type": "command", "command": "git multistage hook codex"}]}],
-    "PostToolUse": [{"matcher": "^apply_patch$", "hooks": [{"type": "command", "command": "git multistage hook codex"}]}]
-  }
-}
-```
-
-Codex runs a hook only after you trust its definition once: start `codex` in the project and review the hooks it lists (or open `/hooks`). A project's `.codex/` layer also needs the project to be trusted.
-
-For both editors, the first recorded edit tells the agent its stage ID. The agent then commits with:
+Give each agent a stage ID, usually its own agent ID, along with [AGENTS.md](AGENTS.md). Agents in Claude Code or Codex can skip hunk selection: an editor hook records every edit they make, and one command stages those edits:
 
 ```bash
-git multistage --stage <id> add --edits && git multistage --stage <id> commit -m "Describe the change"
+git multistage --stage <id> add --edits && git multistage --stage <id> commit -m "Add input validation"
 ```
 
-`--agentic` is an opt-in shortcut: when no stage ID is given, it takes the calling agent's ID from its environment, `CLAUDE_CODE_SESSION_ID` and then `PASEO_AGENT_ID`, as `claude-<id>` or `paseo-<id>`. Claude Code sets `CLAUDE_CODE_SESSION_ID` in some launch modes (such as the Agent SDK) but not in all of them; where it is set, it names the stage that the editor hook records into for the main session. The stage ID that the hook announces always works. Without the flag, these variables are ignored. Subagents inherit their parent's environment, so Claude Code subagents of one session get the same ID; with the editor hook they use the stage ID the hook announces, and without it an explicit `--stage`.
+[docs/agents.md](docs/agents.md) covers the hook setup for both tools, how sessions and subagents get their stage IDs, and the opt-in `--agentic` flag.
 
-## Commands
+## Documentation
 
-Every command takes `--stage <id>` and `--agentic`. Most commands take `--json` for machine-readable output. The tool never prompts, except `add -p`.
+- [Command reference](docs/cli.md): commands, stage IDs, exit codes, JSON output, hunk IDs, and settings.
+- [Coding agents](docs/agents.md): editor hooks for Claude Code and Codex, and `--agentic`.
+- [AGENTS.md](AGENTS.md): the short guide to give an agent.
+- [Architecture](docs/architecture.md): storage, the commit transaction, the default index, and the invariants.
+- [Limitations and recovery](docs/limitations.md): what a shared checkout cannot guarantee, which setups are refused, and how to recover from each failure.
 
-| Command | What it does |
-| --- | --- |
-| `init [<id>]` | Create a stage. Without `<id>`, pick a unique ID. Fails if the stage exists. |
-| `status` | Show the stage's staged, unstaged, and untracked files, and files that other stages also staged. |
-| `diff [--cached] [<git diff args>]` | `git diff` against the stage. `--cached` shows the staged changes against the stage's base commit. |
-| `hunks [--cached] [<path>...]` | List hunks with IDs. Without paths, list every changed tracked file. `--cached` lists staged hunks. |
-| `add <path>...` | Stage whole files: new, modified, deleted, renamed (pass both paths), binary. `-f` stages ignored files. |
-| `add <path>... --hunk <id>...` | Stage only the listed hunks. `-f` stages hunks of an ignored untracked file. |
-| `add --edits [<path>...]` | Stage the edits that the editor hook recorded. `-f` stages a recorded new file that `.gitignore` ignores. |
-| `add -p <path>...` | Interactive hunk selection for people (`git add -p` on the stage). |
-| `apply [-R] <patch>\|-` | Apply a patch to the stage's index, like `git apply --cached`. The working tree is untouched. |
-| `restore --staged <path>... [--hunk <id>...]` | Unstage files, or only the listed staged hunks. |
-| `commit -m <msg> [-m <msg>] [-F <file>] [--no-verify]` | Commit the staged changes onto the current branch tip. |
-| `log [<git log args>]` | Show the commits made by this stage. |
-| `list` | List the stages of this worktree. |
-| `doctor` | Check the repository, the default index, and every stage. Changes nothing. |
-| `sync [--from <commit>]` | Bring the default index up to the branch tip, keeping natively staged entries. `--from` names the commit that the index matches when the tool cannot tell. |
-| `drop [--force]` | Delete the stage. Refuses when changes are staged, unless `--force`. |
-| `drop --edits [<path>...]` | Forget recorded edits. |
-| `hook claude`, `hook codex` | Editor hooks that record file edits; see above. |
-
-### Exit codes
-
-| Code | Meaning |
-| --- | --- |
-| 0 | Success. |
-| 1 | Error, or nothing to commit. |
-| 2 | Usage error, or no stage ID. |
-| 3 | Conflict: the staged changes cannot be replayed safely onto the branch. Nothing was committed. |
-| 4 | A hunk ID does not match the current diff. Nothing was staged. |
-| 5 | Refused: a detached HEAD, a branch switch, an operation in progress, or a file that another stage also staged. |
-| 6 | A lock stayed held until the timeout. |
-
-With `--json`, an error prints `{"error": {"kind": ..., "message": ..., "paths": [...], "hint": ...}}` to stdout.
-
-### Hunk IDs
-
-`git multistage hunks` lists zero-context hunks, so each separate block of changed lines is its own hunk:
-
-```text
-diff src/shared.ts (modified)
-@@ -10,1 +10,1 @@ id=3f2a9c1d0e7a
--  if (x) {
-+  if (x && y) {
-@@ -42,0 +43,2 @@ id=88b02c4a91d3 staged-by=validation
-+  log(x);
-+  log(y);
-```
-
-An ID is a hash of the path and the changed lines. It stays the same when other hunks are staged or committed, and it changes when the hunk's content changes. A selection with an unknown ID fails with exit code 4 and stages nothing. `staged-by` names other stages that staged the same hunk.
-
-### Configuration
-
-| Setting | Default | Effect |
-| --- | --- | --- |
-| `multistage.syncIndex` | `true` | After each commit, update the default index to the new branch tip. |
-| `commit.gpgSign`, `user.signingKey`, `gpg.format` | Git defaults | Commits are signed as `git commit` would sign them. |
-| `core.hooksPath`, hook config | Git defaults | `pre-commit`, `prepare-commit-msg`, `commit-msg`, and `post-commit` run through `git hook run`. |
-
-## More documentation
-
-- [AGENTS.md](AGENTS.md): instructions for coding agents.
-- [LICENSE](LICENSE): MIT.
-- [docs/architecture.md](docs/architecture.md): storage, the commit transaction, and the invariants.
-- [docs/limitations.md](docs/limitations.md): what the tool cannot guarantee, unsupported configurations, and recovery steps.
-
-## Development
+## Contributing
 
 ```bash
-go test ./...                                   # unit and integration tests
-MULTISTAGE_STRESS=10 go test -run 'Many|Hunks|Native|Kill' ./test/   # repeat the adversarial tests
+go test ./...                                                       # unit and integration tests
+MULTISTAGE_STRESS=10 go test -run 'Many|Hunks|Native|Kill' ./test/  # repeat the concurrency and crash tests
 ```
 
-The integration tests build the binary with the `testhooks` build tag, which adds fault injection for crash and race tests. CI runs the suite on Linux, macOS, and Windows.
+The integration tests run the real binary against temporary repositories. They build it with the `testhooks` tag, which adds the fault injection that the crash and race tests use. CI runs the suite on Linux, macOS, and Windows.
 
-Maintainer: chrisfls.
+## License
+
+MIT. See [LICENSE](LICENSE).
