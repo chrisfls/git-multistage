@@ -21,8 +21,12 @@ The plugin's hooks file SHALL run `git multistage hook` before and after `Edit`,
 - **THEN** the edit is recorded in the agent's stage
 
 ### Requirement: Agent guide skill
-The plugin's `git-multistage` skill SHALL hold the same text as `docs/agent-guide.md`.
+The plugin SHALL provide a `git-multistage` skill, with `name` and `description` in its front matter, that teaches an agent its stage ID, the staging and commit commands, and what to do when a command fails.
 
-#### Scenario: Guide edited
-- **WHEN** `docs/agent-guide.md` changes and the skill does not
-- **THEN** the test suite fails
+#### Scenario: Skill front matter
+- **WHEN** the test suite reads `skills/git-multistage/SKILL.md`
+- **THEN** its front matter names `git-multistage` and has a description
+
+#### Scenario: Skill in a plugin session
+- **WHEN** an agent with the plugin installed is about to commit
+- **THEN** the `git-multistage` skill is available to it

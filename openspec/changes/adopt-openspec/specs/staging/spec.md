@@ -91,3 +91,7 @@ Files with a `filter` attribute, symbolic links, submodules, binary files, and d
 #### Scenario: Another stage's file
 - **WHEN** stage `fix-login` staged `src/login.ts` and stage `validation` runs `status`
 - **THEN** `src/login.ts` is listed as not staged for `validation`
+
+#### Scenario: Untracked files are shared
+- **WHEN** the working tree holds an untracked file
+- **THEN** the `status` of every stage lists it
