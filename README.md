@@ -158,7 +158,7 @@ $env:GIT_MULTISTAGE_ID = "fix-login"
 
 ## Coding agents
 
-Give each agent a stage ID, such as its agent ID, and [AGENTS.md](AGENTS.md).
+Give each agent a stage ID, such as its agent ID, and [the agent guide](docs/agent-guide.md).
 
 In Claude Code or Codex, an editor hook can record each edit the agent makes. The agent then commits its edits with:
 
@@ -173,7 +173,7 @@ Hook setup: [docs/agents.md](docs/agents.md).
 
 - [Command reference](docs/cli.md): all commands, stage IDs, exit codes, and settings.
 - [Coding agents](docs/agents.md): editor hooks for Claude Code and Codex.
-- [AGENTS.md](AGENTS.md): a short guide to give to an agent.
+- [Agent guide](docs/agent-guide.md): a short guide to give to an agent.
 - [Architecture](docs/architecture.md): storage, commits, and crash recovery.
 - [Limitations and recovery](docs/limitations.md): what a shared checkout cannot guarantee, and how to fix each error.
 

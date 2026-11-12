@@ -1,6 +1,6 @@
 # Coding agents
 
-Several agents can share one checkout when each one has its own stage. Give every agent a stage ID, usually its own agent ID, and the instructions in [AGENTS.md](../AGENTS.md). From there an agent either selects hunks by ID, or, with an editor hook installed, stages exactly the edits it made.
+Several agents can share one checkout when each one has its own stage. Give every agent a stage ID, usually its own agent ID, and the instructions in [the agent guide](agent-guide.md). From there an agent either selects hunks by ID, or, with an editor hook installed, stages exactly the edits it made.
 
 ## Editor hooks
 
