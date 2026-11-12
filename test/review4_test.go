@@ -143,7 +143,7 @@ func TestWriteThroughADanglingSymlinkIsRecorded(t *testing.T) {
 
 func TestHookAcceptsAPathInAnotherCase(t *testing.T) {
 	r := newRepo(t)
-	if strings.TrimSpace(r.git("config", "--get", "core.ignoreCase")) != "true" {
+	if !caseInsensitiveFS(t, r.dir) {
 		t.Skip("the file system is case-sensitive")
 	}
 	r.write("f.txt", "1\n")
