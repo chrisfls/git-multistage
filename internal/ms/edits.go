@@ -127,7 +127,7 @@ func (l *Stage) AddEdits(paths []string, force bool) ([]string, error) {
 	}
 	var lost, uncertain []string
 	for p, r := range last {
-		ok, err := l.r.editOnDisk(r)
+		ok, err := l.r.editOnDisk(l.IndexPath(), r)
 		if err != nil {
 			return nil, err
 		}
@@ -308,8 +308,9 @@ func (r *Repo) setIndexBlob(idx, p, mode, oid string) error {
 }
 
 // editOnDisk reports whether the working tree still holds the lines that
-// rec added: no later change on disk touched them.
-func (r *Repo) editOnDisk(rec EditRecord) (bool, error) {
+// rec added: no later change on disk touched them. idx is the stage index,
+// which decides how the file's line endings are cleaned.
+func (r *Repo) editOnDisk(idx string, rec EditRecord) (bool, error) {
 	full := filepath.Join(r.Top, filepath.FromSlash(rec.Path))
 	if rec.After == "" {
 		_, err := os.Lstat(full)
@@ -318,7 +319,7 @@ func (r *Repo) editOnDisk(rec EditRecord) (bool, error) {
 	if _, err := os.Lstat(full); err != nil {
 		return false, nil //nolint:nilerr // a path that cannot be read no longer holds the edit
 	}
-	disk, err := r.Line(gitx.Opt{}, "hash-object", "-w", "--path="+rec.Path, "--", rec.Path)
+	disk, err := r.snapshotBlob(idx, rec.Path)
 	if err != nil {
 		return false, err
 	}

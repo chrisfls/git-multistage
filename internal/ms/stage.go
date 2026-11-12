@@ -390,7 +390,7 @@ func (l *Stage) unstagedHunks(p string) (FileHunks, error) {
 	}
 	// One snapshot of the file: every hunk comes from this blob, so a
 	// concurrent write to the file cannot mix two versions.
-	newBlob, err := l.r.Line(gitx.Opt{}, "hash-object", "-w", "--path="+p, "--", p)
+	newBlob, err := l.r.snapshotBlob(l.IndexPath(), p)
 	if err != nil {
 		return fh, err
 	}
