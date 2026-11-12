@@ -37,6 +37,20 @@
         "golang-testing",
         "golang-troubleshooting"
       ]
+    },
+    {
+      // The core OpenSpec workflow. The ref matches the installed
+      // `openspec` CLI, which the skills run.
+      "source": "Fission-AI/OpenSpec",
+      "ref": "v2.0.0",
+      "skills": [
+        "openspec-explore",
+        "openspec-propose",
+        "openspec-apply-change",
+        "openspec-update-change",
+        "openspec-sync-specs",
+        "openspec-archive-change"
+      ]
     }
   ]
 }

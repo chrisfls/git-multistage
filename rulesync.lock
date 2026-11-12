@@ -101,6 +101,39 @@
         "golang-testing",
         "golang-troubleshooting"
       ]
+    },
+    "fission-ai/openspec": {
+      "requestedRef": "v2.0.0",
+      "resolvedRef": "d12c2817776779e06891d68230773b3bb673b106",
+      "resolvedAt": "2026-11-12T22:47:46.827Z",
+      "skills": {
+        "openspec-apply-change": {
+          "integrity": "sha256-b7ad146d2db8a65c9f35074cc3280a74aaa834e4f2b0fa9bc27133234411dcf4"
+        },
+        "openspec-archive-change": {
+          "integrity": "sha256-1a3fbd58ddef4e4927d3de211f07c3819eb6a09947ba919fec38df9f949fc852"
+        },
+        "openspec-explore": {
+          "integrity": "sha256-5485f84aca7c42fcea18deb44b7c74d97de32f05d2b7012404183d41c89c7051"
+        },
+        "openspec-propose": {
+          "integrity": "sha256-97459748ea9244f3253bb9e88fe1aa8a297be7de6ae48c0cb4082e61d5de93d1"
+        },
+        "openspec-sync-specs": {
+          "integrity": "sha256-23eb691bd08e8d99d82021066a56aa7a4a39fc600375868c2e1427b3541ce567"
+        },
+        "openspec-update-change": {
+          "integrity": "sha256-b91500507120dd5d041f855d6a83601804a9dcb89a1402e1046638e4cb539b5e"
+        }
+      },
+      "skillSelection": [
+        "openspec-apply-change",
+        "openspec-archive-change",
+        "openspec-explore",
+        "openspec-propose",
+        "openspec-sync-specs",
+        "openspec-update-change"
+      ]
     }
   }
 }

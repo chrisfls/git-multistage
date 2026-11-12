@@ -8,6 +8,10 @@ If `git multistage` is missing, install it from this checkout:
 go install ./cmd/git-multistage
 ```
 
+## Plan changes with OpenSpec
+
+Plan each change to behavior as an OpenSpec change in `openspec/changes/`, and keep the specs of current behavior in `openspec/specs/`. Use the `openspec-*` skills: `openspec-propose` to plan, `openspec-apply-change` to implement, and `openspec-archive-change` when the change ships. The skills run the `openspec` CLI. Install it with `npm install -g @fission-ai/openspec@2.0.0`, the version that `rulesync.jsonc` pins.
+
 ## Commit often
 
 - Commit each step as soon as it is finished and its checks pass. Keep one change in each commit, such as a fix and its test.
