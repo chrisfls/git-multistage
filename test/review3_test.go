@@ -165,3 +165,28 @@ func TestRestoreHunksOfSeveralFiles(t *testing.T) {
 		t.Fatalf("committed %q", got)
 	}
 }
+
+// TestShiftedCopyIDIsStale lists three identical hunks; another stage then
+// commits a deletion that moves the second copy to where the first was.
+// The first copy's ID must be unknown now, not name the second copy.
+func TestShiftedCopyIDIsStale(t *testing.T) {
+	r := newRepo(t)
+	base := "p1\np2\nx\np4\np5\nx\np7\np8\nx\np10\n"
+	r.write("f", base)
+	r.git("add", "f")
+	r.git("commit", "-q", "-m", "base")
+	r.write("f", strings.ReplaceAll(base, "x\n", "y\n"))
+	var fj filesJSON
+	decode(t, r.mustMS("a", "hunks", "--json", "f"), &fj)
+	if len(fj.Files) != 1 || len(fj.Files[0].Hunks) != 3 {
+		t.Fatalf("want 3 hunks:\n%+v", fj)
+	}
+	first := fj.Files[0].Hunks[0].ID
+	patch := "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,4 +1 @@\n-p1\n-p2\n-x\n p4\n"
+	if res := runStdin(r.dir, "b", nil, patch, "apply", "-"); res.code != 0 {
+		t.Fatalf("apply:\n%s", res)
+	}
+	r.mustMS("b", "commit", "-m", "delete 1-3")
+	r.write("f", "p4\np5\ny\np7\np8\ny\np10\n")
+	r.expectCode(4, "a", "add", "f", "--hunk", first)
+}

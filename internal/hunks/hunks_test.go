@@ -30,10 +30,15 @@ func gitDiff(t *testing.T, old, updated string) []byte {
 	return out
 }
 
+// oldOf returns the old-content reader that Parse takes.
+func oldOf(old string) func() ([]byte, error) {
+	return func() ([]byte, error) { return []byte(old), nil }
+}
+
 func TestParseAndApply(t *testing.T) {
 	old := "one\ntwo\nthree\nfour\nfive\nsix\n"
 	updated := "one\nTWO\nthree\nfour\nfive\nsix\nseven"
-	hs, err := Parse("f", gitDiff(t, old, updated))
+	hs, err := Parse("f", gitDiff(t, old, updated), oldOf(old))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,31 +57,31 @@ func TestParseAndApply(t *testing.T) {
 
 func TestIDsDependOnContentNotPosition(t *testing.T) {
 	old := "a\nb\nc\nd\ne\nf\n"
-	h1, _ := Parse("f", gitDiff(t, old, "a\nB\nc\nd\ne\nF\n"))
+	h1, _ := Parse("f", gitDiff(t, old, "a\nB\nc\nd\ne\nF\n"), oldOf(old))
 	// After the first hunk is applied, the second keeps its identifier.
-	h2, _ := Parse("f", gitDiff(t, "a\nB\nc\nd\ne\nf\n", "a\nB\nc\nd\ne\nF\n"))
+	h2, _ := Parse("f", gitDiff(t, "a\nB\nc\nd\ne\nf\n", "a\nB\nc\nd\ne\nF\n"), oldOf("a\nB\nc\nd\ne\nf\n"))
 	if h1[1].ID != h2[0].ID {
 		t.Fatalf("id changed: %s vs %s", h1[1].ID, h2[0].ID)
 	}
-	other, _ := Parse("g", gitDiff(t, old, "a\nB\nc\nd\ne\nF\n"))
+	other, _ := Parse("g", gitDiff(t, old, "a\nB\nc\nd\ne\nF\n"), oldOf(old))
 	if other[0].ID == h1[0].ID {
 		t.Fatal("the same change in another path must get another id")
 	}
 }
 
 func TestDuplicateHunksGetDistinctIDs(t *testing.T) {
-	hs, _ := Parse("f", gitDiff(t, "a\nx\nb\nx\nc\n", "a\ny\nb\ny\nc\n"))
+	hs, _ := Parse("f", gitDiff(t, "a\nx\nb\nx\nc\n", "a\ny\nb\ny\nc\n"), oldOf("a\nx\nb\nx\nc\n"))
 	if len(hs) != 2 || hs[0].ID == hs[1].ID {
 		t.Fatalf("ids = %v", []string{hs[0].ID, hs[1].ID})
 	}
-	single, _ := Parse("f", gitDiff(t, "a\nx\nb\n", "a\ny\nb\n"))
+	single, _ := Parse("f", gitDiff(t, "a\nx\nb\n", "a\ny\nb\n"), oldOf("a\nx\nb\n"))
 	if single[0].ID == hs[0].ID || single[0].ID == hs[1].ID {
 		t.Fatal("a duplicate hunk must not keep the ID of the single hunk")
 	}
 }
 
 func TestBinary(t *testing.T) {
-	if _, err := Parse("f", gitDiff(t, "a\x00b", "a\x00c")); !errors.Is(err, ErrBinary) {
+	if _, err := Parse("f", gitDiff(t, "a\x00b", "a\x00c"), oldOf("a\x00b")); !errors.Is(err, ErrBinary) {
 		t.Fatalf("err = %v, want ErrBinary", err)
 	}
 }
@@ -101,7 +106,7 @@ func TestRandomSubsets(t *testing.T) {
 		if old == updated {
 			continue
 		}
-		hs, err := Parse("f", gitDiff(t, old, updated))
+		hs, err := Parse("f", gitDiff(t, old, updated), oldOf(old))
 		if err != nil {
 			t.Fatalf("parse: %v", err)
 		}
@@ -120,13 +125,47 @@ func TestRandomSubsets(t *testing.T) {
 			t.Fatalf("apply subset: %v", err)
 		}
 		// The rest of the hunks, applied on top of part, must reach updated.
-		rest, err := Parse("f", gitDiff(t, string(part), updated))
+		rest, err := Parse("f", gitDiff(t, string(part), updated), oldOf(string(part)))
 		if err != nil {
 			t.Fatal(err)
 		}
 		final, err := Apply(part, rest)
 		if err != nil || string(final) != updated {
 			t.Fatalf("apply rest: %q, %v", final, err)
+		}
+	}
+}
+
+// TestShiftedCopiesGetNewIDs lists identical hunks, then lists them again
+// after lines above them were deleted and another copy was added below, so
+// that each copy now sits where another copy sat. No old ID may name a copy.
+func TestShiftedCopiesGetNewIDs(t *testing.T) {
+	ids := func(old string) map[string]bool {
+		hs, err := Parse("f", gitDiff(t, old, strings.ReplaceAll(old, "x\n", "y\n")), oldOf(old))
+		if err != nil {
+			t.Fatal(err)
+		}
+		set := map[string]bool{}
+		for _, h := range hs {
+			set[h.ID] = true
+		}
+		if len(set) != 3 {
+			t.Fatalf("want 3 distinct IDs, got %v", hs)
+		}
+		return set
+	}
+	before := ids("p1\np2\nx\np4\np5\nx\np7\np8\nx\np10\n")
+	after := ids("p4\np5\nx\np7\np8\nx\np10\np11\nx\np13\n")
+	for id := range after {
+		if before[id] {
+			t.Fatalf("ID %s names another copy after the shift", id)
+		}
+	}
+	// Without a shift, the IDs stay.
+	again := ids("p1\np2\nx\np4\np5\nx\np7\np8\nx\np10\n")
+	for id := range again {
+		if !before[id] {
+			t.Fatalf("ID %s changed without a change", id)
 		}
 	}
 }

@@ -55,8 +55,10 @@ var headerRE = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@`)
 var ErrBinary = errors.New("binary content has no hunks")
 
 // Parse parses the output of `git diff -U0` for one file and assigns each
-// hunk an identifier derived from path and the hunk's changed lines.
-func Parse(path string, diff []byte) ([]Hunk, error) {
+// hunk an identifier derived from path and the hunk's changed lines. old
+// returns the old content of the file; Parse calls it only when several
+// hunks have the same lines, whose identifiers also depend on their places.
+func Parse(path string, diff []byte, old func() ([]byte, error)) ([]Hunk, error) {
 	var hs []Hunk
 	var cur *Hunk
 	lines := strings.SplitAfter(string(diff), "\n")
@@ -107,15 +109,20 @@ func Parse(path string, diff []byte) ([]Hunk, error) {
 			return nil, fmt.Errorf("hunk %s has %d/%d lines", h.Header(), len(h.Removed), len(h.Added))
 		}
 	}
-	assignIDs(path, hs)
+	if err := assignIDs(path, hs, old); err != nil {
+		return nil, err
+	}
 	return hs, nil
 }
 
 // assignIDs gives each hunk a 12-hex-digit hash of its path and changed
 // lines, so the ID survives line shifts. Identical hunks in one file also hash
-// their positions, so a selection cannot silently move to another copy.
-func assignIDs(path string, hs []Hunk) {
-	hash := func(h Hunk, pos bool) string {
+// the number of copies, their positions, and the nearest unchanged old lines
+// above and below them. A selection therefore cannot silently move to another
+// copy: when lines above the copies are added or deleted, each copy has
+// another position or other neighbors, and its old ID becomes unknown.
+func assignIDs(path string, hs []Hunk, old func() ([]byte, error)) error {
+	hash := func(h Hunk, place string) string {
 		sum := sha256.New()
 		sum.Write([]byte(path))
 		sum.Write([]byte{0})
@@ -125,21 +132,44 @@ func assignIDs(path string, hs []Hunk) {
 		for _, l := range h.Added {
 			sum.Write([]byte("+" + l + "\x00"))
 		}
-		if pos {
-			fmt.Fprintf(sum, "@%d,%d", h.OldStart, h.NewStart)
-		}
+		sum.Write([]byte(place))
 		return hex.EncodeToString(sum.Sum(nil))[:12]
 	}
 	count := map[string]int{}
 	for i := range hs {
-		hs[i].ID = hash(hs[i], false)
+		hs[i].ID = hash(hs[i], "")
 		count[hs[i].ID]++
 	}
+	var src []string
+	loaded := false
 	for i := range hs {
-		if count[hs[i].ID] > 1 {
-			hs[i].ID = hash(hs[i], true)
+		n := count[hs[i].ID]
+		if n < 2 {
+			continue
 		}
+		if !loaded {
+			content, err := old()
+			if err != nil {
+				return err
+			}
+			src, loaded = SplitLines(content), true
+		}
+		h := hs[i]
+		// above and below are 0-based indexes of the unchanged old lines
+		// around the hunk; an insertion follows old line OldStart.
+		above, below := h.OldStart-2, h.OldStart-1+h.OldLines
+		if h.OldLines == 0 {
+			above, below = h.OldStart-1, h.OldStart
+		}
+		line := func(k int) string {
+			if k < 0 || k >= len(src) {
+				return "\x00none"
+			}
+			return src[k]
+		}
+		hs[i].ID = hash(h, fmt.Sprintf("@%d,%d#%d\x00%s\x00%s", h.OldStart, h.NewStart, n, line(above), line(below)))
 	}
+	return nil
 }
 
 // SplitLines splits content into lines that keep their line endings.

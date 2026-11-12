@@ -308,7 +308,7 @@ func (r *Repo) diffBlobs(p, oldBlob, newBlob string) ([]hunks.Hunk, error) {
 	if err != nil && gitx.ExitCode(err) != 1 {
 		return nil, err
 	}
-	return hunks.Parse(p, out)
+	return hunks.Parse(p, out, func() ([]byte, error) { return r.catBlob(oldBlob) })
 }
 
 func (r *Repo) catBlob(oid string) ([]byte, error) {

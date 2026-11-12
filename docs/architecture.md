@@ -57,7 +57,7 @@ No lock covers the commits of all stages. Commits build their trees and commit o
 
 1. Hash the working-tree file once with `git hash-object -w --path=<path>`, which applies the clean conversions (line endings). Every later step uses this blob, so a concurrent write to the file cannot mix two versions.
 2. Diff the stage's blob against the snapshot with `git diff -U0 --diff-algorithm=myers <old-blob> <new-blob>`.
-3. Give each hunk an ID: the first 12 hex digits of SHA-256 over the path and the hunk's removed and added lines. When several hunks of one file have the same lines, their IDs also hash their positions, so a selection can never move to another copy.
+3. Give each hunk an ID: the first 12 hex digits of SHA-256 over the path and the hunk's removed and added lines. When several hunks of one file have the same lines, their IDs also hash the number of copies, their positions, and the nearest unchanged old lines above and below them. When lines above the copies are added or deleted, each copy gets another position or other neighbors, so an old ID becomes unknown instead of moving to another copy.
 4. Check that every requested ID matches exactly one hunk. Otherwise fail with exit code 4 and change nothing. An untracked file that `.gitignore` ignores needs `-f`, as with `git add`.
 5. Apply the chosen hunks to the old blob content, store the result with `git hash-object -w --stdin`, and set the index entry with `git update-index --cacheinfo`.
 
