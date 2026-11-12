@@ -32,7 +32,7 @@ Hunk selection asks an agent to recognize its own lines in a diff, and it cannot
 git multistage --stage <id> add --edits && git multistage --stage <id> commit -m "Add input validation"
 ```
 
-While it runs, the hook holds a short lease on the edited file, so two hooked agents never write one file at the same moment. A second agent's edit waits for the lease, up to 20 seconds, and is then blocked with a message that asks the agent to retry.
+While it runs, the hook holds a short lease on the edited file, so two hooked agents never write one file at the same moment. A second agent's edit waits for the lease, up to 20 seconds, and is then blocked with a message that asks the agent to retry. A lease expires after 15 seconds. When another agent then takes the file, the edits of both agents are recorded as uncertain, and `add --edits` refuses them; stage that file with `hunks` and `add --hunk`.
 
 The first recorded edit of a stage tells the agent its stage ID, through the hook's message to the model:
 

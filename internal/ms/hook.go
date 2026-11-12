@@ -79,6 +79,9 @@ type pendingEdit struct {
 	Path   string `json:"path"`
 	Before string `json:"before,omitempty"`
 	Nonce  string `json:"nonce"`
+	// TookOver is set when the lease was taken from another stage whose
+	// lease expired unreleased: that stage's edit may still land.
+	TookOver bool `json:"took_over,omitempty"`
 }
 
 type lease struct {
@@ -245,7 +248,7 @@ func (h *editHook) snapshot() (string, error) {
 }
 
 func (h *editHook) before(stderr io.Writer) int {
-	nonce, holder, err := h.takeLease()
+	nonce, holder, tookOver, err := h.takeLease()
 	if err != nil {
 		fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
 		return 0
@@ -259,7 +262,7 @@ func (h *editHook) before(stderr io.Writer) int {
 		fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
 		return 0
 	}
-	data, _ := json.Marshal(pendingEdit{Path: h.path, Before: before, Nonce: nonce})
+	data, _ := json.Marshal(pendingEdit{Path: h.path, Before: before, Nonce: nonce, TookOver: tookOver})
 	if err := os.MkdirAll(editsDir(h.stageDir), 0o777); err != nil {
 		fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
 		return 0
@@ -298,7 +301,7 @@ func (h *editHook) after(stdout, stderr io.Writer, succeeded bool) {
 	if after == p.Before {
 		return
 	}
-	rec := EditRecord{Path: h.path, Before: p.Before, After: after, Tool: h.in.Tool, Uncertain: !held, Time: time.Now().UTC()}
+	rec := EditRecord{Path: h.path, Before: p.Before, After: after, Tool: h.in.Tool, Uncertain: !held || p.TookOver, Time: time.Now().UTC()}
 	if after != "" {
 		rec.Mode = "100644"
 		if info, err := os.Stat(filepath.Join(h.r.Top, filepath.FromSlash(h.path))); err == nil &&
@@ -379,8 +382,9 @@ func (h *editHook) withLeaseFile(f func(cur *lease) (*lease, error)) error {
 }
 
 // takeLease waits until no other stage holds the file, then takes it. It
-// returns an empty nonce, and the holder, when the wait times out.
-func (h *editHook) takeLease() (nonce, holder string, err error) {
+// returns an empty nonce, and the holder, when the wait times out. tookOver
+// reports that another stage's lease expired without a release.
+func (h *editHook) takeLease() (nonce, holder string, tookOver bool, err error) {
 	b := make([]byte, 8)
 	_, _ = rand.Read(b)
 	mine := hex.EncodeToString(b)
@@ -398,16 +402,17 @@ func (h *editHook) takeLease() (nonce, holder string, err error) {
 				return cur, nil
 			}
 			taken = true
+			tookOver = cur != nil && cur.Stage != h.stage
 			return &lease{Stage: h.stage, Nonce: mine, Expires: now.Add(leaseTTL).UnixMilli()}, nil
 		})
 		if err != nil {
-			return "", "", err
+			return "", "", false, err
 		}
 		if taken {
-			return mine, "", nil
+			return mine, "", tookOver, nil
 		}
 		if time.Now().After(deadline) {
-			return "", holder, nil
+			return "", holder, false, nil
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

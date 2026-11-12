@@ -1,6 +1,10 @@
 package test
 
 import (
+	"encoding/json"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -65,4 +69,56 @@ func TestHookAfterGlobalOptions(t *testing.T) {
 	if got := r.stagedPaths("mine"); !eq(got, []string{"README"}) {
 		t.Fatalf("staged %q", got)
 	}
+}
+
+// expireLeases makes every edit lease of the repository expire, as 15
+// seconds of waiting on an approval prompt would.
+func (r *repo) expireLeases() {
+	r.t.Helper()
+	n := 0
+	err := filepath.WalkDir(r.path(".git"), func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || filepath.Base(filepath.Dir(p)) != "leases" || filepath.Ext(p) != ".json" {
+			return err
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		var l map[string]any
+		if err := json.Unmarshal(data, &l); err != nil {
+			return err
+		}
+		l["expires"] = 0
+		data, _ = json.Marshal(l)
+		n++
+		return os.WriteFile(p, data, 0o644)
+	})
+	if err != nil || n == 0 {
+		r.t.Fatalf("expired %d leases: %v", n, err)
+	}
+}
+
+func TestTakingAnExpiredLeaseMakesTheEditUncertain(t *testing.T) {
+	r := newRepo(t)
+	r.write("notes.txt", "one\ntwo\nthree\n")
+	r.git("add", "notes.txt")
+	r.git("commit", "-q", "-m", "notes")
+	patchA := "*** Begin Patch\n*** Update File: notes.txt\n@@\n-two\n+TWO\n*** End Patch"
+	patchB := "*** Begin Patch\n*** Update File: notes.txt\n@@\n-three\n+THREE\n*** End Patch"
+	if res := r.codexCall("PreToolUse", "a", "", "exec-a", patchA); res.code != 0 {
+		t.Fatalf("A PreToolUse:\n%s", res)
+	}
+	r.expireLeases()
+	if res := r.codexCall("PreToolUse", "b", "", "exec-b", patchB); res.code != 0 {
+		t.Fatalf("B PreToolUse:\n%s", res)
+	}
+	r.write("notes.txt", "one\nTWO\nthree\n")
+	r.codexCall("PostToolUse", "a", "", "exec-a", patchA)
+	r.write("notes.txt", "one\nTWO\nTHREE\n")
+	r.codexCall("PostToolUse", "b", "", "exec-b", patchB)
+	res := r.expectCode(3, "", "--stage", "codex-b", "add", "--edits")
+	if !strings.Contains(res.err, "another writer may have changed") {
+		t.Fatalf("add --edits:\n%s", res)
+	}
+	r.expectCode(3, "", "--stage", "codex-a", "add", "--edits")
 }
