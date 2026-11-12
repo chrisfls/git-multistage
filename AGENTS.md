@@ -1,0 +1,68 @@
+# Using git multistage as an agent
+
+Several agents work in this checkout at the same time. Use `git multistage` instead of `git add`, `git commit`, `git restore --staged`, and `git reset` for staging and committing. Other agents' changes stay out of your commits, and you never wait for them.
+
+## Your ID
+
+Your ID is given in your task, such as `agent-a`. Pass it on every command, because each shell call starts with a fresh environment:
+
+```bash
+git multistage --agent agent-a status
+```
+
+If your task gives no ID, create one once and use it from then on:
+
+```bash
+git multistage init          # prints: Created stage agent-1f3a9c2e ...
+```
+
+Never use another agent's ID.
+
+## Workflow
+
+1. Edit your files.
+2. Stage a file that only you changed:
+
+   ```bash
+   git multistage --agent agent-a add src/feature.ts src/new-file.ts
+   ```
+
+3. Stage only your part of a file that other agents also change:
+
+   ```bash
+   git multistage --agent agent-a hunks src/shared.ts
+   git multistage --agent agent-a add src/shared.ts --hunk 3f2a9c1d0e7a --hunk 88b02c4a91d3
+   ```
+
+   Pick the hunks whose `+` and `-` lines are your edits. `staged-by=<agent>` marks hunks that another agent already staged; leave those alone.
+4. Check what you will commit:
+
+   ```bash
+   git multistage --agent agent-a diff --cached
+   ```
+
+5. Commit:
+
+   ```bash
+   git multistage --agent agent-a commit -m "Add input validation"
+   ```
+
+Add `--json` to `status`, `hunks`, `add`, and `commit` when you parse the output.
+
+## When a command fails
+
+| Exit code | What happened | What to do |
+| --- | --- | --- |
+| 3 | Your staged change conflicts with a commit that landed on the branch. Your staged changes are kept. | Read the listed paths. Edit the files so that they include both changes, then `restore --staged <path>`, stage again, and commit. |
+| 4 | A hunk ID is stale: the file changed after you listed the hunks. | Run `hunks <path>` again and use the new IDs. |
+| 5 with `shared-path` | Another agent staged changes in that file, so a whole-file `add` could take its changes. | Stage your hunks with `--hunk`. |
+| 5, other | HEAD is detached or on another branch, or a merge or rebase is in progress. | Stop and report it. Do not change branches. |
+| 6 | A lock stayed held, such as another Git process holding `.git/index.lock`. | Retry the command after a few seconds. If it fails again, run `git multistage doctor` and report the output. |
+
+A commit that prints `nothing new to commit` found your change already on the branch, because another agent made the same edit. That is a success.
+
+## Rules
+
+- Do not run `git add`, `git commit`, `git stash`, `git checkout -- <file>`, `git restore <file>`, `git reset --hard`, or `git switch`. They change state that every agent shares.
+- Do not edit a file at the same moment as another agent. git-multistage separates staging and commits; it cannot merge two simultaneous writes to the same file on disk.
+- `git status`, `git log`, `git diff <commit>`, and `git show` are safe to run.
