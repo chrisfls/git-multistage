@@ -98,6 +98,10 @@ func runEditHook(kind string, stdin io.Reader, stdout, stderr io.Writer, stageFl
 		fmt.Fprintf(stderr, "git-multistage hook: cannot read the hook input: %v\n", err)
 		return 0
 	}
+	if in.Event == "SessionStart" {
+		announceSharedCheckout(in.Cwd, stdout)
+		return 0
+	}
 	if kind == "" {
 		kind = "claude"
 		if in.Tool == "apply_patch" {
@@ -376,7 +380,8 @@ func (h *editHook) after(stdout, stderr io.Writer, succeeded bool) {
 		return
 	}
 	msg := fmt.Sprintf("git-multistage records your file edits in stage %s. To commit them: "+
-		"`git multistage --stage %s add --edits` then `git multistage --stage %s commit -m \"<message>\"`.", h.stage, h.stage, h.stage)
+		"`git multistage --stage %s add --edits` then `git multistage --stage %s commit -m \"<message>\"`. ",
+		h.stage, h.stage, h.stage) + otherAgentsNote
 	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{
 		"hookEventName": "PostToolUse", "additionalContext": msg,
 	}})
@@ -484,4 +489,28 @@ func (h *editHook) releaseLease(nonce string) {
 		}
 		return cur, nil
 	})
+}
+
+// otherAgentsNote tells an agent what to expect from the other agents in a
+// shared checkout, so their work does not surprise it.
+const otherAgentsNote = "Other agents may edit files and commit to this branch while you work. " +
+	"Commits, file changes, and stages that you did not make are theirs: do not review, revert, stage, " +
+	"or report them, and leave them out of your summaries unless they block your task."
+
+// announceSharedCheckout answers a SessionStart hook in a Git worktree with
+// otherAgentsNote, so the agent knows from its first turn that others work
+// in the same checkout.
+func announceSharedCheckout(cwd string, stdout io.Writer) {
+	if cwd == "" {
+		return
+	}
+	if _, err := OpenRepo(cwd); err != nil {
+		return // not a Git worktree
+	}
+	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{
+		"hookEventName": "SessionStart",
+		"additionalContext": "This Git checkout may be shared with other agents through git-multistage. " +
+			otherAgentsNote + " Stage and commit your own work with `git multistage` (see the git-multistage skill).",
+	}})
+	fmt.Fprintln(stdout, string(out))
 }

@@ -302,3 +302,20 @@ func TestHookDetectsTheEditor(t *testing.T) {
 		t.Fatalf("codex-x staged %v", got)
 	}
 }
+
+// TestHookAnnouncesTheSharedCheckout runs the SessionStart hook inside and
+// outside a Git worktree.
+func TestHookAnnouncesTheSharedCheckout(t *testing.T) {
+	r := newRepo(t)
+	start := func(cwd string) result {
+		data, _ := json.Marshal(map[string]any{"hook_event_name": "SessionStart", "session_id": "s", "cwd": cwd})
+		return runStdin(r.dir, "", nil, string(data), "hook")
+	}
+	res := start(r.dir)
+	if res.code != 0 || !strings.Contains(res.out, `"hookEventName":"SessionStart"`) || !strings.Contains(res.out, "Other agents may edit files") {
+		t.Fatalf("in a worktree:\n%s", res)
+	}
+	if res := start(t.TempDir()); res.code != 0 || res.out != "" {
+		t.Fatalf("outside a worktree:\n%s", res)
+	}
+}

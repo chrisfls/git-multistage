@@ -2,6 +2,10 @@
 
 Several agents work in this checkout at the same time. Use `git multistage` instead of `git add`, `git commit`, `git restore --staged`, and `git reset` for staging and committing. Each agent stages into its own stage, so other agents' changes stay out of your commits, and you never wait for them.
 
+## Other agents' work
+
+Other agents edit files and commit to this branch while you work. New commits, changed files, and stages that you did not make are theirs. Do not review, revert, stage, or report them, and leave them out of your summaries unless they block your task. `git multistage` keeps them out of your commits.
+
 ## Your stage ID
 
 Use your agent ID as your stage ID, such as `agent-a` from your task. Pass it on every command, because each shell call starts with a fresh environment:

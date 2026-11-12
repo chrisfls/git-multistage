@@ -1,15 +1,35 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "git multistage hook"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Edit|MultiEdit|Write|apply_patch",
-        "hooks": [{"type": "command", "command": "git multistage hook"}]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "git multistage hook"
+          }
+        ]
       }
     ],
     "PostToolUse": [
       {
         "matcher": "Edit|MultiEdit|Write|apply_patch",
-        "hooks": [{"type": "command", "command": "git multistage hook"}]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "git multistage hook"
+          }
+        ]
       }
     ]
   }
