@@ -22,12 +22,27 @@ func gitDiff(t *testing.T, old, updated string) []byte {
 	if err := os.WriteFile(b, []byte(updated), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.CommandContext(context.Background(), "git", "diff", "--no-index", "--no-color", "-U0",
-		"--diff-algorithm=myers", a, b).Output()
-	if err != nil && len(out) == 0 && old != updated {
+	// The flags of production (internal/ms diffBlobs), and no user or
+	// system configuration.
+	cmd := exec.CommandContext(context.Background(), "git", "diff", "--no-index", "--no-color", "--no-ext-diff", "--no-textconv",
+		"-U0", "--inter-hunk-context=0", "--diff-algorithm=myers", a, b)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1", "GIT_DIFF_OPTS=")
+	out, err := cmd.Output()
+	var ee *exec.ExitError
+	if err != nil && (!errors.As(err, &ee) || ee.ExitCode() != 1) {
 		t.Fatalf("git diff: %v", err)
 	}
 	return out
+}
+
+// mustParse parses the production diff of old and updated.
+func mustParse(t *testing.T, path, old, updated string) []Hunk {
+	t.Helper()
+	hs, err := Parse(path, gitDiff(t, old, updated), oldOf(old))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hs
 }
 
 // oldOf returns the old-content reader that Parse takes.
@@ -45,36 +60,36 @@ func TestParseAndApply(t *testing.T) {
 	if len(hs) != 2 {
 		t.Fatalf("got %d hunks, want 2", len(hs))
 	}
-	got, _ := Apply([]byte(old), hs[1:])
-	if string(got) != "one\ntwo\nthree\nfour\nfive\nsix\nseven" {
-		t.Fatalf("Apply second hunk = %q", got)
+	got, err := Apply([]byte(old), hs[1:])
+	if err != nil || string(got) != "one\ntwo\nthree\nfour\nfive\nsix\nseven" {
+		t.Fatalf("Apply second hunk = %q, %v", got, err)
 	}
-	got, _ = Apply([]byte(old), hs[:1])
-	if string(got) != "one\nTWO\nthree\nfour\nfive\nsix\n" {
-		t.Fatalf("Apply first hunk = %q", got)
+	got, err = Apply([]byte(old), hs[:1])
+	if err != nil || string(got) != "one\nTWO\nthree\nfour\nfive\nsix\n" {
+		t.Fatalf("Apply first hunk = %q, %v", got, err)
 	}
 }
 
 func TestIDsDependOnContentNotPosition(t *testing.T) {
 	old := "a\nb\nc\nd\ne\nf\n"
-	h1, _ := Parse("f", gitDiff(t, old, "a\nB\nc\nd\ne\nF\n"), oldOf(old))
+	h1 := mustParse(t, "f", old, "a\nB\nc\nd\ne\nF\n")
 	// After the first hunk is applied, the second keeps its identifier.
-	h2, _ := Parse("f", gitDiff(t, "a\nB\nc\nd\ne\nf\n", "a\nB\nc\nd\ne\nF\n"), oldOf("a\nB\nc\nd\ne\nf\n"))
+	h2 := mustParse(t, "f", "a\nB\nc\nd\ne\nf\n", "a\nB\nc\nd\ne\nF\n")
 	if h1[1].ID != h2[0].ID {
 		t.Fatalf("id changed: %s vs %s", h1[1].ID, h2[0].ID)
 	}
-	other, _ := Parse("g", gitDiff(t, old, "a\nB\nc\nd\ne\nF\n"), oldOf(old))
+	other := mustParse(t, "g", old, "a\nB\nc\nd\ne\nF\n")
 	if other[0].ID == h1[0].ID {
 		t.Fatal("the same change in another path must get another id")
 	}
 }
 
 func TestDuplicateHunksGetDistinctIDs(t *testing.T) {
-	hs, _ := Parse("f", gitDiff(t, "a\nx\nb\nx\nc\n", "a\ny\nb\ny\nc\n"), oldOf("a\nx\nb\nx\nc\n"))
+	hs := mustParse(t, "f", "a\nx\nb\nx\nc\n", "a\ny\nb\ny\nc\n")
 	if len(hs) != 2 || hs[0].ID == hs[1].ID {
 		t.Fatalf("ids = %v", []string{hs[0].ID, hs[1].ID})
 	}
-	single, _ := Parse("f", gitDiff(t, "a\nx\nb\n", "a\ny\nb\n"), oldOf("a\nx\nb\n"))
+	single := mustParse(t, "f", "a\nx\nb\n", "a\ny\nb\n")
 	if single[0].ID == hs[0].ID || single[0].ID == hs[1].ID {
 		t.Fatal("a duplicate hunk must not keep the ID of the single hunk")
 	}

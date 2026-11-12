@@ -3,10 +3,12 @@ package test
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // iterations returns how many times the adversarial tests repeat, from
@@ -19,6 +21,15 @@ func iterations() int {
 }
 
 // parallel runs f(i) for i in [0, n) at the same time, after a common start.
+// writeFile writes a file and returns the error, for worker goroutines,
+// which must not call t.Fatal.
+func writeFile(path, content string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(content), 0o644)
+}
+
 func parallel(n int, f func(i int)) {
 	var start, done sync.WaitGroup
 	start.Add(1)
@@ -82,7 +93,10 @@ func TestManyAgentsCommitConcurrently(t *testing.T) {
 			agent := fmt.Sprintf("agent-%d", i)
 			for round := range rounds {
 				p := fmt.Sprintf("%s/round-%d.txt", agent, round)
-				r.write(p, fmt.Sprintf("%s %d\n", agent, round))
+				if err := writeFile(r.path(p), fmt.Sprintf("%s %d\n", agent, round)); err != nil {
+					errs[i] = err.Error()
+					return
+				}
 				if res := run(r.dir, agent, env, "add", p); res.code != 0 {
 					errs[i] = "add: " + res.String()
 					return
@@ -139,9 +153,15 @@ func TestAgentsCommitDifferentHunksOfOneFile(t *testing.T) {
 			agent := fmt.Sprintf("agent-%d", i)
 			mine := "edited by " + agent
 			fileMu.Lock()
-			content := r.read("shared.txt")
-			r.write("shared.txt", strings.Replace(content, fmt.Sprintf("line %d\n", i*4+1), mine+"\n", 1))
+			content, err := os.ReadFile(r.path("shared.txt"))
+			if err == nil {
+				err = writeFile(r.path("shared.txt"), strings.Replace(string(content), fmt.Sprintf("line %d\n", i*4+1), mine+"\n", 1))
+			}
 			fileMu.Unlock()
+			if err != nil {
+				errs[i] = err.Error()
+				return
+			}
 			id, err := findHunk(r.dir, agent, "shared.txt", mine)
 			if err != nil {
 				errs[i] = err.Error()
@@ -387,16 +407,26 @@ func TestNativeGitActivityDuringAgentCommits(t *testing.T) {
 			if i == agents {
 				for n := range natives {
 					p := fmt.Sprintf("native-%d.txt", n)
-					r.write(p, "native\n")
-					for {
+					if err := writeFile(r.path(p), "native\n"); err != nil {
+						errs[i] = err.Error()
+						return
+					}
+					// A native commit fails while another process holds
+					// index.lock; retry a bounded number of times.
+					committed := false
+					for attempt := 0; attempt < 200 && !committed; attempt++ {
 						_, err1 := r.gitTry("add", p)
 						_, err2 := r.gitTry("commit", "-q", "-m", "native "+strconv.Itoa(n), "--", p)
-						if err1 == nil && err2 == nil {
-							break
+						log, err3 := r.gitTry("log", "--format=%s", "main")
+						committed = err1 == nil && err2 == nil ||
+							err3 == nil && strings.Contains(log, "native "+strconv.Itoa(n)+"\n")
+						if !committed {
+							time.Sleep(10 * time.Millisecond)
 						}
-						if strings.Contains(r.git("log", "--format=%s", "main"), "native "+strconv.Itoa(n)+"\n") {
-							break
-						}
+					}
+					if !committed {
+						errs[i] = "native commit " + strconv.Itoa(n) + " did not land after 200 attempts"
+						return
 					}
 				}
 				return
@@ -404,7 +434,10 @@ func TestNativeGitActivityDuringAgentCommits(t *testing.T) {
 			agent := fmt.Sprintf("agent-%d", i)
 			for round := range rounds {
 				p := fmt.Sprintf("%s-%d.txt", agent, round)
-				r.write(p, "agent\n")
+				if err := writeFile(r.path(p), "agent\n"); err != nil {
+					errs[i] = err.Error()
+					return
+				}
 				if res := r.ms(agent, "add", p); res.code != 0 {
 					errs[i] = res.String()
 					return

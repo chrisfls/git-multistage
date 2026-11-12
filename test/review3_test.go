@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chrisfls/git-multistage/internal/filelock"
 )
 
 // These tests reproduce defects found in the third review.
@@ -249,4 +251,45 @@ func TestOrphanedIndexLockIsKept(t *testing.T) {
 	if got := r.git("show", "main:f.txt"); got != "f\n" {
 		t.Fatalf("committed %q", got)
 	}
+}
+
+// TestWholeFileAddOfASharedFileIsRefused stages a whole file that another
+// stage has staged changes in: exit 5 with kind shared-path, and nothing
+// staged, unless --allow-shared is passed.
+func TestWholeFileAddOfASharedFileIsRefused(t *testing.T) {
+	r := newRepo(t)
+	r.write("f.txt", "1\n2\n3\n4\n5\n")
+	r.git("add", "f.txt")
+	r.git("commit", "-q", "-m", "f")
+	r.write("f.txt", "ONE\n2\n3\n4\n5\n")
+	r.mustMS("a", "add", "f.txt")
+	r.write("f.txt", "ONE\n2\n3\n4\nFIVE\n")
+	res := r.expectCode(5, "b", "--json", "add", "f.txt")
+	if !strings.Contains(res.out, `"shared-path"`) {
+		t.Fatalf("want kind shared-path:\n%s", res)
+	}
+	if got := r.stagedPaths("b"); len(got) != 0 {
+		t.Fatalf("staged %v after a refusal", got)
+	}
+	r.mustMS("b", "add", "f.txt", "--allow-shared")
+	if got := r.stagedPaths("b"); !eq(got, []string{"f.txt"}) {
+		t.Fatalf("staged %v", got)
+	}
+}
+
+// TestBusyStageExits6 holds a stage's lock in this process; a
+// git-multistage process of the same stage gives up with exit 6.
+func TestBusyStageExits6(t *testing.T) {
+	r := newRepo(t)
+	r.mustMS("a", "status")
+	lk, err := filelock.Acquire(r.path(".git/multistage/stages/a/lock"), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := run(r.dir, "a", []string{"GIT_MULTISTAGE_TEST_LOCK_TIMEOUT_MS=200"}, "--json", "status")
+	if res.code != 6 || !strings.Contains(res.out, `"busy"`) {
+		t.Fatalf("want exit 6, kind busy:\n%s", res)
+	}
+	lk.Release()
+	r.mustMS("a", "status")
 }

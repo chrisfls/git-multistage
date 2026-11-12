@@ -91,7 +91,9 @@ func TestCrashDuringStaging(t *testing.T) {
 // TestKillDuringCommitAtRandomTimes kills real commit processes at random
 // moments. Whatever the moment, the change ends up in exactly one commit.
 func TestKillDuringCommitAtRandomTimes(t *testing.T) {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano())) //nolint:gosec // random kill times need no cryptographic randomness
+	seed := time.Now().UnixNano()
+	t.Logf("seed %d", seed)
+	rng := rand.New(rand.NewSource(seed)) //nolint:gosec // random kill times need no cryptographic randomness
 	for i := range 8 * iterations() {
 		r := newRepo(t)
 		r.write("a.txt", "a\n")

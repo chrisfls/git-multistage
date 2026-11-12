@@ -50,12 +50,23 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	for _, v := range []string{
-		"GIT_MULTISTAGE_ID", "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
-		"GIT_MULTISTAGE_FAULT", "GIT_MULTISTAGE_TEST_RACE", "GIT_MULTISTAGE_TEST_DELAY_MS",
+		"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_DIFF_OPTS", "GIT_EXTERNAL_DIFF",
+		"GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT", "GIT_CONFIG", "GIT_CEILING_DIRECTORIES",
 		"PASEO_AGENT_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "ORCA_AGENT_SESSION_ID", "CLAUDE_PID",
 	} {
 		if err := os.Unsetenv(v); err != nil {
 			panic(err)
+		}
+	}
+	// The tests set their own identity, stage, and fault settings.
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(name, "GIT_AUTHOR_") || strings.HasPrefix(name, "GIT_COMMITTER_") ||
+			strings.HasPrefix(name, "GIT_MULTISTAGE_") || strings.HasPrefix(name, "GIT_CONFIG_KEY_") ||
+			strings.HasPrefix(name, "GIT_CONFIG_VALUE_") {
+			if err := os.Unsetenv(name); err != nil {
+				panic(err)
+			}
 		}
 	}
 	code := m.Run()

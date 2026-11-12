@@ -179,13 +179,14 @@ func TestHunkStagingRespectsIgnoreRules(t *testing.T) {
 	r.write(".env", "TOKEN=x\n")
 	var fj filesJSON
 	decode(t, r.mustMS("agent-a", "hunks", "--json", ".env"), &fj)
-	if len(fj.Files[0].Hunks) == 1 {
-		id := fj.Files[0].Hunks[0].ID
-		if res := r.ms("agent-a", "add", ".env", "--hunk", id); res.code == 0 {
-			t.Fatalf("staged an ignored file:\n%s", res)
-		}
-		r.mustMS("agent-a", "add", "-f", ".env", "--hunk", id)
+	if len(fj.Files) != 1 || len(fj.Files[0].Hunks) != 1 {
+		t.Fatalf("want one hunk of .env:\n%+v", fj)
 	}
+	id := fj.Files[0].Hunks[0].ID
+	if res := r.ms("agent-a", "add", ".env", "--hunk", id); res.code == 0 {
+		t.Fatalf("staged an ignored file:\n%s", res)
+	}
+	r.mustMS("agent-a", "add", "-f", ".env", "--hunk", id)
 }
 
 func TestDuplicateHunksCannotShift(t *testing.T) {

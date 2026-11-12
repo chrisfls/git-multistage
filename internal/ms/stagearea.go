@@ -144,7 +144,7 @@ func (l *Stage) IndexPath() string { return filepath.Join(l.Dir, l.M.Index) }
 // finishes any interrupted commit. When exclusive is set, an existing stage is
 // an error.
 func (r *Repo) OpenStage(id string, exclusive bool) (*Stage, error) {
-	return r.openStage(id, exclusive, stageLockTimeout)
+	return r.openStage(id, exclusive, testLockTimeout(stageLockTimeout))
 }
 
 func (r *Repo) openStage(id string, exclusive bool, timeout time.Duration) (*Stage, error) {

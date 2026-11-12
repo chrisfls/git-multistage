@@ -29,6 +29,15 @@ func testDelay() {
 	}
 }
 
+// testLockTimeout returns GIT_MULTISTAGE_TEST_LOCK_TIMEOUT_MS when it is set,
+// so that a test of a busy stage need not wait for the full timeout.
+func testLockTimeout(d time.Duration) time.Duration {
+	if n, err := strconv.Atoi(os.Getenv("GIT_MULTISTAGE_TEST_LOCK_TIMEOUT_MS")); err == nil && n >= 0 {
+		return time.Duration(n) * time.Millisecond
+	}
+	return d
+}
+
 var raced int
 
 // testRace moves the branch with a foreign commit just before update-ref,
