@@ -3,6 +3,14 @@ schema: spec-driven
 context: |
   git-multistage must work on Windows, macOS, and Linux. CI tests all three.
 
+rules:
+  proposal:
+    - List every capability whose behavior changes. Behavior is written only in specs.
+  design:
+    - Record the design of internals here, not in a documentation file.
+  tasks:
+    - Add no documentation file. Change README.md only when the overview, install, quick start, plugin install, or contributing commands change.
+
 operations:
   apply:
     guidance:
