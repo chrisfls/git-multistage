@@ -134,8 +134,9 @@ type app struct {
 
 // Main runs the command line and returns the exit code.
 func Main(argv []string, stdout, stderr io.Writer) int {
-	if len(argv) > 0 && argv[0] == "hook" {
-		return hookMain(argv[1:], stdout, stderr)
+	if i := commandIndex(argv); i < len(argv) && argv[i] == "hook" {
+		// hookMain parses the global options before the command too.
+		return hookMain(append(argv[:i:i], argv[i+1:]...), stdout, stderr)
 	}
 	a := &app{out: stdout, errw: stderr}
 	err := a.run(argv)
@@ -164,6 +165,23 @@ func Main(argv []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "hint: %s\n", e.Hint)
 	}
 	return e.Code
+}
+
+// commandIndex returns the index of the command name, after the global
+// options that may come before it.
+func commandIndex(argv []string) int {
+	i := 0
+	for i < len(argv) {
+		switch {
+		case argv[i] == "--stage":
+			i += 2
+		case strings.HasPrefix(argv[i], "--stage="), argv[i] == "--agentic", argv[i] == "--json":
+			i++
+		default:
+			return i
+		}
+	}
+	return len(argv)
 }
 
 func (a *app) flushWarnings() {

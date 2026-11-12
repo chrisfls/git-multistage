@@ -1,6 +1,7 @@
 package test
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -43,5 +44,25 @@ func TestLogFiltersByThePathspec(t *testing.T) {
 		if res := r.mustMS("agent-a", c.args...); res.out != c.want {
 			t.Errorf("%s = %q, want %q", strings.Join(c.args, " "), res.out, c.want)
 		}
+	}
+}
+
+func TestHookAfterGlobalOptions(t *testing.T) {
+	r := newRepo(t)
+	file := r.path("README")
+	call := func(event string, args ...string) {
+		t.Helper()
+		in := `{"hook_event_name":"` + event + `","tool_name":"Edit","session_id":"s","tool_use_id":"toolu_1",` +
+			`"tool_input":{"file_path":` + strconv.Quote(file) + `}}`
+		if res := runStdin(r.dir, "", nil, in, args...); res.code != 0 {
+			t.Fatalf("%s %s:\n%s", strings.Join(args, " "), event, res)
+		}
+	}
+	call("PreToolUse", "--stage", "mine", "hook", "claude")
+	r.write("README", "edited\n")
+	call("PostToolUse", "--stage=mine", "--json", "hook", "claude")
+	r.mustMS("mine", "add", "--edits")
+	if got := r.stagedPaths("mine"); !eq(got, []string{"README"}) {
+		t.Fatalf("staged %q", got)
 	}
 }
