@@ -76,3 +76,43 @@ func TestAddEditsKeepsRacyEntriesRacy(t *testing.T) {
 		t.Fatalf("committed f.txt = %q, want the rewritten content", got)
 	}
 }
+
+// TestAddEditsRefusesARestoredDeletion records an edit that deletes lines;
+// another writer then puts the lines back. The edit is lost, so `add --edits`
+// must refuse it instead of staging the deletion.
+func TestAddEditsRefusesARestoredDeletion(t *testing.T) {
+	for _, tc := range []struct{ name, before, after string }{
+		{"middle", "a\nb\nc\nd\ne\n", "a\nb\ne\n"},
+		{"start", "a\nb\nc\nd\ne\n", "c\nd\ne\n"},
+		{"end", "a\nb\nc\nd\ne\n", "a\nb\nc\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRepo(t)
+			r.write("f.txt", tc.before)
+			r.git("add", "f.txt")
+			r.git("commit", "-q", "-m", "f")
+			r.hookedEdit("s", "", "f.txt", tc.after)
+			r.write("f.txt", tc.before)
+			res := r.expectCode(3, "", "--stage", "claude-s", "add", "--edits")
+			if !strings.Contains(res.out+res.err, "no longer holds the edit") {
+				t.Fatalf("want edit-lost:\n%s", res)
+			}
+		})
+	}
+}
+
+// TestAddEditsKeepsADeletionNextToAnotherInsertion deletes lines; another
+// writer inserts a line elsewhere. The deletion survives and is staged.
+func TestAddEditsKeepsADeletionNextToAnotherInsertion(t *testing.T) {
+	r := newRepo(t)
+	r.write("f.txt", "a\nb\nc\nd\ne\n")
+	r.git("add", "f.txt")
+	r.git("commit", "-q", "-m", "f")
+	r.hookedEdit("s", "", "f.txt", "a\nb\ne\n")
+	r.write("f.txt", "a\nX\nb\ne\n")
+	r.mustMS("", "--stage", "claude-s", "add", "--edits")
+	r.mustMS("", "--stage", "claude-s", "commit", "-m", "delete")
+	if got := r.git("show", "main:f.txt"); got != "a\nb\ne\n" {
+		t.Fatalf("committed %q", got)
+	}
+}
