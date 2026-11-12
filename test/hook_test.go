@@ -262,3 +262,43 @@ func TestHookKeepsSubagentsApartUnderAnExportedStage(t *testing.T) {
 		t.Fatalf("stage claude-sub1:\n%s", d)
 	}
 }
+
+// TestHookDetectsTheEditor runs the bare `hook` command, as the plugin's
+// shared hooks file does, with Claude Code and Codex inputs.
+func TestHookDetectsTheEditor(t *testing.T) {
+	r := newRepo(t)
+	r.write("a.txt", "a\n")
+	r.write("b.txt", "b\n")
+	r.git("add", ".")
+	r.git("commit", "-q", "-m", "files")
+	call := func(in map[string]any) {
+		data, _ := json.Marshal(in)
+		if res := runStdin(r.dir, "", nil, string(data), "hook"); res.code != 0 {
+			t.Fatalf("hook:\n%s", res)
+		}
+	}
+	claude := map[string]any{
+		"tool_name": "Edit", "session_id": "s", "tool_use_id": "t1",
+		"tool_input": map[string]any{"file_path": r.path("a.txt")},
+	}
+	codex := map[string]any{
+		"tool_name": "apply_patch", "session_id": "x", "tool_use_id": "t2", "cwd": r.dir,
+		"tool_input": map[string]any{"command": "*** Begin Patch\n*** Update File: b.txt\n@@\n-b\n+B\n*** End Patch"},
+	}
+	claude["hook_event_name"], codex["hook_event_name"] = "PreToolUse", "PreToolUse"
+	call(claude)
+	call(codex)
+	r.write("a.txt", "A\n")
+	r.write("b.txt", "B\n")
+	claude["hook_event_name"], codex["hook_event_name"] = "PostToolUse", "PostToolUse"
+	call(claude)
+	call(codex)
+	r.mustMS("", "--stage", "claude-s", "add", "--edits")
+	r.mustMS("", "--stage", "codex-x", "add", "--edits")
+	if got := r.stagedPaths("claude-s"); !eq(got, []string{"a.txt"}) {
+		t.Fatalf("claude-s staged %v", got)
+	}
+	if got := r.stagedPaths("codex-x"); !eq(got, []string{"b.txt"}) {
+		t.Fatalf("codex-x staged %v", got)
+	}
+}

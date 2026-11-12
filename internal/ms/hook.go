@@ -95,6 +95,12 @@ func runEditHook(kind string, stdin io.Reader, stdout, stderr io.Writer, stageFl
 		fmt.Fprintf(stderr, "git-multistage hook: cannot read the hook input: %v\n", err)
 		return 0
 	}
+	if kind == "" {
+		kind = "claude"
+		if in.Tool == "apply_patch" {
+			kind = "codex"
+		}
+	}
 	files := editedFiles(kind, in)
 	if len(files) == 0 {
 		return 0

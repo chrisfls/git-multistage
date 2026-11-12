@@ -1,0 +1,23 @@
+{
+  "name": "git-multistage",
+  "version": "0.1.0",
+  "description": "Records each agent's file edits in its own git-multistage stage, so agents that share a checkout commit only their own changes.",
+  "author": {
+    "name": "chrisfls",
+    "url": "https://github.com/chrisfls"
+  },
+  "homepage": "https://github.com/chrisfls/git-multistage",
+  "repository": "https://github.com/chrisfls/git-multistage",
+  "license": "MIT",
+  "keywords": ["git", "staging", "commits", "parallel-agents", "hooks"],
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "git-multistage",
+    "shortDescription": "Separate staging areas for agents that share a checkout",
+    "longDescription": "Records each file edit an agent makes in that agent's own git-multistage stage. The agent then stages and commits exactly its own edits, while other agents commit from the same checkout. Requires the git-multistage binary on PATH.",
+    "developerName": "chrisfls",
+    "category": "Developer Tools",
+    "websiteURL": "https://github.com/chrisfls/git-multistage"
+  }
+}

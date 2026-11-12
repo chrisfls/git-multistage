@@ -1,0 +1,20 @@
+{
+  "name": "git-multistage",
+  "interface": {
+    "displayName": "git-multistage"
+  },
+  "plugins": [
+    {
+      "name": "git-multistage",
+      "source": {
+        "source": "url",
+        "url": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

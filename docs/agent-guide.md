@@ -78,6 +78,8 @@ A commit that fails with `hook-modified` means the pre-commit hook rewrote your 
 
 A commit that prints `nothing new to commit` found your change already on the branch, because another agent made the same edit. That is a success.
 
+In Codex, the default sandbox makes `.git` read-only, so every `git multistage` command fails with an error such as "Operation not permitted". Run it with escalated permissions, as you would `git commit`.
+
 ## Rules
 
 - Do not run `git add`, `git commit`, `git stash`, `git checkout -- <file>`, `git restore <file>`, `git reset --hard`, or `git switch`. They change state that every agent shares.
