@@ -232,3 +232,29 @@ func TestCodexHookMultiFilePatch(t *testing.T) {
 	}
 	r.checkClean()
 }
+
+// TestHookKeepsSubagentsApartUnderAnExportedStage sets GIT_MULTISTAGE_ID, as
+// a person who exported it before starting Claude Code would. The main
+// session records into that stage; a subagent still records into its own.
+func TestHookKeepsSubagentsApartUnderAnExportedStage(t *testing.T) {
+	r := newRepo(t)
+	r.write("f.txt", "1\n2\n3\n4\n")
+	r.git("add", "f.txt")
+	r.git("commit", "-q", "-m", "f")
+	env := "GIT_MULTISTAGE_ID=mine"
+	file := r.path("f.txt")
+	r.hookCall("PreToolUse", "Edit", "s", "", file, env)
+	r.write("f.txt", "1\nTWO\n3\n4\n")
+	r.hookCall("PostToolUse", "Edit", "s", "", file, env)
+	r.hookCall("PreToolUse", "Edit", "s", "sub1", file, env)
+	r.write("f.txt", "1\nTWO\n3\nFOUR\n")
+	r.hookCall("PostToolUse", "Edit", "s", "sub1", file, env)
+	r.mustMS("", "--stage", "mine", "add", "--edits")
+	r.mustMS("", "--stage", "claude-sub1", "add", "--edits")
+	if d := r.mustMS("", "--stage", "mine", "diff", "--cached").out; !strings.Contains(d, "+TWO") || strings.Contains(d, "FOUR") {
+		t.Fatalf("stage mine:\n%s", d)
+	}
+	if d := r.mustMS("", "--stage", "claude-sub1", "diff", "--cached").out; !strings.Contains(d, "+FOUR") || strings.Contains(d, "TWO") {
+		t.Fatalf("stage claude-sub1:\n%s", d)
+	}
+}

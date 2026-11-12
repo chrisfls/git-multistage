@@ -22,7 +22,8 @@ checkout, without waiting for each other.
 
 Stage ID: --stage <id>, or the GIT_MULTISTAGE_ID environment variable.
 --agentic takes the ID of the calling agent from its environment
-(CLAUDE_CODE_SESSION_ID, then PASEO_AGENT_ID) when no stage ID is given.
+(CLAUDE_CODE_SESSION_ID or CODEX_THREAD_ID, else PASEO_AGENT_ID) when no
+stage ID is given.
 
 Commands:
   init [<id>]                  create a stage; without <id>, pick a unique ID
@@ -202,14 +203,6 @@ func (a *app) takeGlobal(argv []string) (rest []string, err error) {
 	return rest, nil
 }
 
-// agentSources are environment variables that hold an ID of the calling
-// agent, in the order --agentic tries them. Subagents that share their
-// parent's process environment share these values too.
-var agentSources = []struct{ env, prefix string }{
-	{"CLAUDE_CODE_SESSION_ID", "claude-"}, // the stage that the Claude Code editor hook records into
-	{"PASEO_AGENT_ID", "paseo-"},
-}
-
 // stageID resolves the stage ID: --stage, then GIT_MULTISTAGE_ID, then, with
 // --agentic only, the calling agent's ID.
 func (a *app) stageID() (string, error) {
@@ -222,15 +215,32 @@ func (a *app) stageID() (string, error) {
 	if !a.agentic {
 		return "", nil
 	}
-	var names []string
-	for _, s := range agentSources {
-		if v := os.Getenv(s.env); v != "" {
-			return sanitizeID(s.prefix + v), nil
-		}
-		names = append(names, s.env)
+	return agentStageID()
+}
+
+// agentStageID derives a stage ID from the calling agent's environment, the
+// same ID that the agent's editor hook records into. A tool that starts
+// another tool passes its variables on, so when both Claude Code and Codex
+// variables are present, the caller cannot be told apart and nothing is
+// guessed. Paseo wraps the other tools, so its ID is used only when neither
+// is present.
+func agentStageID() (string, error) {
+	claude, codex := os.Getenv("CLAUDE_CODE_SESSION_ID"), os.Getenv("CODEX_THREAD_ID")
+	switch {
+	case claude != "" && codex != "":
+		return "", &Error{Code: ExitUsage, Kind: "ambiguous-agent",
+			Message: "--agentic found both CLAUDE_CODE_SESSION_ID and CODEX_THREAD_ID, so it cannot tell which agent is calling",
+			Hint:    "pass --stage <id>; the editor hook's message names the stage"}
+	case claude != "":
+		return sanitizeID("claude-" + claude), nil
+	case codex != "":
+		return sanitizeID("codex-" + codex), nil
+	}
+	if paseo := os.Getenv("PASEO_AGENT_ID"); paseo != "" {
+		return sanitizeID("paseo-" + paseo), nil
 	}
 	return "", &Error{Code: ExitUsage, Kind: "no-agent-id",
-		Message: "--agentic found no agent ID: none of " + strings.Join(names, ", ") + " is set",
+		Message: "--agentic found no agent ID: none of CLAUDE_CODE_SESSION_ID, CODEX_THREAD_ID, PASEO_AGENT_ID is set",
 		Hint:    "pass --stage <id>"}
 }
 

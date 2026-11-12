@@ -18,7 +18,7 @@ Every stage works on the same files on disk. git-multistage separates staging an
 `git multistage hook claude` is a Claude Code `PreToolUse` and `PostToolUse` hook for the `Edit`, `MultiEdit`, and `Write` tools. `git multistage hook codex` is the same for Codex's `apply_patch`; it takes the files from the patch's `Update`, `Add`, `Delete`, and `Move to` headers.
 
 - Before an edit, it takes a lease on each file for up to 15 seconds, in a fixed order, and snapshots the files. A second hooked editor of the same file waits up to 20 seconds, then its edit is blocked with a message that asks the agent to retry.
-- After the edit, it records the before and after content in the agent's stage: `<editor>-<agent_id>` inside a subagent, `<editor>-<session_id>` otherwise, or `GIT_MULTISTAGE_ID` when that is set. The first recorded edit tells the agent its stage ID.
+- After the edit, it records the before and after content in the agent's stage: `<editor>-<agent_id>` inside a subagent, and `GIT_MULTISTAGE_ID` or else `<editor>-<session_id>` in the main session. The first recorded edit tells the agent its stage ID.
 - Edits made through shell commands (`sed`, code generators, formatters) are not recorded; stage those with `add` or `add --hunk`.
 - An edit through a symbolic link is recorded for the link's target. A recorded new file that `.gitignore` ignores needs `add --edits -f`.
 - A lease that expires during a long permission prompt marks the edit as uncertain; `add --edits` then refuses it.

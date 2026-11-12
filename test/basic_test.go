@@ -358,8 +358,17 @@ func TestAgenticFlag(t *testing.T) {
 	if res := run(r.dir, "", paseo, "--agentic", "--stage", "mine", "status", "--json"); !strings.Contains(res.out, `"stage": "mine"`) {
 		t.Fatalf("--stage with --agentic:\n%s", res)
 	}
-	res := run(r.dir, "", nil, "--agentic", "status")
-	if res.code != 2 || !strings.Contains(res.err, "CLAUDE_CODE_SESSION_ID") {
+	// CODEX_THREAD_ID names the stage that the Codex editor hook records into.
+	if res := run(r.dir, "", []string{"CODEX_THREAD_ID=01A1D160-ef16", "PASEO_AGENT_ID=p"}, "--agentic", "status", "--json"); !strings.Contains(res.out, `"stage": "codex-01a1d160-ef16"`) {
+		t.Fatalf("CODEX_THREAD_ID:\n%s", res)
+	}
+	// Both tools' variables: one tool started the other, and the caller is unknown.
+	res := run(r.dir, "", []string{"CLAUDE_CODE_SESSION_ID=c", "CODEX_THREAD_ID=x"}, "--agentic", "status")
+	if res.code != 2 || !strings.Contains(res.err, "cannot tell which agent") {
+		t.Fatalf("both Claude Code and Codex variables:\n%s", res)
+	}
+	res = run(r.dir, "", nil, "--agentic", "status")
+	if res.code != 2 || !strings.Contains(res.err, "CODEX_THREAD_ID") {
 		t.Fatalf("--agentic without an agent ID:\n%s", res)
 	}
 }

@@ -99,19 +99,21 @@ func runEditHook(kind string, stdin io.Reader, stdout, stderr io.Writer, stageFl
 	if len(files) == 0 {
 		return 0
 	}
+	// --stage in the hook command wins. A subagent always records into its
+	// own stage; GIT_MULTISTAGE_ID, inherited by every subagent, names only
+	// the main session's stage, so it can never merge subagents into one.
 	id := stageFlag
+	if id == "" && in.AgentID != "" {
+		id = sanitizeID(kind + "-" + in.AgentID)
+	}
 	if id == "" {
 		id = os.Getenv("GIT_MULTISTAGE_ID")
 	}
+	if id == "" && in.SessionID != "" {
+		id = sanitizeID(kind + "-" + in.SessionID)
+	}
 	if id == "" {
-		owner := in.AgentID
-		if owner == "" {
-			owner = in.SessionID
-		}
-		if owner == "" {
-			return 0
-		}
-		id = sanitizeID(kind + "-" + owner)
+		return 0
 	}
 	var hooks []*editHook
 	seen := map[string]bool{}

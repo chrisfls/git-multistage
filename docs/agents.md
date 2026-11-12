@@ -56,13 +56,23 @@ Codex runs a hook only after you trust its definition. Start `codex` in the proj
 
 ### Overriding the stage
 
-When `GIT_MULTISTAGE_ID` is set in the agent's environment, or the hook command passes `--stage <id>`, the hook records into that stage instead.
+A hook command with `--stage <id>` records every edit into that stage.
+
+`GIT_MULTISTAGE_ID` in the agent's environment renames the main session's stage only. Subagents inherit that variable, so it cannot tell them apart; they keep recording into `claude-<agent_id>` or `codex-<agent_id>`.
 
 ## --agentic
 
-`--agentic` is an opt-in shortcut for agents that have no stage ID of their own. When no stage ID is given, it takes one from the environment: `CLAUDE_CODE_SESSION_ID` as `claude-<id>`, or else `PASEO_AGENT_ID` as `paseo-<id>`. Without the flag, git-multistage ignores both variables.
+`--agentic` is an opt-in shortcut for agents that have no stage ID of their own. With no stage ID given, it reads the agent's ID from the environment and returns the stage that the editor hook uses for that agent's main session:
 
-Claude Code sets `CLAUDE_CODE_SESSION_ID` in some launch modes, such as the Agent SDK, but not in all of them. Where it is set, it names the same stage that the Claude Code hook uses for the main session. Subagents inherit their parent's environment, so `--agentic` cannot tell subagents apart. A subagent uses the stage ID that the hook gives it, or an explicit `--stage`.
+| Variable | Set by | Stage |
+| --- | --- | --- |
+| `CLAUDE_CODE_SESSION_ID` | Claude Code, in some launch modes such as the Agent SDK | `claude-<id>` |
+| `CODEX_THREAD_ID` | Codex | `codex-<id>` |
+| `PASEO_AGENT_ID` | Paseo, used only when neither of the above is set | `paseo-<id>` |
+
+Without the flag, git-multistage ignores these variables.
+
+A tool started from another tool inherits its variables. A Codex agent launched from a Claude Code session sees both `CLAUDE_CODE_SESSION_ID` and `CODEX_THREAD_ID`, so `--agentic` refuses with exit code 2 instead of guessing. Subagents also inherit their parent's variables. A subagent uses the stage ID that the hook gives it, or an explicit `--stage`.
 
 ## Limits
 
