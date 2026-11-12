@@ -54,6 +54,14 @@ The hook reads the edited files from the patch headers (`Update File`, `Add File
 
 Codex runs a hook only after you trust its definition. Start `codex` in the project once and review the hooks it lists, or open `/hooks`. Codex reads a project's `.codex/hooks.json` only when the project itself is trusted.
 
+Codex's default sandbox (`workspace-write`) makes `.git` read-only, so `git multistage` fails there, as `git commit` does. A rule lets Codex run it outside the sandbox without asking. Add it to `.codex/rules/multistage.rules` in the project, or to a file in `~/.codex/rules/`:
+
+```python
+prefix_rule(pattern = ["git", "multistage"], decision = "allow")
+```
+
+Like project hooks, project rules load only when the project is trusted. The rule also covers commands that the agent should not run on its own, such as `drop --force`; use `pattern = ["git", "multistage", "add"]` and similar lines to allow single commands instead.
+
 ### Overriding the stage
 
 A hook command with `--stage <id>` records every edit into that stage.
