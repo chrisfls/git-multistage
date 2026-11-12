@@ -35,25 +35,22 @@ func gitDiff(t *testing.T, old, updated string) []byte {
 	return out
 }
 
-// mustParse parses the production diff of old and updated.
+// mustParse parses the production diff of old and updated. The updated
+// content stands for the versions that Parse takes: the stage's base does not
+// change in these tests.
 func mustParse(t *testing.T, path, old, updated string) []Hunk {
 	t.Helper()
-	hs, err := Parse(path, gitDiff(t, old, updated), oldOf(old))
+	hs, err := Parse(path, gitDiff(t, old, updated), updated)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return hs
 }
 
-// oldOf returns the old-content reader that Parse takes.
-func oldOf(old string) func() ([]byte, error) {
-	return func() ([]byte, error) { return []byte(old), nil }
-}
-
 func TestParseAndApply(t *testing.T) {
 	old := "one\ntwo\nthree\nfour\nfive\nsix\n"
 	updated := "one\nTWO\nthree\nfour\nfive\nsix\nseven"
-	hs, err := Parse("f", gitDiff(t, old, updated), oldOf(old))
+	hs, err := Parse("f", gitDiff(t, old, updated), updated)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +93,7 @@ func TestDuplicateHunksGetDistinctIDs(t *testing.T) {
 }
 
 func TestBinary(t *testing.T) {
-	if _, err := Parse("f", gitDiff(t, "a\x00b", "a\x00c"), oldOf("a\x00b")); !errors.Is(err, ErrBinary) {
+	if _, err := Parse("f", gitDiff(t, "a\x00b", "a\x00c"), ""); !errors.Is(err, ErrBinary) {
 		t.Fatalf("err = %v, want ErrBinary", err)
 	}
 }
@@ -121,7 +118,7 @@ func TestRandomSubsets(t *testing.T) {
 		if old == updated {
 			continue
 		}
-		hs, err := Parse("f", gitDiff(t, old, updated), oldOf(old))
+		hs, err := Parse("f", gitDiff(t, old, updated), updated)
 		if err != nil {
 			t.Fatalf("parse: %v", err)
 		}
@@ -140,7 +137,7 @@ func TestRandomSubsets(t *testing.T) {
 			t.Fatalf("apply subset: %v", err)
 		}
 		// The rest of the hunks, applied on top of part, must reach updated.
-		rest, err := Parse("f", gitDiff(t, string(part), updated), oldOf(string(part)))
+		rest, err := Parse("f", gitDiff(t, string(part), updated), updated)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -156,7 +153,8 @@ func TestRandomSubsets(t *testing.T) {
 // that each copy now sits where another copy sat. No old ID may name a copy.
 func TestShiftedCopiesGetNewIDs(t *testing.T) {
 	ids := func(old string) map[string]bool {
-		hs, err := Parse("f", gitDiff(t, old, strings.ReplaceAll(old, "x\n", "y\n")), oldOf(old))
+		updated := strings.ReplaceAll(old, "x\n", "y\n")
+		hs, err := Parse("f", gitDiff(t, old, updated), updated)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -181,6 +179,57 @@ func TestShiftedCopiesGetNewIDs(t *testing.T) {
 	for id := range again {
 		if !before[id] {
 			t.Fatalf("ID %s changed without a change", id)
+		}
+	}
+}
+
+// TestCopyIDsSurviveStagingAnotherCopy stages one of several identical
+// hunks, then lists the hunks again with the same versions. Every other copy
+// keeps its ID, as its ID or as its copy ID when it is the last copy.
+func TestCopyIDsSurviveStagingAnotherCopy(t *testing.T) {
+	for _, tc := range []struct{ name, old, updated string }{
+		{"three copies", "a\nx\nb\nx\nc\nx\nd\n", "a\ny\nb\ny\nc\ny\nd\n"},
+		{"two copies of a longer change", "a\nx\nb\nx\nc\n", "a\ny\nY\nb\ny\nY\nc\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hs := mustParse(t, "f", tc.old, tc.updated)
+			staged, err := Apply([]byte(tc.old), hs[:1])
+			if err != nil {
+				t.Fatal(err)
+			}
+			rest := mustParse(t, "f", string(staged), tc.updated)
+			if len(rest) != len(hs)-1 {
+				t.Fatalf("got %d hunks after staging one of %d", len(rest), len(hs))
+			}
+			for i, h := range rest {
+				if want := hs[i+1].ID; h.ID != want && h.CopyID != want {
+					t.Fatalf("copy %d: ID %s, copy ID %s, want %s", i+2, h.ID, h.CopyID, want)
+				}
+			}
+		})
+	}
+}
+
+// TestPeriodicShiftChangesCopyIDs lists identical hunks whose neighbors are
+// also identical, before and after a shift by the spacing of the copies, so
+// that each copy has the position and the neighbors that the next copy had.
+// The new content differs, so no old ID may name a copy.
+func TestPeriodicShiftChangesCopyIDs(t *testing.T) {
+	block := "h\nx\nt\n"
+	parse := func(old string) []Hunk {
+		hs := mustParse(t, "f", old, strings.ReplaceAll(old, "x\n", "y\n"))
+		if len(hs) != 3 {
+			t.Fatalf("got %d hunks", len(hs))
+		}
+		return hs
+	}
+	before := parse("A\nB\nC\n" + block + block + block)
+	after := parse(block + block + block)
+	for _, a := range after {
+		for _, b := range before {
+			if a.ID == b.ID || a.CopyID == b.ID {
+				t.Fatalf("ID %s of a copy names another copy after the shift", b.ID)
+			}
 		}
 	}
 }

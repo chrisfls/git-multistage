@@ -277,3 +277,54 @@ func TestOrphanedLockOfTheCurrentIndexIsBypassed(t *testing.T) {
 	orphan()
 	r.mustMS("a", "drop", "--force")
 }
+
+// TestCopyIDSurvivesStagingAnotherCopy lists identical hunks, stages one
+// copy, then stages another copy by its listed ID. Staging a copy does not
+// change the working tree or the stage's base, so the other listed IDs stay
+// valid, also when only one copy is left and the copy staged changed the
+// line count.
+func TestCopyIDSurvivesStagingAnotherCopy(t *testing.T) {
+	for _, tc := range []struct{ name, updated, want string }{
+		{"three copies", "a\ny\nb\ny\nc\ny\nd\n", "a\ny\nb\ny\nc\nx\nd\n"},
+		{"two copies of a longer change", "a\ny\nY\nb\ny\nY\nc\nx\nd\n", "a\ny\nY\nb\ny\nY\nc\nx\nd\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRepo(t)
+			r.write("f.txt", "a\nx\nb\nx\nc\nx\nd\n")
+			r.git("add", "f.txt")
+			r.git("commit", "-q", "-m", "f")
+			r.write("f.txt", tc.updated)
+			var fj filesJSON
+			decode(t, r.mustMS("s", "hunks", "--json", "f.txt"), &fj)
+			h := fj.Files[0].Hunks
+			r.mustMS("s", "add", "f.txt", "--hunk", h[0].ID)
+			r.mustMS("s", "add", "f.txt", "--hunk", h[1].ID)
+			r.mustMS("s", "commit", "-m", "two copies")
+			if got := r.git("show", "main:f.txt"); got != tc.want {
+				t.Fatalf("committed %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCopyIDIsStaleAfterAPeriodicShift lists identical hunks in repeated
+// blocks; another stage then commits the deletion of the lines above them,
+// so each copy now has the position and the neighbors that the next copy
+// had. The listed ID of the first copy must not stage another copy.
+func TestCopyIDIsStaleAfterAPeriodicShift(t *testing.T) {
+	r := newRepo(t)
+	block, yblock := "h\nx\nt\n", "h\ny\nt\n"
+	r.write("f.txt", "A\nB\nC\n"+block+block+block)
+	r.git("add", "f.txt")
+	r.git("commit", "-q", "-m", "f")
+	r.write("f.txt", "A\nB\nC\n"+yblock+yblock+yblock)
+	var fa filesJSON
+	decode(t, r.mustMS("a", "hunks", "--json", "f.txt"), &fa)
+	first := fa.Files[0].Hunks[0].ID
+	r.write("f.txt", yblock+yblock+yblock)
+	var fb filesJSON
+	decode(t, r.mustMS("b", "hunks", "--json", "f.txt"), &fb)
+	r.mustMS("b", "add", "f.txt", "--hunk", fb.Files[0].Hunks[0].ID)
+	r.mustMS("b", "commit", "-m", "delete ABC")
+	r.expectCode(4, "a", "add", "f.txt", "--hunk", first)
+}

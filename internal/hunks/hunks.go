@@ -22,6 +22,7 @@ type Hunk struct {
 	NewLines int      `json:"new_lines"`
 	Removed  []string `json:"-"` // old lines, each with its line ending
 	Added    []string `json:"-"` // new lines, each with its line ending
+	CopyID   string   `json:"-"` // the ID of h as one of several copies; see assignIDs
 }
 
 // Header returns the unified diff header of h.
@@ -55,10 +56,11 @@ var headerRE = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@`)
 var ErrBinary = errors.New("binary content has no hunks")
 
 // Parse parses the output of `git diff -U0` for one file and assigns each
-// hunk an identifier derived from path and the hunk's changed lines. old
-// returns the old content of the file; Parse calls it only when several
-// hunks have the same lines, whose identifiers also depend on their places.
-func Parse(path string, diff []byte, old func() ([]byte, error)) ([]Hunk, error) {
+// hunk an identifier derived from path and the hunk's changed lines. When
+// several hunks have the same lines, their identifiers also depend on their
+// places in the new content and on versions, which must change whenever the
+// diffed content can change other than by applying hunks of this diff.
+func Parse(path string, diff []byte, versions string) ([]Hunk, error) {
 	var hs []Hunk
 	var cur *Hunk
 	lines := strings.SplitAfter(string(diff), "\n")
@@ -109,19 +111,21 @@ func Parse(path string, diff []byte, old func() ([]byte, error)) ([]Hunk, error)
 			return nil, fmt.Errorf("hunk %s has %d/%d lines", h.Header(), len(h.Removed), len(h.Added))
 		}
 	}
-	if err := assignIDs(path, hs, old); err != nil {
-		return nil, err
-	}
+	assignIDs(path, hs, versions)
 	return hs, nil
 }
 
 // assignIDs gives each hunk a 12-hex-digit hash of its path and changed
-// lines, so the ID survives line shifts. Identical hunks in one file also hash
-// the number of copies, their positions, and the nearest unchanged old lines
-// above and below them. A selection therefore cannot silently move to another
-// copy: when lines above the copies are added or deleted, each copy has
-// another position or other neighbors, and its old ID becomes unknown.
-func assignIDs(path string, hs []Hunk, old func() ([]byte, error)) error {
+// lines, so the ID survives line shifts. Several hunks of one file can have
+// the same lines; each such copy hashes, in addition, its line in the new
+// content and versions, which names the versions of the diffed content. Any
+// change to those versions makes the IDs of copies unknown, so a selection
+// cannot silently move to another copy. The ID of a copy does not depend on
+// the other copies, so staging one copy keeps the IDs of the others.
+//
+// CopyID is the ID that a hunk has as a copy. A hunk whose last other copy
+// was staged keeps it, so that selections can still name it by that ID.
+func assignIDs(path string, hs []Hunk, versions string) {
 	hash := func(h Hunk, place string) string {
 		sum := sha256.New()
 		sum.Write([]byte(path))
@@ -140,36 +144,14 @@ func assignIDs(path string, hs []Hunk, old func() ([]byte, error)) error {
 		hs[i].ID = hash(hs[i], "")
 		count[hs[i].ID]++
 	}
-	var src []string
-	loaded := false
 	for i := range hs {
-		n := count[hs[i].ID]
-		if n < 2 {
-			continue
+		// Hunks of one diff are apart by unchanged lines, so no two of them
+		// start at the same new line.
+		hs[i].CopyID = hash(hs[i], fmt.Sprintf("@%d\x00%s", hs[i].NewStart, versions))
+		if count[hs[i].ID] > 1 {
+			hs[i].ID = hs[i].CopyID
 		}
-		if !loaded {
-			content, err := old()
-			if err != nil {
-				return err
-			}
-			src, loaded = SplitLines(content), true
-		}
-		h := hs[i]
-		// above and below are 0-based indexes of the unchanged old lines
-		// around the hunk; an insertion follows old line OldStart.
-		above, below := h.OldStart-2, h.OldStart-1+h.OldLines
-		if h.OldLines == 0 {
-			above, below = h.OldStart-1, h.OldStart
-		}
-		line := func(k int) string {
-			if k < 0 || k >= len(src) {
-				return "\x00none"
-			}
-			return src[k]
-		}
-		hs[i].ID = hash(h, fmt.Sprintf("@%d,%d#%d\x00%s\x00%s", h.OldStart, h.NewStart, n, line(above), line(below)))
 	}
-	return nil
 }
 
 // SplitLines splits content into lines that keep their line endings.

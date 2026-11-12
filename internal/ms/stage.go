@@ -302,13 +302,29 @@ func (r *Repo) lsTree(commit, p string) (indexEntry, bool, error) {
 	return indexEntry{}, false, nil
 }
 
+// diffBlobs returns the hunks between two blobs of p. Their IDs are for
+// internal use: identical copies get IDs that hash no versions.
 func (r *Repo) diffBlobs(p, oldBlob, newBlob string) ([]hunks.Hunk, error) {
+	return r.diffBlobsWithIDs(p, oldBlob, newBlob, "")
+}
+
+// diffBlobsWithIDs returns the hunks between two blobs of p. The IDs of
+// identical copies hash versions; see hunks.Parse.
+func (r *Repo) diffBlobsWithIDs(p, oldBlob, newBlob, versions string) ([]hunks.Hunk, error) {
 	out, err := r.Run(gitx.Opt{}, "diff", "--no-color", "--no-ext-diff", "--no-textconv",
 		"-U0", "--inter-hunk-context=0", "--diff-algorithm=myers", oldBlob, newBlob)
 	if err != nil && gitx.ExitCode(err) != 1 {
 		return nil, err
 	}
-	return hunks.Parse(p, out, func() ([]byte, error) { return r.catBlob(oldBlob) })
+	return hunks.Parse(p, out, versions)
+}
+
+// copyVersions names the versions that the IDs of identical hunks depend on:
+// the stage's base commit and the blob of the listed side. Staging a hunk
+// changes neither, so the other copies keep their IDs; any other change to
+// the file, or a new base, makes them stale.
+func (l *Stage) copyVersions(newBlob string) string {
+	return l.M.Base + "\x00" + newBlob
 }
 
 func (r *Repo) catBlob(oid string) ([]byte, error) {
@@ -394,7 +410,7 @@ func (l *Stage) unstagedHunks(p string) (FileHunks, error) {
 	if err != nil {
 		return fh, err
 	}
-	hs, err := l.r.diffBlobs(p, fh.oldBlob, newBlob)
+	hs, err := l.r.diffBlobsWithIDs(p, fh.oldBlob, newBlob, l.copyVersions(newBlob))
 	if errors.Is(err, hunks.ErrBinary) {
 		fh.Binary, fh.Note = true, "binary file; stage it whole with `git multistage add "+p+"`"
 		return fh, nil
@@ -433,7 +449,7 @@ func (l *Stage) stagedHunks(p string) (FileHunks, error) {
 		fh.Note = "mode or type change; unstage it whole with `git multistage restore --staged " + p + "`"
 		return fh, nil
 	}
-	hs, err := l.r.diffBlobs(p, base.oid, cur.oid)
+	hs, err := l.r.diffBlobsWithIDs(p, base.oid, cur.oid, l.copyVersions(cur.oid))
 	if errors.Is(err, hunks.ErrBinary) {
 		fh.Binary, fh.Note = true, "binary file; unstage it whole with `git multistage restore --staged "+p+"`"
 		return fh, nil
@@ -542,10 +558,15 @@ func (l *Stage) changedPaths(cached bool) ([]string, error) {
 // selectHunks finds each requested ID in the listing. Every ID must match
 // exactly one hunk of the listed files.
 func selectHunks(files []FileHunks, ids []string) (map[string][]hunks.Hunk, error) {
+	// A hunk matches its ID, or its copy ID when its other copies were
+	// staged since the listing.
 	byID := map[string][]string{}
 	for _, f := range files {
 		for _, h := range f.Hunks {
 			byID[h.ID] = append(byID[h.ID], f.Path)
+			if h.CopyID != h.ID {
+				byID[h.CopyID] = append(byID[h.CopyID], f.Path)
+			}
 		}
 	}
 	chosen := map[string][]hunks.Hunk{}
@@ -580,7 +601,7 @@ func selectHunks(files []FileHunks, ids []string) (map[string][]hunks.Hunk, erro
 	}
 	for _, f := range files {
 		for _, h := range f.Hunks {
-			if seen[h.ID] {
+			if seen[h.ID] || seen[h.CopyID] {
 				chosen[f.Path] = append(chosen[f.Path], h.Hunk)
 			}
 		}

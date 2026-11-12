@@ -63,7 +63,7 @@ diff src/shared.ts (modified)
 +  return input.trim().toLowerCase();
 ```
 
-An ID is a hash of the path and the changed lines. It stays the same while other hunks are staged or committed, and changes when the hunk's content changes. When two hunks of a file make the same change, their IDs also cover their positions. `staged-by` names other stages that staged the same hunk.
+An ID is a hash of the path and the changed lines. It stays the same while other hunks are staged or committed, and changes when the hunk's content changes. When several hunks of a file make the same change, each copy's ID also covers its line in the working tree, the stage's base commit, and the working-tree content (or, for `--cached`, the staged content). Staging one copy keeps the listed IDs of the other copies, even when only one copy is left; unstaging one copy makes the IDs of the other staged copies unknown. Any other change to the file makes the IDs of copies unknown, so an ID never moves to another copy. `staged-by` names other stages that staged the same hunk.
 
 A selection that names an unknown ID fails with exit code 4 and stages nothing. That happens when the file changed after the hunks were listed: run `hunks` again and use the new IDs.
 
