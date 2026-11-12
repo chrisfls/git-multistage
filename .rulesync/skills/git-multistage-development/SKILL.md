@@ -9,7 +9,7 @@ git-multistage is a Go CLI with no dependencies outside the standard library. Th
 
 ## Checks
 
-Run these from the repository root before you report a change as done. CI runs the same checks.
+`mise.toml` pins Go, golangci-lint, and `act`, and CI installs the same versions with `jdx/mise-action`. Run `mise install` once, then run these checks from the repository root before you report a change as done. CI runs the same checks.
 
 ```bash
 golangci-lint fmt ./...                 # gofumpt and goimports

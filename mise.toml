@@ -1,0 +1,6 @@
+# Tool versions for local work and CI. Run `mise install` to install them.
+[tools]
+go = "1.27.4"
+golangci-lint = "2.15.0"
+# act runs the Linux CI jobs in containers, and needs a Docker engine.
+act = "0.2.97"

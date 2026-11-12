@@ -195,12 +195,16 @@ git multistage --stage <id> commit -m "Add input validation"
 
 ## Contributing
 
+[mise](https://mise.jdx.dev) installs the Go, golangci-lint, and `act` versions that [mise.toml](mise.toml) pins, the same ones CI uses:
+
 ```bash
+mise install
 go test ./...                                                       # all tests
 MULTISTAGE_STRESS=10 go test -run 'Many|Hunks|Native|Kill' ./test/  # repeat the concurrency and crash tests
+golangci-lint fmt --diff ./... && golangci-lint run ./...           # format and lint
 ```
 
-The tests run real Git in temporary repositories. CI covers Linux, macOS, and Windows.
+The tests run real Git in temporary repositories. CI covers Linux, macOS, and Windows. To run the Linux jobs locally before pushing, run `act` with a Docker engine, such as Docker Desktop, OrbStack, Colima, or Podman.
 
 ## License
 
