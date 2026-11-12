@@ -16,10 +16,10 @@ All agents read and write the same files on disk. git-multistage separates stagi
 
 ## Hooks
 
-- Hooks run in the shared checkout. `pre-commit` sees a temporary index that holds the tree to be committed, with HEAD at the parent commit.
+- Hooks run in the shared checkout, with the caller's environment. `pre-commit` sees a temporary index that holds the tree to be committed, with HEAD at the parent commit.
+- A `pre-commit` hook that changes the staged content, such as a formatter that re-adds files, makes the commit fail with kind `hook-modified`, and the stage keeps its changes. The hook reads re-added files from the shared working tree, where other agents' unstaged edits may be. Stage your changes again after the hook has formatted the files on disk; the next commit then passes.
 - Hooks that stash or rewrite unstaged changes, such as the pre-commit framework or lint-staged, change files that other agents are editing. They are unsafe with concurrent agents. The tool does not detect them.
-- `pre-commit` runs once per commit attempt, so it runs again when the commit replays onto a newer tip.
-- A `pre-commit` hook may rewrite staged files, as with `git commit`. A hook that adds paths outside the staged set is refused with exit code 3.
+- When a commit replays onto a newer tip, `pre-commit` runs again only if the replay changes what the commit introduces.
 
 ## Refused setups
 
@@ -42,9 +42,13 @@ All agents read and write the same files on disk. git-multistage separates stagi
 
 ## Default index
 
-- After each agent commit, the default index is brought to the new tip, except at entries that someone staged natively. Those entries are kept, and `git status` shows them against the new HEAD. Check them before running `git commit`.
-- With `multistage.syncIndex=false`, the default index stays behind until you run `git multistage sync`. Until then, `git status` shows agent commits as staged reversals, and a native `git commit` would undo them.
+- After each agent commit, the default index is brought from the commit's parent to the commit, except at entries that someone staged natively. Those entries are kept, and `git status` shows them against the new HEAD. Check them before running `git commit`.
+- A tool that moves the branch without updating the index, such as a plain `git update-ref`, leaves the default index behind at that tool's paths. With `multistage.syncIndex=false`, every agent commit does the same. `git multistage doctor` reports the lag, and `git multistage sync` (or `sync --from <commit>` when the index changed since the last sync) brings the index forward. Until then, `git status` shows those commits as staged reversals, and a native `git commit` would undo them.
 - A process killed while it holds `.git/index.lock` leaves the lock behind, as a killed `git commit` would. Git commands then fail with "Another git process seems to be running". See below.
+
+## Garbage collection
+
+While a stage has staged changes, `refs/worktree/multistage/<agent>` points to a commit of the staged tree, so `git gc` keeps the staged objects. The ref appears in `git log --all` and `git for-each-ref`, and disappears when nothing is staged. A pending commit that garbage collection pruned is treated as not landed.
 
 ## Recovery
 
@@ -53,10 +57,12 @@ All agents read and write the same files on disk. git-multistage separates stagi
 | `commit` exits 3 with conflict paths | The branch changed the same lines. The stage keeps its changes. | Edit the files so they include both changes, `git multistage restore --staged <path>`, stage again, commit. Or `restore --staged` and give up the change. |
 | `status` warns that the base is behind | Same as above, found before committing. | Same as above. |
 | Exit 4, stale hunk | The file changed after `hunks` ran. | Run `hunks <path>` again and use the new IDs. |
-| Exit 6, index locked | `.git/index.lock` exists. | Wait and retry. If no Git process runs (`ps`, Task Manager), delete `.git/index.lock`, then run `git multistage sync`. |
+| Exit 6, index locked | `.git/index.lock` exists. | Wait and retry. If no Git process runs (`ps`, Task Manager), delete `.git/index.lock`, then run `git multistage sync` (with `--from <parent of the last agent commit>` if it asks for one). |
+| `commit` fails with `hook-modified` | The pre-commit hook changed staged files. | Look at the files on disk, stage your changes again, and commit. |
+| A command reports a damaged stage | The stage's index file is missing. | `git multistage drop --force`, then stage again. The staged tree may still be readable from `refs/worktree/multistage/<agent>` before the drop. |
 | Exit 6, stage busy | Another process of the same agent holds the stage. | Wait for it. The OS releases the lock when a process dies, so a crash never leaves it held. |
 | A warning about an interrupted commit | A commit was killed. The next command finished or discarded it. | Nothing. `git multistage log` and `git log` show the result. |
-| `git status` shows agent commits as staged reversals | The default index is behind the branch. | `git multistage doctor`, then `git multistage sync`. |
+| `git status` shows agent commits as staged reversals | The default index is behind the branch. | `git multistage doctor`, then `git multistage sync`, or `sync --from <commit>` for the commit that the index matches. |
 | A stage is no longer needed | | `git multistage drop`. With `--force`, the command prints the staged tree ID; `git diff <base> <tree>` shows its content until `git gc` prunes it. |
 
 `git multistage doctor` changes nothing. It reports the Git version, the HEAD state, operations in progress, unsupported settings, a leftover `index.lock`, whether the default index matches the branch, and each stage's base, staged files, pending commit, and problems.

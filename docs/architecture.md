@@ -21,9 +21,13 @@ git-multistage is a Go program that runs Git subprocesses. It stores no objects 
     meta.json       base, target branch, current index file name, pending commit, commit list
     index-<n>       the stage's index (generation n)
     COMMIT_EDITMSG  the message of the last commit, for hooks
-  index-sync        the branch and commit that the default index was last synced to
+  index-sync        the branch, commit, and index tree of the last default-index sync
   tmp/              temporary index files
+
+refs/worktree/multistage/<agent-id>   per-worktree ref to a commit of the staged tree
 ```
+
+Staged blobs and trees are referenced only by the stage's index file, which `git gc` does not read. While a stage has staged changes, the per-worktree ref points to a commit of the staged tree (parent: the base), so garbage collection keeps those objects. The ref is deleted when nothing is staged. `git log --all` lists it while it exists.
 
 The per-worktree Git directory comes from `git rev-parse --path-format=absolute --git-dir`: `.git` for the main worktree, `.git/worktrees/<name>` for a linked one. Each worktree therefore has its own stages, and the same agent ID in two worktrees names two separate stages. Git never tracks files inside the Git directory.
 
@@ -47,14 +51,14 @@ No lock covers all agents' commits. Commits build their trees and commit objects
 
 ## Staging
 
-`add <path>` runs `git add` with `GIT_INDEX_FILE` set to the stage's index, so ignore rules, attributes, filters, deletions, and binary files behave as in Git. Before it keeps the result, it checks other stages of the worktree: when another agent has staged changes in the same file, the whole file may contain that agent's edits, so the command restores the previous index and refuses (exit code 5). `--allow-shared` overrides the check.
+`add <path>` runs `git add` on a copy of the stage's index (the next generation), so ignore rules, attributes, filters, deletions, and binary files behave as in Git. Before the copy becomes current, the command checks other stages of the worktree: when another agent has staged changes in the same file, the whole file may contain that agent's edits, so the command discards the copy and refuses (exit code 5). `--allow-shared` overrides the check. A crash before the metadata rename leaves the previous index current.
 
 `add <path> --hunk <id>`:
 
 1. Hash the working-tree file once with `git hash-object -w --path=<path>`, which applies the clean conversions (line endings). Every later step uses this blob, so a concurrent write to the file cannot mix two versions.
 2. Diff the stage's blob against the snapshot with `git diff -U0 --diff-algorithm=myers <old-blob> <new-blob>`.
-3. Give each hunk an ID: the first 12 hex digits of SHA-256 over the path and the hunk's removed and added lines. Identical hunks in one file get `-2`, `-3`, in order.
-4. Check that every requested ID matches exactly one hunk. Otherwise fail with exit code 4 and change nothing.
+3. Give each hunk an ID: the first 12 hex digits of SHA-256 over the path and the hunk's removed and added lines. When several hunks of one file have the same lines, their IDs also hash their positions, so a selection can never move to another copy.
+4. Check that every requested ID matches exactly one hunk. Otherwise fail with exit code 4 and change nothing. An untracked file that `.gitignore` ignores needs `-f`, as with `git add`.
 5. Apply the chosen hunks to the old blob content, store the result with `git hash-object -w --stdin`, and set the index entry with `git update-index --cacheinfo`.
 
 `restore --staged --hunk` uses the same machinery between the base blob and the staged blob: it keeps every staged hunk except the chosen ones.
@@ -82,10 +86,10 @@ A refreshed stage shows other agents' committed work as part of its base, so `st
    2. If `T` is the base, the result tree `R` is `S`. Otherwise `R` is the three-way merge of `B -> S` onto `T`'s tree. A conflict ends the commit with exit code 3, and the stage keeps its changes.
    3. Verify `R` (see below).
    4. If `R` equals `T`'s tree, every staged change is already on the branch: clear the stage and report `already-applied`.
-   5. Run `pre-commit` (unless `--no-verify`) with `GIT_INDEX_FILE` pointing to a temporary index that holds `R`. If the hook changes that index, the changed tree must still touch only staged paths.
+   5. Run `pre-commit` (unless `--no-verify`) with `GIT_INDEX_FILE` pointing to a temporary index that holds `R`. If the hook changes that index, the commit fails and the stage keeps its changes: a hook that re-adds files reads them from the shared working tree, where other agents' unstaged edits may be. A retry that introduces exactly the changes that the hook already accepted skips the hook.
    6. Create the commit with `git commit-tree R -p T` (plus `-S` when `commit.gpgSign` is set). Author and committer come from Git's configuration and environment.
    7. Write the pending commit `{commit, parent}` into `meta.json`.
-   8. Take `.git/index.lock` (wait up to 15 s).
+   8. Take `.git/index.lock` (wait up to 15 s). Check again that no merge, rebase, cherry-pick, or revert started.
    9. Run `git update-ref -m <reflog message> <branch> <commit> <T>`. Git moves the branch only if it still points to `T`.
    10. On failure, release the lock and read the branch again. If it moved, clear the pending commit, wait a short random time, and go back to step 1. A retry replays the same staged change onto the new tip; it never reuses the old tree.
    11. On success, sync the default index (below) and release the lock.
@@ -106,7 +110,9 @@ A tree that fails either check is refused with exit code 3. A clean merge does n
 The pending commit in `meta.json` is the journal. At the start of every command, a stage with a pending commit checks whether that commit is reachable from the branch:
 
 - Reachable: the branch update happened. The stage records the commit, clears its staged changes, and syncs the default index.
-- Not reachable: the update did not happen. The stage clears the pending record and keeps its staged changes.
+- Not reachable, or pruned by garbage collection: the update did not happen. The stage clears the pending record and keeps its staged changes.
+
+A stage whose metadata names a missing index file is refused by every command except `drop`, because Git would read the missing index as an empty one and the next commit would delete every file. `drop` renames the stage directory before deleting it, so an interrupted drop cannot leave such a stage.
 
 Either way the change ends up in exactly one commit. A killed staging command leaves either the old or the new index, because Git writes indexes through lock-and-rename; leftover lock files and temporary files are removed when the stage lock is next taken.
 
@@ -116,15 +122,16 @@ Either way the change ends up in exactly one commit. A killed staging command le
 
 After each successful branch update, while still holding `.git/index.lock`:
 
-1. Read the sync record `S` (the commit that the default index was last brought to). If it is missing or not an ancestor of the tip, use the commit's parent.
-2. List the paths that differ between `S` and the tip `H`.
-3. For each path, read the default index entry:
-   - It equals the version in `S`: replace it with the version in `H` (or remove it).
+1. List the paths that differ between the commit's parent `P` and the new tip `H`.
+2. For each path, read the default index entry:
+   - It equals the version in `P`: replace it with the version in `H` (or remove it).
    - It already equals `H`: leave it.
    - Anything else, including conflict stages: a person staged something there. Keep it and print a warning.
-4. Write the result to a copy of the index with `git update-index --index-info`, rename the copy over the index, and record `H`.
+3. Write the result to a copy of the index with `git update-index --index-info` and rename the copy over the index.
 
-Holding `.git/index.lock` across the branch update and the sync matters: `git commit` holds the same lock while it reads the index and moves the branch, so a person's commit can never start between an agent's branch update and the sync.
+Every agent moves the branch only while holding `.git/index.lock`, and `git commit` holds the same lock while it reads the index and moves the branch. So the default index matches `P` when the sync starts, and a person's commit can never start between an agent's branch update and the sync. Only a tool that moves the branch without updating the index (a plain `git update-ref`, or a stage with `multistage.syncIndex=false`) leaves the index behind; the sync then updates only the agent's own paths, and the rest stays behind until a manual sync.
+
+`git multistage sync` needs to know which commit the index matches. The sync record stores the commit and the tree of the default index after each sync whose starting point was known. The record is valid only while the index still has that tree, so any native change to the index entries invalidates it. Without a valid record, `sync` needs `--from <commit>`.
 
 The sync never touches the working tree. Files on disk already hold the agents' edits, so after a sync `git status` shows only uncommitted work.
 
@@ -132,7 +139,7 @@ The sync never touches the working tree. Files on disk already hold the agents' 
 
 1. A stage's index is written only by commands that hold that stage's lock.
 2. A branch moves only through `git update-ref` with the expected old value.
-3. A commit's tree differs from its parent only at the paths that its stage had staged (or their renamed paths), and holds the staged content wherever the parent did not change the path.
+3. A commit's tree differs from its parent only at the paths that its stage had staged (or their renamed paths), and holds the staged content wherever the parent did not change the path. A hook cannot change it.
 4. A failed, conflicting, or interrupted commit leaves the stage's staged changes in place, or, if the branch update happened, records the commit exactly once.
 5. A default-index entry changes only when it holds the previously synced version.
-6. The working tree is never written.
+6. git-multistage never writes the working tree. Hooks may.

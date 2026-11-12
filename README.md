@@ -88,7 +88,7 @@ Every command takes `--agent <id>`. Most commands take `--json` for machine-read
 | `diff [--cached] [<git diff args>]` | `git diff` against the stage. `--cached` shows the staged changes against the stage's base commit. |
 | `hunks [--cached] [<path>...]` | List hunks with IDs. Without paths, list every changed tracked file. `--cached` lists staged hunks. |
 | `add <path>...` | Stage whole files: new, modified, deleted, renamed (pass both paths), binary. `-f` stages ignored files. |
-| `add <path>... --hunk <id>...` | Stage only the listed hunks. |
+| `add <path>... --hunk <id>...` | Stage only the listed hunks. `-f` stages hunks of an ignored untracked file. |
 | `add -p <path>...` | Interactive hunk selection for people (`git add -p` on the stage). |
 | `apply [-R] <patch>\|-` | Apply a patch to the stage's index, like `git apply --cached`. The working tree is untouched. |
 | `restore --staged <path>... [--hunk <id>...]` | Unstage files, or only the listed staged hunks. |
@@ -96,7 +96,7 @@ Every command takes `--agent <id>`. Most commands take `--json` for machine-read
 | `log [<git log args>]` | Show the commits made by this stage. |
 | `list` | List the stages of this worktree. |
 | `doctor` | Check the repository, the default index, and every stage. Changes nothing. |
-| `sync` | Bring the default index up to the branch tip, keeping natively staged entries. |
+| `sync [--from <commit>]` | Bring the default index up to the branch tip, keeping natively staged entries. `--from` names the commit that the index matches when the tool cannot tell. |
 | `drop [--force]` | Delete the stage. Refuses when changes are staged, unless `--force`. |
 
 ### Exit codes

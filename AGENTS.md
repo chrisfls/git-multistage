@@ -59,6 +59,8 @@ Add `--json` to `status`, `hunks`, `add`, and `commit` when you parse the output
 | 5, other | HEAD is detached or on another branch, or a merge or rebase is in progress. | Stop and report it. Do not change branches. |
 | 6 | A lock stayed held, such as another Git process holding `.git/index.lock`. | Retry the command after a few seconds. If it fails again, run `git multistage doctor` and report the output. |
 
+A commit that fails with `hook-modified` means the pre-commit hook rewrote your files on disk, such as by formatting them. Stage your changes again (`hunks`, then `add --hunk`) and commit again.
+
 A commit that prints `nothing new to commit` found your change already on the branch, because another agent made the same edit. That is a success.
 
 ## Rules
