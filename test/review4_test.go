@@ -2,7 +2,6 @@ package test
 
 import (
 	"encoding/json"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -75,26 +74,24 @@ func TestHookAfterGlobalOptions(t *testing.T) {
 // seconds of waiting on an approval prompt would.
 func (r *repo) expireLeases() {
 	r.t.Helper()
-	n := 0
-	err := filepath.WalkDir(r.path(".git"), func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || filepath.Base(filepath.Dir(p)) != "leases" || filepath.Ext(p) != ".json" {
-			return err
-		}
+	paths, err := filepath.Glob(r.path(".git/multistage/leases/*.json"))
+	if err != nil || len(paths) == 0 {
+		r.t.Fatalf("no leases: %v", err)
+	}
+	for _, p := range paths {
 		data, err := os.ReadFile(p)
 		if err != nil {
-			return err
+			r.t.Fatal(err)
 		}
 		var l map[string]any
 		if err := json.Unmarshal(data, &l); err != nil {
-			return err
+			r.t.Fatal(err)
 		}
 		l["expires"] = 0
 		data, _ = json.Marshal(l)
-		n++
-		return os.WriteFile(p, data, 0o644)
-	})
-	if err != nil || n == 0 {
-		r.t.Fatalf("expired %d leases: %v", n, err)
+		if err := os.WriteFile(p, data, 0o644); err != nil {
+			r.t.Fatal(err)
+		}
 	}
 }
 
