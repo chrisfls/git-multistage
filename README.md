@@ -29,11 +29,11 @@ git-multistage keeps one checkout and gives each agent its own index.
 
 ## What else it does
 
-- **Stage part of a file:** pick blocks of changed lines by ID. An ID listed before the file changed is refused. See [hunk IDs](docs/cli.md#hunk-ids).
-- **Commit at the same time:** each commit lands on the newest tip of the branch, and none is lost. See [the commit transaction](docs/architecture.md#the-commit-transaction).
-- **Record agent edits:** hooks for Claude Code and Codex record each edit, so an agent stages exactly its own edits with one command. See [coding agents](docs/agents.md).
-- **Keep `git status` correct:** Git's normal index follows each commit, and changes a person staged by hand are kept. See [the default index](docs/architecture.md#the-default-index).
-- **Survive crashes:** the next command finishes or cancels a commit that was stopped halfway, so a commit never appears twice. See [crash recovery](docs/architecture.md#crash-recovery).
+- **Stage part of a file:** pick blocks of changed lines by ID. An ID listed before the file changed is refused. See [the staging spec](openspec/specs/staging/spec.md).
+- **Commit at the same time:** each commit lands on the newest tip of the branch, and none is lost. See [the commit spec](openspec/specs/commit/spec.md).
+- **Record agent edits:** hooks for Claude Code and Codex record each edit, so an agent stages exactly its own edits with one command. See [the editor hooks spec](openspec/specs/editor-hooks/spec.md).
+- **Keep `git status` correct:** Git's normal index follows each commit, and changes a person staged by hand are kept. See [the default-index sync spec](openspec/specs/default-index-sync/spec.md).
+- **Survive crashes:** the next command finishes or cancels a commit that was stopped halfway, so a commit never appears twice. See [the crash recovery spec](openspec/specs/crash-recovery/spec.md).
 
 ## Install
 
@@ -158,7 +158,7 @@ $env:GIT_MULTISTAGE_ID = "fix-login"
 
 ## Coding agents
 
-Give each agent a stage ID, such as its agent ID, and [the agent guide](docs/agent-guide.md).
+Give each agent a stage ID, such as its agent ID, and [the agent guide](skills/git-multistage/SKILL.md).
 
 For Claude Code and Codex, install the plugin. It records each edit an agent makes in that agent's stage and teaches the agent the commands. The `git-multistage` binary must be on your `PATH`.
 
@@ -176,7 +176,13 @@ codex plugin marketplace add chrisfls/git-multistage
 codex plugin add git-multistage@git-multistage
 ```
 
-Codex asks you to trust the plugin's hooks the next time it starts. Its default sandbox also blocks writes to `.git`; [docs/agents.md](docs/agents.md#codex) shows the rule that allows `git multistage`.
+Codex asks you to trust the plugin's hooks the next time it starts. Its default sandbox (`workspace-write`) makes `.git` read-only, so `git multistage` fails there, as `git commit` does. A rule lets Codex run it outside the sandbox without asking. Add it to `.codex/rules/multistage.rules` in the project, or to a file in `~/.codex/rules/`:
+
+```python
+prefix_rule(pattern = ["git", "multistage"], decision = "allow")
+```
+
+Project rules load only when the project is trusted. The rule also covers commands that the agent should not run on its own, such as `drop --force`; use `pattern = ["git", "multistage", "add"]` and similar lines to allow single commands instead.
 
 An agent then commits its own edits with:
 
@@ -185,13 +191,19 @@ git multistage --stage <id> add --edits
 git multistage --stage <id> commit -m "Add input validation"
 ```
 
-## Documentation
+## Specs
 
-- [Command reference](docs/cli.md): all commands, stage IDs, exit codes, and settings.
-- [Coding agents](docs/agents.md): the Claude Code and Codex plugins, and the editor hooks.
-- [Agent guide](docs/agent-guide.md): a short guide to give to an agent.
-- [Architecture](docs/architecture.md): storage, commits, and crash recovery.
-- [Limitations and recovery](docs/limitations.md): what a shared checkout cannot guarantee, and how to fix each error.
+The behavior of every command is specified in [openspec/specs/](openspec/specs/), one spec for each capability:
+
+- [Stages](openspec/specs/stages/spec.md): stage IDs, creation, deletion, and keeping a stage current.
+- [Staging](openspec/specs/staging/spec.md): files, hunks, patches, and inspecting a stage.
+- [Commit](openspec/specs/commit/spec.md): concurrent commits, refusals, messages, and Git hooks.
+- [Default-index sync](openspec/specs/default-index-sync/spec.md): keeping `git status` correct.
+- [Crash recovery](openspec/specs/crash-recovery/spec.md): interrupted commands, locks, and garbage collection.
+- [Editor hooks](openspec/specs/editor-hooks/spec.md): recorded edits for Claude Code and Codex.
+- [Agent stage detection](openspec/specs/agent-stage-detection/spec.md): `--agentic`.
+- [CLI](openspec/specs/cli/spec.md): exit codes, JSON output, supported setups, and `doctor`.
+- [Agent plugins](openspec/specs/agent-plugins/spec.md): the Claude Code and Codex plugins.
 
 ## Contributing
 
