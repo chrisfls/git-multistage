@@ -31,6 +31,7 @@ Commands:
   hunks [--cached] [<path>...] list hunks with IDs (default: unstaged changes)
   add <path>...                stage whole files
   add <path>... --hunk <id>... stage only the listed hunks
+  add --edits [<path>...]      stage the edits that the editor hook recorded
   apply [-R] <patch>|-         apply a patch to this stage's index
   restore --staged <path>... [--hunk <id>...]
                                unstage files or hunks
@@ -41,6 +42,8 @@ Commands:
   doctor                       check the repository, default index, and stages
   sync [--from <commit>]       bring the default index up to the branch tip
   drop [--force]               delete this stage
+  drop --edits [<path>...]     forget recorded edits
+  hook claude                  Claude Code PreToolUse/PostToolUse hook for file edits
 
 Most commands take --json. Exit codes: 0 ok, 1 error or nothing to commit,
 2 usage, 3 conflict, 4 stale hunk ID, 5 refused, 6 lock timeout.
@@ -124,6 +127,9 @@ type app struct {
 
 // Main runs the command line and returns the exit code.
 func Main(argv []string, stdout, stderr io.Writer) int {
+	if len(argv) > 0 && argv[0] == "hook" {
+		return hookMain(argv[1:], stdout, stderr)
+	}
 	a := &app{out: stdout, errw: stderr}
 	err := a.run(argv)
 	if err == nil {
@@ -285,17 +291,18 @@ func (a *app) run(argv []string) error {
 	}
 
 	specs := map[string][]flagSpec{
-		"init":    nil,
-		"status":  nil,
-		"hunks":   {{[]string{"--cached", "--staged"}, false}},
-		"add":     {{[]string{"--hunk"}, true}, {[]string{"--force", "-f"}, false}, {[]string{"--allow-shared"}, false}, {[]string{"--patch", "-p"}, false}},
+		"init":   nil,
+		"status": nil,
+		"hunks":  {{[]string{"--cached", "--staged"}, false}},
+		"add": {{[]string{"--hunk"}, true}, {[]string{"--force", "-f"}, false}, {[]string{"--allow-shared"}, false},
+			{[]string{"--patch", "-p"}, false}, {[]string{"--edits"}, false}},
 		"apply":   {{[]string{"--reverse", "-R"}, false}},
 		"restore": {{[]string{"--staged", "-S"}, false}, {[]string{"--hunk"}, true}},
 		"commit":  {{[]string{"--message", "-m"}, true}, {[]string{"--file", "-F"}, true}, {[]string{"--no-verify", "-n"}, false}},
 		"list":    nil,
 		"doctor":  nil,
 		"sync":    {{[]string{"--from"}, true}},
-		"drop":    {{[]string{"--force", "-f"}, false}},
+		"drop":    {{[]string{"--force", "-f"}, false}, {[]string{"--edits"}, false}},
 	}
 	spec, ok := specs[cmd]
 	if !ok {
@@ -449,6 +456,12 @@ func (a *app) status(l *Stage, f Freshness) error {
 			a.printf("  ?? %s\n", u)
 		}
 	}
+	if len(st.Recorded) > 0 {
+		a.printf("recorded edits (stage them with `add --edits`):\n")
+		for _, p := range st.Recorded {
+			a.printf("  %s\n", p)
+		}
+	}
 	if len(st.Shared) > 0 {
 		a.printf("also staged in other stages:\n")
 		for _, s := range st.Shared {
@@ -498,6 +511,23 @@ func (a *app) hunks(l *Stage, p *parsed) error {
 }
 
 func (a *app) add(l *Stage, p *parsed) error {
+	if p.has("--edits") {
+		paths, err := a.repo.repoPaths(p.pos)
+		if err != nil {
+			return err
+		}
+		staged, err := l.AddEdits(paths)
+		if err != nil {
+			return err
+		}
+		if a.json {
+			a.emit(map[string]any{"staged_paths": staged, "warnings": a.warnings})
+			a.warnings = nil
+			return nil
+		}
+		a.printf("staged recorded edits in %s\n", strings.Join(staged, ", "))
+		return nil
+	}
 	if len(p.pos) == 0 {
 		return usageErr("usage: git multistage add <path>... [--hunk <id>...]")
 	}
@@ -789,6 +819,23 @@ func (a *app) sync(p *parsed) error {
 }
 
 func (a *app) drop(l *Stage, p *parsed) error {
+	if p.has("--edits") {
+		paths, err := a.repo.repoPaths(p.pos)
+		if err != nil {
+			return err
+		}
+		n, err := l.DropEdits(paths)
+		if err != nil {
+			return err
+		}
+		if a.json {
+			a.emit(map[string]any{"dropped_edits": n, "warnings": a.warnings})
+			a.warnings = nil
+			return nil
+		}
+		a.printf("forgot %d recorded edit(s)\n", n)
+		return nil
+	}
 	tree, err := l.Drop(p.has("--force"))
 	if err != nil {
 		return err
@@ -803,4 +850,14 @@ func (a *app) drop(l *Stage, p *parsed) error {
 		a.printf("its staged tree was %s (inspect it with `git diff %s %s`)\n", tree, short(l.M.Base), tree)
 	}
 	return nil
+}
+
+// hookMain runs `git multistage hook claude [--stage <id>]`.
+func hookMain(argv []string, stdout, stderr io.Writer) int {
+	p, err := parseArgs(argv, nil)
+	if err != nil || len(p.pos) != 1 || p.pos[0] != "claude" {
+		fmt.Fprintln(stderr, "usage: git multistage hook claude [--stage <id>]")
+		return ExitUsage
+	}
+	return runEditHook(os.Stdin, stdout, stderr, p.get("--stage"))
 }

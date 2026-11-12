@@ -284,8 +284,9 @@ func (l *Stage) adoptIndex(name string, gen int) error {
 // reachable, so that `git gc` does not prune them.
 func (l *Stage) keepRef() string { return "refs/worktree/multistage/" + l.ID }
 
-// protect points keepRef at a commit of the staged tree while the stage has
-// staged changes, and deletes it otherwise.
+// protect points keepRef at a commit whose tree holds the staged tree and
+// the blobs of recorded edits, while the stage has either; otherwise it
+// deletes the ref.
 // skipWorktree returns the paths that a sparse checkout leaves out of the
 // working tree, from the default index; nil without a sparse checkout.
 func (r *Repo) skipWorktree() (map[string]bool, error) {
@@ -351,17 +352,43 @@ func (l *Stage) protect() error {
 	if err != nil {
 		return err
 	}
+	// Blobs that recorded edits refer to need the same protection.
+	recs, err := readRecords(l.Dir)
+	if err != nil {
+		return err
+	}
+	var edits strings.Builder
+	for i, rec := range recs {
+		for _, b := range []struct{ name, oid string }{{"before", rec.Before}, {"after", rec.After}} {
+			if b.oid != "" {
+				fmt.Fprintf(&edits, "100644 blob %s\t%d-%s\n", b.oid, i, b.name)
+			}
+		}
+	}
 	cur, _ := l.r.Line(gitx.Opt{}, "show", "-s", "--format=%T %P", l.keepRef(), "--")
-	if tree == base {
+	if tree == base && edits.Len() == 0 {
 		if cur != "" {
 			_, err = l.r.Run(gitx.Opt{}, "update-ref", "-d", l.keepRef())
 		}
 		return err
 	}
-	want := strings.TrimSpace(tree + " " + l.M.Base)
+	entries := fmt.Sprintf("040000 tree %s\tstaged\n", tree)
+	if edits.Len() > 0 {
+		editsTree, err := l.r.Line(gitx.Opt{Stdin: strings.NewReader(edits.String())}, "mktree")
+		if err != nil {
+			return err
+		}
+		entries += fmt.Sprintf("040000 tree %s\tedits\n", editsTree)
+	}
+	keepTree, err := l.r.Line(gitx.Opt{Stdin: strings.NewReader(entries)}, "mktree")
+	if err != nil {
+		return err
+	}
+	want := strings.TrimSpace(keepTree + " " + l.M.Base)
 	if cur == want {
 		return nil
 	}
+	tree = keepTree
 	args := []string{"commit-tree", tree, "-m", "git-multistage stage " + l.ID}
 	if l.M.Base != "" {
 		args = append(args, "-p", l.M.Base)

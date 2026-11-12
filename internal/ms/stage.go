@@ -25,8 +25,18 @@ func (r *Repo) RepoPath(arg string) (string, error) {
 		p, err := filepath.Rel(r.Top, arg)
 		if err != nil || p == ".." || strings.HasPrefix(p, ".."+string(filepath.Separator)) {
 			// The argument may reach the worktree through a symbolic link.
-			if dir, err2 := filepath.EvalSymlinks(filepath.Dir(arg)); err2 == nil {
-				p, err = filepath.Rel(r.Top, filepath.Join(dir, filepath.Base(arg)))
+			// Resolve its deepest existing directory; the rest may not exist yet.
+			dir, rest := filepath.Dir(arg), filepath.Base(arg)
+			for {
+				if real, err2 := filepath.EvalSymlinks(dir); err2 == nil {
+					p, err = filepath.Rel(r.Top, filepath.Join(real, rest))
+					break
+				}
+				parent := filepath.Dir(dir)
+				if parent == dir {
+					break
+				}
+				dir, rest = parent, filepath.Join(filepath.Base(dir), rest)
 			}
 		}
 		if err != nil {

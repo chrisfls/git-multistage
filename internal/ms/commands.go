@@ -21,6 +21,7 @@ type StatusInfo struct {
 	Unstaged  []Change     `json:"unstaged"`
 	Untracked []string     `json:"untracked"`
 	Shared    []SharedPath `json:"shared,omitempty"`
+	Recorded  []string     `json:"recorded_edits,omitempty"` // paths with edits that the editor hook recorded
 }
 
 // SharedPath is a path that this stage and other stages have staged.
@@ -49,6 +50,9 @@ func (l *Stage) Status(f Freshness) (*StatusInfo, error) {
 		if p != "" {
 			st.Untracked = append(st.Untracked, p)
 		}
+	}
+	if st.Recorded, err = l.RecordedPaths(); err != nil {
+		return nil, err
 	}
 	others, err := l.otherStagesStaged()
 	if err != nil {
@@ -101,6 +105,9 @@ func (r *Repo) Stages() ([]StageInfo, error) {
 			lk.Release()
 		}
 		m, err := readMeta(dir)
+		if errors.Is(err, os.ErrNotExist) {
+			continue // the editor hook recorded edits; the stage is created on its first command
+		}
 		if err != nil {
 			li.Problems = append(li.Problems, "unreadable metadata: "+err.Error())
 			res = append(res, li)

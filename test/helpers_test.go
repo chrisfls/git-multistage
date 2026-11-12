@@ -115,7 +115,12 @@ func (res result) String() string {
 
 // run runs git-multistage in dir with GIT_MULTISTAGE_ID=agent and extra env.
 func run(dir, agent string, env []string, args ...string) result {
+	return runStdin(dir, agent, env, "", args...)
+}
+
+func runStdin(dir, agent string, env []string, stdin string, args ...string) result {
 	cmd := exec.Command(bin, args...)
+	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), env...)
 	if agent != "" {
