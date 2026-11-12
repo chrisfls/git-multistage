@@ -177,3 +177,40 @@ func TestHookKeepsCRLFOfACommittedFile(t *testing.T) {
 		t.Fatalf("crlf.txt = %q", got)
 	}
 }
+
+// TestAgenticTrustsAToolOnlyAsAnAncestor fakes the process chain, so the
+// result does not depend on the processes that run the test.
+func TestAgenticTrustsAToolOnlyAsAnAncestor(t *testing.T) {
+	r := newRepo(t)
+	for _, c := range []struct {
+		ancestors string
+		env       []string
+		want      string // "" for exit code 2
+	}{
+		{"zsh", []string{"CLAUDE_CODE_SESSION_ID=stale", "PASEO_AGENT_ID=agent1"}, "paseo-agent1"},
+		{"zsh", []string{"CLAUDE_CODE_SESSION_ID=stale", "PASEO_AGENT_ID=agent2"}, "paseo-agent2"},
+		{"codex", []string{"CLAUDE_CODE_SESSION_ID=stale", "PASEO_AGENT_ID=p"}, "paseo-p"},
+		{"zsh,claude", []string{"CLAUDE_CODE_SESSION_ID=c1", "PASEO_AGENT_ID=p"}, "claude-c1"},
+		{"", []string{"CODEX_THREAD_ID=x1", "ORCA_AGENT_SESSION_ID=o1"}, "orca-o1"},
+		{"codex", []string{"CODEX_THREAD_ID=x1", "ORCA_AGENT_SESSION_ID=o1"}, "codex-x1"},
+		{"", []string{"CLAUDE_CODE_SESSION_ID=c1", "CODEX_THREAD_ID=x1", "PASEO_AGENT_ID=p"}, "paseo-p"},
+		{"", []string{"CLAUDE_CODE_SESSION_ID=c1", "CODEX_THREAD_ID=x1"}, ""},
+		{"", []string{"CLAUDE_CODE_SESSION_ID=c1"}, "claude-c1"},
+		{"error", []string{"CLAUDE_CODE_SESSION_ID=c1", "PASEO_AGENT_ID=p"}, "claude-c1"},
+		{"error", []string{"CLAUDE_CODE_SESSION_ID=c1", "CODEX_THREAD_ID=x1", "PASEO_AGENT_ID=p"}, ""},
+	} {
+		env := append([]string{"GIT_MULTISTAGE_TEST_ANCESTORS=" + c.ancestors}, c.env...)
+		res := run(r.dir, "", env, "--agentic", "status", "--json")
+		var st struct{ Status struct{ Stage string } }
+		if c.want == "" {
+			if res.code != 2 {
+				t.Errorf("ancestors %q, %v: want exit 2\n%s", c.ancestors, c.env, res)
+			}
+			continue
+		}
+		decode(t, res, &st)
+		if st.Status.Stage != c.want {
+			t.Errorf("ancestors %q, %v: stage %q, want %q", c.ancestors, c.env, st.Status.Stage, c.want)
+		}
+	}
+}

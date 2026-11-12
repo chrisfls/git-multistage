@@ -103,9 +103,11 @@ A hook command with `--stage <id>` records every edit into that stage.
 
 Priority 1 names the same stage that the editor hook uses for the agent's main session.
 
-Agents can be nested, as when an agent runs `claude -p` or `codex exec`. A nested Claude Code or Codex agent sets its own variable, and also inherits the outer tool's. When both priority-1 variables are set, git-multistage looks at its own parent processes and takes the tool that is nearer: `CLAUDE_PID` or a process named `claude`, against a process named `codex`. If neither is an ancestor, it refuses with exit code 2.
+A priority-1 variable counts only when its tool is one of git-multistage's parent processes: `CLAUDE_PID` or a process named `claude` for Claude Code, a process named `codex` for Codex. A process started from a tool inherits the tool's variable, such as a daemon started from a Claude Code shell, and so do the agents that the daemon starts. When the tool is not an ancestor, the next variable that is set wins, such as `PASEO_AGENT_ID`. A tool's variable that is the only one set is still used. When the process list cannot be read (no `ps`), the priority order alone decides.
 
-Priority 2 applies only when no priority-1 variable is set, for example for OpenCode or Pi started by Orca. Orca and Paseo set one ID per agent they start, and the agent's subagents and nested agents inherit it, so these IDs cannot tell those apart. When both are set, `--agentic` refuses.
+Agents can be nested, as when an agent runs `claude -p` or `codex exec`. A nested Claude Code or Codex agent sets its own variable, and also inherits the outer tool's. When both priority-1 variables are set, git-multistage takes the tool that is the nearer ancestor. If neither is an ancestor, a priority-2 variable decides; without one, it refuses with exit code 2.
+
+Priority 2 applies only when no priority-1 variable counts, for example for OpenCode or Pi started by Orca. Orca and Paseo set one ID per agent they start, and the agent's subagents and nested agents inherit it, so these IDs cannot tell those apart. When both are set, `--agentic` refuses.
 
 Subagents inherit their parent's variables at every level. A subagent uses the stage ID that the hook gives it, or an explicit `--stage`.
 

@@ -245,19 +245,31 @@ func (a *app) stageID() (string, error) {
 // agentStageID derives a stage ID from the calling agent's environment, the
 // same ID that the agent's editor hook records into. Agent tools come first:
 // Claude Code and Codex set their variable for each agent, including a
-// nested one. A tool started by another tool inherits the outer tool's
-// variable too, so when both are set, the nearer ancestor process wins.
+// nested one. A process started from a tool inherits the tool's variable,
+// such as a daemon started from a Claude Code shell, so a tool's variable
+// counts only when the tool is an ancestor process; otherwise the next set
+// variable wins. A tool's variable that is the only one set is kept, and when
+// the process table cannot be read, the priority order alone decides.
 // Orchestrators (Orca, Paseo) set one ID per agent they start, which nested
-// agents and subagents inherit, so they count only when no tool variable is.
+// agents and subagents inherit, so they count only when no tool variable does.
 func agentStageID() (string, error) {
 	claude, codex := os.Getenv("CLAUDE_CODE_SESSION_ID"), os.Getenv("CODEX_THREAD_ID")
-	if claude != "" && codex != "" {
-		switch innermostTool() {
-		case "claude":
-			codex = ""
-		case "codex":
-			claude = ""
-		default:
+	orca, paseo := os.Getenv("ORCA_AGENT_SESSION_ID"), os.Getenv("PASEO_AGENT_ID")
+	both := claude != "" && codex != ""
+	if both || (claude != "" || codex != "") && (orca != "" || paseo != "") {
+		// Without a process table, the priority order alone decides.
+		if chain, err := ancestors(); err == nil {
+			claudeAt, codexAt := toolAncestors(chain)
+			switch {
+			case claudeAt >= 0 && (codexAt < 0 || claudeAt < codexAt):
+				codex = ""
+			case codexAt >= 0:
+				claude = ""
+			case orca != "" || paseo != "":
+				claude, codex = "", ""
+			}
+		}
+		if claude != "" && codex != "" {
 			return "", &Error{
 				Code: ExitUsage, Kind: "ambiguous-agent",
 				Message: "--agentic found both CLAUDE_CODE_SESSION_ID and CODEX_THREAD_ID, and neither tool is an ancestor process",
@@ -271,7 +283,6 @@ func agentStageID() (string, error) {
 	case codex != "":
 		return sanitizeID("codex-" + codex), nil
 	}
-	orca, paseo := os.Getenv("ORCA_AGENT_SESSION_ID"), os.Getenv("PASEO_AGENT_ID")
 	switch {
 	case orca != "" && paseo != "":
 		return "", &Error{

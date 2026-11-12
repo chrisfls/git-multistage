@@ -12,7 +12,7 @@ Every command except `list`, `doctor`, `sync`, and `hook` works on one stage. Th
 
 1. `--stage <id>`, before or after the command name.
 2. The `GIT_MULTISTAGE_ID` environment variable.
-3. With `--agentic` only, the calling agent's ID (see [coding agents](agents.md#--agentic)).
+3. With `--agentic` only, the calling agent's ID. A Claude Code or Codex variable counts only when that tool is an ancestor process (see [coding agents](agents.md#--agentic)).
 
 Without any of these, the command exits with code 2. An ID has 1 to 64 characters: lowercase letters, digits, `.`, `_`, and `-`, starting with a letter or digit. IDs are lowercase so that two of them never collide on a case-insensitive file system.
 

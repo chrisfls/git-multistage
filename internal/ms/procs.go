@@ -12,11 +12,15 @@ type proc struct {
 	name      string // executable base name, lowercase, without .exe
 }
 
-// ancestors returns this process's ancestors, nearest first.
-func ancestors() []proc {
+// ancestors returns this process's ancestors, nearest first. It fails when
+// the process table cannot be read.
+func ancestors() ([]proc, error) {
+	if chain, ok, err := fakeAncestors(); ok {
+		return chain, err
+	}
 	table, err := processTable()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var chain []proc
 	seen := map[int]bool{}
@@ -35,24 +39,25 @@ func ancestors() []proc {
 		}
 		pid = p.ppid
 	}
-	return chain
+	return chain, nil
 }
 
-// innermostTool reports which agent tool is the nearer ancestor: "claude",
-// "codex", or "" when neither is found. A Claude Code process is known by
-// CLAUDE_PID, which each Claude Code process sets for its own commands, or
-// by its executable name.
-func innermostTool() string {
+// toolAncestors returns the positions in chain of the nearest Claude Code
+// and Codex processes, or -1. A Claude Code process is known by CLAUDE_PID,
+// which each Claude Code process sets for its own commands, or by its
+// executable name.
+func toolAncestors(chain []proc) (claude, codex int) {
+	claude, codex = -1, -1
 	claudePID, _ := strconv.Atoi(os.Getenv("CLAUDE_PID"))
-	for _, p := range ancestors() {
-		if p.pid == claudePID || p.name == "claude" {
-			return "claude"
+	for i, p := range chain {
+		if claude < 0 && (p.pid == claudePID || p.name == "claude") {
+			claude = i
 		}
-		if p.name == "codex" {
-			return "codex"
+		if codex < 0 && p.name == "codex" {
+			codex = i
 		}
 	}
-	return ""
+	return claude, codex
 }
 
 func procName(path string) string {

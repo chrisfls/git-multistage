@@ -3,6 +3,7 @@
 package ms
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
@@ -55,4 +56,24 @@ func testRace(r *Repo, branch string) {
 	tree := must(r.WriteTree(idx))
 	c := must(r.Line(gitx.Opt{Stdin: strings.NewReader("race\n")}, "commit-tree", tree, "-p", tip))
 	must(r.Line(gitx.Opt{}, "update-ref", branch, c, tip))
+}
+
+// fakeAncestors replaces the process chain with GIT_MULTISTAGE_TEST_ANCESTORS:
+// executable names, nearest first and comma-separated, or "error" for a
+// process table that cannot be read. An empty value is a chain without tools.
+func fakeAncestors() ([]proc, bool, error) {
+	v, ok := os.LookupEnv("GIT_MULTISTAGE_TEST_ANCESTORS")
+	if !ok {
+		return nil, false, nil
+	}
+	if v == "error" {
+		return nil, true, errors.New("no process table")
+	}
+	var chain []proc
+	for i, name := range strings.Split(v, ",") {
+		if name != "" {
+			chain = append(chain, proc{pid: 1000 + i, ppid: 1001 + i, name: name})
+		}
+	}
+	return chain, true, nil
 }

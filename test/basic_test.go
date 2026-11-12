@@ -349,15 +349,16 @@ func itoa(i int) string { return strconv.Itoa(i) }
 func TestAgenticFlag(t *testing.T) {
 	r := newRepo(t)
 	r.write("a.txt", "a\n")
-	paseo := []string{"PASEO_AGENT_ID=B3F659CC-3a31", "CLAUDE_CODE_SESSION_ID=052d8848"}
+	// Claude Code is an ancestor process, whatever runs the test.
+	paseo := []string{"PASEO_AGENT_ID=B3F659CC-3a31", "CLAUDE_CODE_SESSION_ID=052d8848", "GIT_MULTISTAGE_TEST_ANCESTORS=claude"}
 	if res := run(r.dir, "", paseo, "add", "a.txt"); res.code != 2 {
 		t.Fatalf("an agent ID was used without --agentic:\n%s", res)
 	}
 	if res := run(r.dir, "", paseo, "--agentic", "add", "a.txt"); res.code != 0 {
 		t.Fatalf("--agentic:\n%s", res)
 	}
-	// CLAUDE_CODE_SESSION_ID wins, so --agentic picks the stage that the
-	// Claude Code editor hook records into.
+	// CLAUDE_CODE_SESSION_ID of an ancestor wins, so --agentic picks the
+	// stage that the Claude Code editor hook records into.
 	if got := r.stagedPaths("claude-052d8848"); !eq(got, []string{"a.txt"}) {
 		t.Fatalf("stage claude-052d8848 staged %v", got)
 	}
@@ -369,7 +370,7 @@ func TestAgenticFlag(t *testing.T) {
 		t.Fatalf("--stage with --agentic:\n%s", res)
 	}
 	// CODEX_THREAD_ID names the stage that the Codex editor hook records into.
-	if res := run(r.dir, "", []string{"CODEX_THREAD_ID=01A1D160-ef16", "PASEO_AGENT_ID=p"}, "--agentic", "status", "--json"); !strings.Contains(res.out, `"stage": "codex-01a1d160-ef16"`) {
+	if res := run(r.dir, "", []string{"CODEX_THREAD_ID=01A1D160-ef16", "PASEO_AGENT_ID=p", "GIT_MULTISTAGE_TEST_ANCESTORS=codex"}, "--agentic", "status", "--json"); !strings.Contains(res.out, `"stage": "codex-01a1d160-ef16"`) {
 		t.Fatalf("CODEX_THREAD_ID:\n%s", res)
 	}
 	// Orchestrators count only without a tool variable, and two of them are ambiguous.
@@ -379,7 +380,7 @@ func TestAgenticFlag(t *testing.T) {
 	if res := run(r.dir, "", []string{"ORCA_AGENT_SESSION_ID=o1"}, "--agentic", "status", "--json"); !strings.Contains(res.out, `"stage": "orca-o1"`) {
 		t.Fatalf("ORCA_AGENT_SESSION_ID:\n%s", res)
 	}
-	if res := run(r.dir, "", []string{"ORCA_AGENT_SESSION_ID=o1", "CODEX_THREAD_ID=x1"}, "--agentic", "status", "--json"); !strings.Contains(res.out, `"stage": "codex-x1"`) {
+	if res := run(r.dir, "", []string{"ORCA_AGENT_SESSION_ID=o1", "CODEX_THREAD_ID=x1", "GIT_MULTISTAGE_TEST_ANCESTORS=codex"}, "--agentic", "status", "--json"); !strings.Contains(res.out, `"stage": "codex-x1"`) {
 		t.Fatalf("Codex under Orca:\n%s", res)
 	}
 	res := run(r.dir, "", nil, "--agentic", "status")
