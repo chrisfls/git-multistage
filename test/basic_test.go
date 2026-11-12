@@ -1,12 +1,14 @@
 package test
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -105,14 +107,16 @@ func TestStagesAreIsolated(t *testing.T) {
 
 func TestDeleteRenameAndNewFiles(t *testing.T) {
 	r := newRepo(t)
-	r.write("old.txt", lines(20, func(i int) string { return "line" }))
+	r.write("old.txt", lines(20, func(_ int) string { return "line" }))
 	r.write("gone.txt", "gone\n")
 	r.git("add", ".")
 	r.git("commit", "-q", "-m", "files")
 	if err := os.Rename(r.path("old.txt"), r.path("new.txt")); err != nil {
 		t.Fatal(err)
 	}
-	os.Remove(r.path("gone.txt"))
+	if err := os.Remove(r.path("gone.txt")); err != nil {
+		t.Fatal(err)
+	}
 	r.write("fresh.txt", "fresh\n")
 	r.mustMS("agent-a", "add", "old.txt", "new.txt", "gone.txt", "fresh.txt")
 	r.mustMS("agent-a", "commit", "-m", "move")
@@ -212,7 +216,9 @@ func TestApplyPatch(t *testing.T) {
 	r := newRepo(t)
 	patch := "diff --git a/README b/README\n--- a/README\n+++ b/README\n@@ -1 +1 @@\n-readme\n+patched\n"
 	p := filepath.Join(t.TempDir(), "p.diff")
-	os.WriteFile(p, []byte(patch), 0o644)
+	if err := os.WriteFile(p, []byte(patch), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	r.mustMS("agent-a", "apply", p)
 	r.mustMS("agent-a", "commit", "-m", "patched")
 	if r.git("show", "HEAD:README") != "patched\n" {
@@ -227,7 +233,9 @@ func TestApplyPatch(t *testing.T) {
 
 func TestSubdirectoryAndUnusualPaths(t *testing.T) {
 	base := filepath.Join(t.TempDir(), "dir with spaces", "ünïcödé")
-	os.MkdirAll(base, 0o755)
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	r := &repo{t: t, dir: base}
 	r.git("init", "-q", "-b", "main")
 	names := []string{"sub/a file.txt", "sub/ü.txt", "sub/-dash.txt", "sub/[glob]*.txt"}
@@ -388,7 +396,7 @@ func TestAgenticPicksTheInnermostTool(t *testing.T) {
 	// A launcher that runs its arguments as a child process and waits, so it
 	// stays in the process chain under the name it was built with.
 	src := filepath.Join(dir, "launcher.go")
-	os.WriteFile(src, []byte(`package main
+	if err := os.WriteFile(src, []byte(`package main
 
 import (
 	"os"
@@ -401,25 +409,29 @@ func main() {
 	c.Run()
 	os.Exit(c.ProcessState.ExitCode())
 }
-`), 0o644)
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	exe := ""
 	if runtime.GOOS == "windows" {
 		exe = ".exe"
 	}
 	codex, claude := filepath.Join(dir, "codex"+exe), filepath.Join(dir, "claude"+exe)
 	for _, out := range []string{codex, claude} {
-		if b, err := exec.Command("go", "build", "-o", out, src).CombinedOutput(); err != nil {
+		if b, err := exec.CommandContext(context.Background(), "go", "build", "-o", out, src).CombinedOutput(); err != nil {
 			t.Fatalf("build launcher: %v\n%s", err, b)
 		}
 	}
 	stage := func(chain ...string) string {
-		args := append(chain[1:], bin, "--agentic", "status", "--json")
-		cmd := exec.Command(chain[0], args...)
+		args := slices.Concat(chain[1:], []string{bin, "--agentic", "status", "--json"})
+		cmd := exec.CommandContext(context.Background(), chain[0], args...)
 		cmd.Dir = r.dir
 		cmd.Env = append(os.Environ(), "CLAUDE_CODE_SESSION_ID=c1", "CODEX_THREAD_ID=x1")
 		out, _ := cmd.Output()
 		var st struct{ Status struct{ Stage string } }
-		json.Unmarshal(out, &st)
+		if err := json.Unmarshal(out, &st); err != nil {
+			t.Fatalf("status JSON: %v\n%s", err, out)
+		}
 		return st.Status.Stage
 	}
 	if got := stage(codex); got != "codex-x1" {

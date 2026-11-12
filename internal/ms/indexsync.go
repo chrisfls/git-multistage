@@ -76,7 +76,7 @@ func (r *Repo) indexTree(path string) (string, error) {
 		return "", err
 	}
 	tmp := filepath.Join(tmpDir, fmt.Sprintf("tree-index-%d", os.Getpid()))
-	defer os.Remove(tmp)
+	defer func() { _ = os.Remove(tmp) }()
 	if err := copyFile(path, tmp); err != nil {
 		return "", err
 	}
@@ -122,9 +122,11 @@ func (r *Repo) lockIndex(timeout time.Duration) (*indexLock, error) {
 			return nil, err
 		}
 		if time.Now().After(deadline) {
-			return nil, &Error{Code: ExitBusy, Kind: "index-locked",
+			return nil, &Error{
+				Code: ExitBusy, Kind: "index-locked",
 				Message: fmt.Sprintf("the default index is locked: %s exists", path),
-				Hint:    "another Git process is running; if none is, delete the lock file and retry"}
+				Hint:    "another Git process is running; if none is, delete the lock file and retry",
+			}
 		}
 		time.Sleep(delay)
 		if delay < 100*time.Millisecond {
@@ -139,9 +141,9 @@ func (k *indexLock) release() {
 	if k == nil || k.f == nil {
 		return
 	}
-	k.f.Close()
+	_ = k.f.Close()
 	k.f = nil
-	os.Remove(k.path)
+	_ = os.Remove(k.path)
 }
 
 // SyncIndex synchronizes the default index with the tip of HEAD. from is the
@@ -169,9 +171,11 @@ func (r *Repo) SyncIndex(from string, timeout time.Duration) (SyncResult, error)
 		} else if c, n := r.nearestAncestor(head); c != "" {
 			hint = fmt.Sprintf("the closest commit is %s, which differs from the index at %d path(s): pass --from %s if the index lags behind it", short(c), n, short(c))
 		}
-		return SyncResult{}, &Error{Code: ExitError, Kind: "sync-unknown",
+		return SyncResult{}, &Error{
+			Code: ExitError, Kind: "sync-unknown",
 			Message: "cannot tell which commit the default index matches: it holds changes that no commit of " + head + " has",
-			Hint:    hint}
+			Hint:    hint,
+		}
 	}
 	return r.syncIndexLocked(head, from, true, false)
 }
@@ -387,7 +391,7 @@ func (r *Repo) syncIndexLocked(head, from string, keepRecord, dryRun bool) (Sync
 		return res, err
 	}
 	if !keepRecord {
-		os.Remove(r.syncRecordPath())
+		_ = os.Remove(r.syncRecordPath())
 		return res, nil
 	}
 	if tree == "" {
@@ -423,9 +427,9 @@ func (r *Repo) applyIndexChanges(changes []gitx.Entry, res *SyncResult, dryRun b
 		return "", err
 	}
 	tmp := filepath.Join(tmpDir, fmt.Sprintf("index-%d", os.Getpid()))
-	os.Remove(tmp + ".lock")
-	os.Remove(tmp)
-	defer os.Remove(tmp)
+	_ = os.Remove(tmp + ".lock")
+	_ = os.Remove(tmp)
+	defer func() { _ = os.Remove(tmp) }()
 	if !missing {
 		if err := copyFile(r.IndexPath, tmp); err != nil {
 			return "", err
@@ -525,13 +529,13 @@ func copyFile(from, to string) error {
 	if err != nil {
 		return err
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 	dst, err := os.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o666)
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(dst, src); err != nil {
-		dst.Close()
+		_ = dst.Close()
 		return err
 	}
 	return dst.Close()

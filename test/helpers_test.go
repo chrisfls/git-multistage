@@ -4,12 +4,15 @@ package test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -27,24 +30,36 @@ func TestMain(m *testing.M) {
 		exe = ".exe"
 	}
 	bin = filepath.Join(dir, "git-multistage"+exe)
-	build := exec.Command("go", "build", "-tags", "testhooks", "-o", bin, "../cmd/git-multistage")
+	build := exec.CommandContext(context.Background(), "go", "build", "-tags", "testhooks", "-o", bin, "../cmd/git-multistage")
 	if out, err := build.CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "build failed: %v\n%s", err, out)
 		os.Exit(1)
 	}
 	cfg := filepath.Join(dir, "gitconfig")
-	os.WriteFile(cfg, []byte("[user]\n\tname = Test\n\temail = test@example.com\n"+
-		"[init]\n\tdefaultBranch = main\n[core]\n\tautocrlf = false\n[commit]\n\tgpgSign = false\n"), 0o644)
-	os.Setenv("GIT_CONFIG_GLOBAL", cfg)
-	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	for _, v := range []string{"GIT_MULTISTAGE_ID", "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
+	if err := os.WriteFile(cfg, []byte("[user]\n\tname = Test\n\temail = test@example.com\n"+
+		"[init]\n\tdefaultBranch = main\n[core]\n\tautocrlf = false\n[commit]\n\tgpgSign = false\n"), 0o644); err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("GIT_CONFIG_GLOBAL", cfg); err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("GIT_CONFIG_NOSYSTEM", "1"); err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {
+		panic(err)
+	}
+	for _, v := range []string{
+		"GIT_MULTISTAGE_ID", "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
 		"GIT_MULTISTAGE_FAULT", "GIT_MULTISTAGE_TEST_RACE", "GIT_MULTISTAGE_TEST_DELAY_MS",
-		"PASEO_AGENT_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "ORCA_AGENT_SESSION_ID", "CLAUDE_PID"} {
-		os.Unsetenv(v)
+		"PASEO_AGENT_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "ORCA_AGENT_SESSION_ID", "CLAUDE_PID",
+	} {
+		if err := os.Unsetenv(v); err != nil {
+			panic(err)
+		}
 	}
 	code := m.Run()
-	os.RemoveAll(dir)
+	_ = os.RemoveAll(dir) // best-effort cleanup of the temporary build directory
 	os.Exit(code)
 }
 
@@ -54,9 +69,9 @@ type repo struct {
 }
 
 // newRepo creates a repository on branch main with one commit.
-func newRepo(t testing.TB) *repo {
-	t.Helper()
-	r := &repo{t: t, dir: t.TempDir()}
+func newRepo(tb testing.TB) *repo {
+	tb.Helper()
+	r := &repo{t: tb, dir: tb.TempDir()}
 	r.git("init", "-q", "-b", "main")
 	r.write("README", "readme\n")
 	r.git("add", "README")
@@ -76,7 +91,7 @@ func (r *repo) git(args ...string) string {
 }
 
 func (r *repo) gitTry(args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(context.Background(), "git", args...)
 	cmd.Dir = r.dir
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
@@ -119,7 +134,7 @@ func run(dir, agent string, env []string, args ...string) result {
 }
 
 func runStdin(dir, agent string, env []string, stdin string, args ...string) result {
-	cmd := exec.Command(bin, args...)
+	cmd := exec.CommandContext(context.Background(), bin, args...)
 	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), env...)
@@ -130,7 +145,8 @@ func runStdin(dir, agent string, env []string, stdin string, args ...string) res
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
 	code := 0
-	if ee, ok := err.(*exec.ExitError); ok {
+	ee := &exec.ExitError{}
+	if errors.As(err, &ee) {
 		code = ee.ExitCode()
 	} else if err != nil {
 		code = -1
@@ -159,10 +175,10 @@ func (r *repo) expectCode(want int, agent string, args ...string) result {
 	return res
 }
 
-func decode(t testing.TB, res result, v any) {
-	t.Helper()
+func decode(tb testing.TB, res result, v any) {
+	tb.Helper()
 	if err := json.Unmarshal([]byte(res.out), v); err != nil {
-		t.Fatalf("bad JSON: %v\n%s", err, res)
+		tb.Fatalf("bad JSON: %v\n%s", err, res)
 	}
 }
 
@@ -191,14 +207,12 @@ func findHunk(dir, agent, path, added string) (string, error) {
 	}
 	var fj filesJSON
 	if err := json.Unmarshal([]byte(res.out), &fj); err != nil {
-		return "", fmt.Errorf("bad JSON: %v\n%s", err, res)
+		return "", fmt.Errorf("bad JSON: %w\n%s", err, res)
 	}
 	for _, f := range fj.Files {
 		for _, h := range f.Hunks {
-			for _, l := range h.Lines {
-				if l == "+"+added {
-					return h.ID, nil
-				}
+			if slices.Contains(h.Lines, "+"+added) {
+				return h.ID, nil
 			}
 		}
 	}
@@ -215,7 +229,7 @@ func (r *repo) hunkID(agent, path, added string) string {
 }
 
 func gitCmd(dir string, env []string, args ...string) *exec.Cmd {
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(context.Background(), "git", args...)
 	cmd.Dir, cmd.Env = dir, env
 	return cmd
 }

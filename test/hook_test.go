@@ -218,8 +218,12 @@ func TestCodexHookMultiFilePatch(t *testing.T) {
 		"*** Update File: old.txt\n*** Move to: moved.txt\n@@\n-old\n+moved\n*** End Patch"
 	r.codexEdit("s", "", "exec-9", patch, func() {
 		r.write("src/new.txt", "new\n")
-		os.Remove(r.path("gone.txt"))
-		os.Remove(r.path("old.txt"))
+		if err := os.Remove(r.path("gone.txt")); err != nil {
+			r.t.Fatal(err)
+		}
+		if err := os.Remove(r.path("old.txt")); err != nil {
+			r.t.Fatal(err)
+		}
 		r.write("moved.txt", "moved\n")
 	})
 	r.mustMS("", "--stage", "codex-s", "add", "--edits")

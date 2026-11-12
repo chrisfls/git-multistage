@@ -1,6 +1,9 @@
 package test
 
 import (
+	"context"
+	"errors"
+	"io/fs"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -29,7 +32,9 @@ func TestCrashAtEachCommitStep(t *testing.T) {
 				if !strings.Contains(doc.out, "index.lock exists") {
 					t.Fatalf("doctor does not report the lock:\n%s", doc)
 				}
-				os.Remove(r.path(".git/index.lock"))
+				if err := os.Remove(r.path(".git/index.lock")); err != nil {
+					t.Fatal(err)
+				}
 			}
 			st := r.mustMS("agent-a", "status")
 			journaled := point != "before-journal"
@@ -86,22 +91,24 @@ func TestCrashDuringStaging(t *testing.T) {
 // TestKillDuringCommitAtRandomTimes kills real commit processes at random
 // moments. Whatever the moment, the change ends up in exactly one commit.
 func TestKillDuringCommitAtRandomTimes(t *testing.T) {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := 0; i < 8*iterations(); i++ {
+	rng := rand.New(rand.NewSource(time.Now().UnixNano())) //nolint:gosec // random kill times need no cryptographic randomness
+	for i := range 8 * iterations() {
 		r := newRepo(t)
 		r.write("a.txt", "a\n")
 		r.mustMS("agent-a", "add", "a.txt")
-		cmd := exec.Command(bin, "commit", "-m", "a")
+		cmd := exec.CommandContext(context.Background(), bin, "commit", "-m", "a")
 		cmd.Dir = r.dir
 		cmd.Env = append(os.Environ(), "GIT_MULTISTAGE_ID=agent-a", "GIT_MULTISTAGE_TEST_DELAY_MS=40")
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
 		}
 		time.Sleep(time.Duration(rng.Intn(120)) * time.Millisecond)
-		cmd.Process.Kill()
-		cmd.Wait()
+		_ = cmd.Process.Kill()             // the process may have exited already
+		_ = cmd.Wait()                     // a killed process exits with an error
 		time.Sleep(200 * time.Millisecond) // let orphaned Git children finish
-		os.Remove(r.path(".git/index.lock"))
+		if err := os.Remove(r.path(".git/index.lock")); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			t.Fatal(err)
+		}
 		if len(r.stagedPaths("agent-a")) > 0 {
 			r.mustMS("agent-a", "commit", "-m", "a")
 		}

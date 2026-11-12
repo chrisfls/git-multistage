@@ -46,6 +46,7 @@ func (r *repo) sparseSetup(sparseIndex bool) {
 }
 
 func testSparse(t *testing.T, sparseIndex bool) {
+	t.Helper()
 	r := newRepo(t)
 	r.sparseSetup(sparseIndex)
 	var st statusJSON
@@ -149,7 +150,9 @@ func TestIndexLagIsCaughtUp(t *testing.T) {
 	r.mustMS("agent-a", "status")
 	blob := strings.TrimSpace(r.git("rev-parse", "main:README"))
 	r.externalCommit("external", func(idx string) {
-		gitCmd(r.dir, append(os.Environ(), "GIT_INDEX_FILE="+idx), "update-index", "--add", "--cacheinfo", "100644", blob, "copy.txt").Run()
+		if err := gitCmd(r.dir, append(os.Environ(), "GIT_INDEX_FILE="+idx), "update-index", "--add", "--cacheinfo", "100644", blob, "copy.txt").Run(); err != nil {
+			t.Fatal(err)
+		}
 	})
 	if r.git("diff", "--cached", "--name-only") == "" {
 		t.Fatal("setup: the index should lag")
@@ -166,7 +169,9 @@ func TestManualSyncFindsTheMatchingCommit(t *testing.T) {
 	r.write("a.txt", "a\n")
 	r.mustMS("agent-a", "add", "a.txt")
 	r.mustMS("agent-a", "commit", "-m", "a")
-	os.Remove(r.path(".git/multistage/index-sync"))
+	if err := os.Remove(r.path(".git/multistage/index-sync")); err != nil {
+		t.Fatal(err)
+	}
 	doc := r.mustMS("", "doctor")
 	if !strings.Contains(doc.out, "behind") {
 		t.Fatalf("doctor:\n%s", doc)
@@ -187,7 +192,9 @@ func TestAdjacentLineEditsBothCommit(t *testing.T) {
 	r.write("f.txt", "1\n2\nA\nB\n5\n6\n")
 	patch := "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -3,3 +3,3 @@\n 3\n-4\n+B\n 5\n"
 	p := t.TempDir() + "/b.diff"
-	os.WriteFile(p, []byte(patch), 0o644)
+	if err := os.WriteFile(p, []byte(patch), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	r.mustMS("agent-b", "apply", p)
 	r.mustMS("agent-a", "commit", "-m", "a")
 	r.mustMS("agent-b", "commit", "-m", "b")

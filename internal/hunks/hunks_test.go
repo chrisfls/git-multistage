@@ -1,6 +1,8 @@
 package hunks
 
 import (
+	"context"
+	"errors"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -9,16 +11,20 @@ import (
 	"testing"
 )
 
-// gitDiff returns `git diff --no-index -U0` of old and new.
-func gitDiff(t *testing.T, old, new string) []byte {
+// gitDiff returns `git diff --no-index -U0` of old and updated.
+func gitDiff(t *testing.T, old, updated string) []byte {
 	t.Helper()
 	dir := t.TempDir()
 	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
-	os.WriteFile(a, []byte(old), 0o644)
-	os.WriteFile(b, []byte(new), 0o644)
-	out, err := exec.Command("git", "diff", "--no-index", "--no-color", "-U0",
+	if err := os.WriteFile(a, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte(updated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.CommandContext(context.Background(), "git", "diff", "--no-index", "--no-color", "-U0",
 		"--diff-algorithm=myers", a, b).Output()
-	if err != nil && len(out) == 0 && old != new {
+	if err != nil && len(out) == 0 && old != updated {
 		t.Fatalf("git diff: %v", err)
 	}
 	return out
@@ -26,8 +32,8 @@ func gitDiff(t *testing.T, old, new string) []byte {
 
 func TestParseAndApply(t *testing.T) {
 	old := "one\ntwo\nthree\nfour\nfive\nsix\n"
-	new := "one\nTWO\nthree\nfour\nfive\nsix\nseven"
-	hs, err := Parse("f", gitDiff(t, old, new))
+	updated := "one\nTWO\nthree\nfour\nfive\nsix\nseven"
+	hs, err := Parse("f", gitDiff(t, old, updated))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +76,7 @@ func TestDuplicateHunksGetDistinctIDs(t *testing.T) {
 }
 
 func TestBinary(t *testing.T) {
-	if _, err := Parse("f", gitDiff(t, "a\x00b", "a\x00c")); err != ErrBinary {
+	if _, err := Parse("f", gitDiff(t, "a\x00b", "a\x00c")); !errors.Is(err, ErrBinary) {
 		t.Fatalf("err = %v, want ErrBinary", err)
 	}
 }
@@ -78,11 +84,11 @@ func TestBinary(t *testing.T) {
 // TestRandomSubsets checks that applying any subset of hunks gives content
 // whose diff from old is exactly that subset.
 func TestRandomSubsets(t *testing.T) {
-	rng := rand.New(rand.NewSource(1))
+	rng := rand.New(rand.NewSource(1)) //nolint:gosec // a seeded generator makes the test cases repeatable
 	words := []string{"alpha", "beta", "gamma", "delta", "eps", "zeta"}
 	gen := func(n int) string {
 		var b strings.Builder
-		for i := 0; i < n; i++ {
+		for i := range n {
 			b.WriteString(words[rng.Intn(len(words))])
 			if i < n-1 || rng.Intn(4) > 0 {
 				b.WriteString("\n")
@@ -90,18 +96,18 @@ func TestRandomSubsets(t *testing.T) {
 		}
 		return b.String()
 	}
-	for iter := 0; iter < 60; iter++ {
-		old, new := gen(rng.Intn(20)), gen(rng.Intn(20))
-		if old == new {
+	for range 60 {
+		old, updated := gen(rng.Intn(20)), gen(rng.Intn(20))
+		if old == updated {
 			continue
 		}
-		hs, err := Parse("f", gitDiff(t, old, new))
+		hs, err := Parse("f", gitDiff(t, old, updated))
 		if err != nil {
 			t.Fatalf("parse: %v", err)
 		}
 		all, err := Apply([]byte(old), hs)
-		if err != nil || string(all) != new {
-			t.Fatalf("apply all: %q, %v; old=%q new=%q", all, err, old, new)
+		if err != nil || string(all) != updated {
+			t.Fatalf("apply all: %q, %v; old=%q new=%q", all, err, old, updated)
 		}
 		var chosen []Hunk
 		for _, h := range hs {
@@ -113,13 +119,13 @@ func TestRandomSubsets(t *testing.T) {
 		if err != nil {
 			t.Fatalf("apply subset: %v", err)
 		}
-		// The rest of the hunks, applied on top of part, must reach new.
-		rest, err := Parse("f", gitDiff(t, string(part), new))
+		// The rest of the hunks, applied on top of part, must reach updated.
+		rest, err := Parse("f", gitDiff(t, string(part), updated))
 		if err != nil {
 			t.Fatal(err)
 		}
 		final, err := Apply(part, rest)
-		if err != nil || string(final) != new {
+		if err != nil || string(final) != updated {
 			t.Fatalf("apply rest: %q, %v", final, err)
 		}
 	}

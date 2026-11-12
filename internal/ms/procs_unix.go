@@ -3,6 +3,7 @@
 package ms
 
 import (
+	"context"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -10,7 +11,7 @@ import (
 
 // processTable lists every process as pid -> parent and name, from ps.
 func processTable() (map[int]proc, error) {
-	out, err := exec.Command("ps", "-A", "-o", "pid=,ppid=,comm=").Output()
+	out, err := exec.CommandContext(context.Background(), "ps", "-A", "-o", "pid=,ppid=,comm=").Output()
 	if err != nil {
 		return nil, err
 	}

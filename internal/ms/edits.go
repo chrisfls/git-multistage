@@ -142,9 +142,11 @@ func (l *Stage) AddEdits(paths []string, force bool) ([]string, error) {
 	}
 	if len(lost) > 0 || len(uncertain) > 0 {
 		sort.Strings(lost)
-		e := &Error{Code: ExitConflict, Kind: "edit-lost",
+		e := &Error{
+			Code: ExitConflict, Kind: "edit-lost",
 			Message: "some recorded edits cannot be staged safely; nothing was staged",
-			Hint:    "redo the edit, or stage the file with `hunks` and `add --hunk`; `git multistage drop --edits <path>` forgets the records"}
+			Hint:    "redo the edit, or stage the file with `hunks` and `add --hunk`; `git multistage drop --edits <path>` forgets the records",
+		}
 		for _, p := range lost {
 			e.Details = append(e.Details, p+": the file no longer holds the edit (another writer changed those lines)")
 		}
@@ -164,7 +166,7 @@ func (l *Stage) AddEdits(paths []string, force bool) ([]string, error) {
 	adopted := false
 	defer func() {
 		if !adopted {
-			os.Remove(idx)
+			_ = os.Remove(idx)
 		}
 	}()
 	var failed []string
@@ -181,16 +183,18 @@ func (l *Stage) AddEdits(paths []string, force bool) ([]string, error) {
 		staged[r.Path] = true
 	}
 	if len(failed) > 0 {
-		return nil, &Error{Code: ExitConflict, Kind: "edit-conflict",
+		return nil, &Error{
+			Code: ExitConflict, Kind: "edit-conflict",
 			Message: "some recorded edits do not fit the stage; nothing was staged", Details: failed,
-			Hint: "stage those files with `hunks` and `add --hunk`, or forget the records with `git multistage drop --edits <path>`"}
+			Hint: "stage those files with `hunks` and `add --hunk`, or forget the records with `git multistage drop --edits <path>`",
+		}
 	}
 	if err := l.adoptIndex(name, gen); err != nil {
 		return nil, err
 	}
 	adopted = true
 	for _, r := range chosen {
-		os.Remove(filepath.Join(editsDir(l.Dir), r.file))
+		_ = os.Remove(filepath.Join(editsDir(l.Dir), r.file))
 	}
 	var out []string
 	for p := range staged {
@@ -213,7 +217,7 @@ func (l *Stage) DropEdits(paths []string) (int, error) {
 	n := 0
 	for _, r := range recs {
 		if len(want) == 0 || want[r.Path] {
-			os.Remove(filepath.Join(editsDir(l.Dir), r.file))
+			_ = os.Remove(filepath.Join(editsDir(l.Dir), r.file))
 			n++
 		}
 	}
@@ -312,7 +316,7 @@ func (r *Repo) editOnDisk(rec EditRecord) (bool, error) {
 		return errors.Is(err, fs.ErrNotExist), nil
 	}
 	if _, err := os.Lstat(full); err != nil {
-		return false, nil
+		return false, nil //nolint:nilerr // a path that cannot be read no longer holds the edit
 	}
 	disk, err := r.Line(gitx.Opt{}, "hash-object", "-w", "--path="+rec.Path, "--", rec.Path)
 	if err != nil {
@@ -327,11 +331,11 @@ func (r *Repo) editOnDisk(rec EditRecord) (bool, error) {
 	}
 	mine, err := r.diffBlobs(rec.Path, before, rec.After)
 	if err != nil {
-		return false, nil
+		return false, nil //nolint:nilerr // hunks that cannot be compared, such as binary content, cannot show that the edit survived
 	}
 	later, err := r.diffBlobs(rec.Path, rec.After, disk)
 	if err != nil {
-		return false, nil
+		return false, nil //nolint:nilerr // hunks that cannot be compared, such as binary content, cannot show that the edit survived
 	}
 	// mine's added lines occupy [NewStart-1, NewStart-1+NewLines) of After;
 	// a later change that removes any of them, or inserts inside them,

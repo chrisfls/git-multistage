@@ -219,8 +219,8 @@ func (r *Repo) replayConflicts(baseTree, tipTree, staged string, res gitx.MergeR
 	if err := os.MkdirAll(filepath.Dir(idx), 0o777); err != nil {
 		return "", err
 	}
-	os.Remove(idx)
-	defer os.Remove(idx)
+	_ = os.Remove(idx)
+	defer func() { _ = os.Remove(idx) }()
 	if _, err := r.Run(gitx.Opt{Index: idx}, "read-tree", res.Tree); err != nil {
 		return "", err
 	}

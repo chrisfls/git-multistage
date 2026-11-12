@@ -1,3 +1,5 @@
+// Package ms implements git multistage: each stage is a private index that
+// one agent stages into and commits from, beside the default index.
 package ms
 
 import (
@@ -6,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/chrisfls/git-multistage/internal/gitx"
@@ -14,6 +17,7 @@ import (
 // Version is set at build time with -ldflags "-X ...ms.Version=v1.2.3".
 var Version = "dev"
 
+//nolint:dupword // the list command's description starts with the command's name
 const usage = `usage: git multistage [--stage <id> | --agentic] <command> [<args>]
 
 Each stage is a private index with its own staged changes. Several stages
@@ -69,17 +73,19 @@ func (p *parsed) get(name string) string {
 	return v[len(v)-1]
 }
 
-var globalFlags = []flagSpec{{[]string{"--stage"}, true}, {[]string{"--agentic"}, false},
-	{[]string{"--json"}, false}, {[]string{"--help", "-h"}, false}}
+var globalFlags = []flagSpec{
+	{[]string{"--stage"}, true},
+	{[]string{"--agentic"}, false},
+	{[]string{"--json"}, false},
+	{[]string{"--help", "-h"}, false},
+}
 
 func parseArgs(argv []string, specs []flagSpec) (*parsed, error) {
 	specs = append(append([]flagSpec{}, specs...), globalFlags...)
 	find := func(name string) *flagSpec {
 		for i := range specs {
-			for _, n := range specs[i].names {
-				if n == name {
-					return &specs[i]
-				}
+			if slices.Contains(specs[i].names, name) {
+				return &specs[i]
 			}
 		}
 		return nil
@@ -234,9 +240,11 @@ func agentStageID() (string, error) {
 		case "codex":
 			claude = ""
 		default:
-			return "", &Error{Code: ExitUsage, Kind: "ambiguous-agent",
+			return "", &Error{
+				Code: ExitUsage, Kind: "ambiguous-agent",
 				Message: "--agentic found both CLAUDE_CODE_SESSION_ID and CODEX_THREAD_ID, and neither tool is an ancestor process",
-				Hint:    "pass --stage <id>; the editor hook's message names the stage"}
+				Hint:    "pass --stage <id>; the editor hook's message names the stage",
+			}
 		}
 	}
 	switch {
@@ -248,17 +256,21 @@ func agentStageID() (string, error) {
 	orca, paseo := os.Getenv("ORCA_AGENT_SESSION_ID"), os.Getenv("PASEO_AGENT_ID")
 	switch {
 	case orca != "" && paseo != "":
-		return "", &Error{Code: ExitUsage, Kind: "ambiguous-agent",
+		return "", &Error{
+			Code: ExitUsage, Kind: "ambiguous-agent",
 			Message: "--agentic found both ORCA_AGENT_SESSION_ID and PASEO_AGENT_ID, so it cannot tell which agent is calling",
-			Hint:    "pass --stage <id>"}
+			Hint:    "pass --stage <id>",
+		}
 	case orca != "":
 		return sanitizeID("orca-" + orca), nil
 	case paseo != "":
 		return sanitizeID("paseo-" + paseo), nil
 	}
-	return "", &Error{Code: ExitUsage, Kind: "no-agent-id",
+	return "", &Error{
+		Code: ExitUsage, Kind: "no-agent-id",
 		Message: "--agentic found no agent ID: none of CLAUDE_CODE_SESSION_ID, CODEX_THREAD_ID, ORCA_AGENT_SESSION_ID, PASEO_AGENT_ID is set",
-		Hint:    "pass --stage <id>"}
+		Hint:    "pass --stage <id>",
+	}
 }
 
 func (a *app) run(argv []string) error {
@@ -321,8 +333,13 @@ func (a *app) run(argv []string) error {
 		"init":   nil,
 		"status": nil,
 		"hunks":  {{[]string{"--cached", "--staged"}, false}},
-		"add": {{[]string{"--hunk"}, true}, {[]string{"--force", "-f"}, false}, {[]string{"--allow-shared"}, false},
-			{[]string{"--patch", "-p"}, false}, {[]string{"--edits"}, false}},
+		"add": {
+			{[]string{"--hunk"}, true},
+			{[]string{"--force", "-f"}, false},
+			{[]string{"--allow-shared"}, false},
+			{[]string{"--patch", "-p"}, false},
+			{[]string{"--edits"}, false},
+		},
 		"apply":   {{[]string{"--reverse", "-R"}, false}},
 		"restore": {{[]string{"--staged", "-S"}, false}, {[]string{"--hunk"}, true}},
 		"commit":  {{[]string{"--message", "-m"}, true}, {[]string{"--file", "-F"}, true}, {[]string{"--no-verify", "-n"}, false}},
@@ -566,8 +583,10 @@ func (a *app) add(l *Stage, p *parsed) error {
 		if a.json || p.has("--hunk") {
 			return usageErr("--patch is interactive; use --hunk for scripted staging")
 		}
-		_, err := a.repo.Run(gitx.Opt{Index: l.IndexPath(), Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
-			Env: []string{"GIT_EDITOR=" + editor()}}, append([]string{"add", "-p", "--"}, paths...)...)
+		_, err := a.repo.Run(gitx.Opt{
+			Index: l.IndexPath(), Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
+			Env: []string{"GIT_EDITOR=" + editor()},
+		}, append([]string{"add", "-p", "--"}, paths...)...)
 		return err
 	}
 	if ids := p.vals["--hunk"]; len(ids) > 0 {
@@ -631,7 +650,7 @@ func (a *app) apply(l *Stage, p *parsed) error {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		in = f
 	}
 	if err := l.ApplyPatch(in, p.has("--reverse")); err != nil {

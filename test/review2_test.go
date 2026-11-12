@@ -55,7 +55,9 @@ func TestSparseCommitDeletingAndAddingOutsideTheCone(t *testing.T) {
 	patch := "diff --git a/d2/y.txt b/d2/y.txt\ndeleted file mode 100644\n--- a/d2/y.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-y\n" +
 		"diff --git a/d2/new.txt b/d2/new.txt\nnew file mode 100644\n--- /dev/null\n+++ b/d2/new.txt\n@@ -0,0 +1 @@\n+new\n"
 	p := t.TempDir() + "/p.diff"
-	os.WriteFile(p, []byte(patch), 0o644)
+	if err := os.WriteFile(p, []byte(patch), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	r.mustMS("agent-a", "apply", p)
 	res := r.mustMS("agent-a", "commit", "-m", "outside the cone")
 	if strings.Contains(res.err, "not synchronized") {
@@ -117,7 +119,7 @@ func TestSyncDoesNotUndoANativeUnstage(t *testing.T) {
 
 func TestHookLeaseIgnoresCase(t *testing.T) {
 	r := newRepo(t)
-	if !caseInsensitiveFS(r.dir) {
+	if !caseInsensitiveFS(t, r.dir) {
 		t.Skip("case-sensitive file system")
 	}
 	r.write("F.txt", "f\n")

@@ -29,11 +29,11 @@ func Acquire(path string, timeout time.Duration) (*Lock, error) {
 			return &Lock{f: f}, nil
 		}
 		if !errors.Is(err, ErrBusy) {
-			f.Close()
+			_ = f.Close()
 			return nil, err
 		}
 		if time.Now().After(deadline) {
-			f.Close()
+			_ = f.Close()
 			return nil, ErrBusy
 		}
 		time.Sleep(delay)
@@ -49,6 +49,6 @@ func (l *Lock) Release() {
 		return
 	}
 	unlock(l.f)
-	l.f.Close()
+	_ = l.f.Close()
 	l.f = nil
 }

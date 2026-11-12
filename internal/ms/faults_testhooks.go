@@ -24,7 +24,7 @@ func fault(point string) {
 // testDelay sleeps for a random time up to GIT_MULTISTAGE_TEST_DELAY_MS.
 func testDelay() {
 	if n, _ := strconv.Atoi(os.Getenv("GIT_MULTISTAGE_TEST_DELAY_MS")); n > 0 {
-		time.Sleep(time.Duration(rand.Intn(n)) * time.Millisecond)
+		time.Sleep(time.Duration(rand.Intn(n)) * time.Millisecond) //nolint:gosec // a test delay needs no cryptographic randomness
 	}
 }
 
@@ -48,8 +48,8 @@ func testRace(r *Repo, branch string) {
 	name := fmt.Sprintf("race-%d-%d.txt", os.Getpid(), raced)
 	blob := must(r.Line(gitx.Opt{Stdin: strings.NewReader(name + "\n")}, "hash-object", "-w", "--stdin"))
 	idx := filepath.Join(r.Dir, "tmp", "race-index-"+strconv.Itoa(os.Getpid()))
-	os.MkdirAll(filepath.Dir(idx), 0o777)
-	defer os.Remove(idx)
+	_ = os.MkdirAll(filepath.Dir(idx), 0o777)
+	defer func() { _ = os.Remove(idx) }()
 	must(r.Line(gitx.Opt{Index: idx}, "read-tree", tip))
 	must(r.Line(gitx.Opt{Index: idx}, "update-index", "--add", "--cacheinfo", "100644", blob, name))
 	tree := must(r.WriteTree(idx))

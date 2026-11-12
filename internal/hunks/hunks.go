@@ -5,6 +5,7 @@ package hunks
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -33,8 +34,8 @@ func (h Hunk) Header() string {
 func (h Hunk) Lines() []string {
 	var out []string
 	add := func(prefix string, l string) {
-		if strings.HasSuffix(l, "\n") {
-			out = append(out, prefix+strings.TrimSuffix(l, "\n"))
+		if before, ok := strings.CutSuffix(l, "\n"); ok {
+			out = append(out, prefix+before)
 		} else {
 			out = append(out, prefix+l, `\ No newline at end of file`)
 		}
@@ -51,7 +52,7 @@ func (h Hunk) Lines() []string {
 var headerRE = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@`)
 
 // ErrBinary means that Git reported the content as binary.
-var ErrBinary = fmt.Errorf("binary content has no hunks")
+var ErrBinary = errors.New("binary content has no hunks")
 
 // Parse parses the output of `git diff -U0` for one file and assigns each
 // hunk an identifier derived from path and the hunk's changed lines.
@@ -59,7 +60,7 @@ func Parse(path string, diff []byte) ([]Hunk, error) {
 	var hs []Hunk
 	var cur *Hunk
 	lines := strings.SplitAfter(string(diff), "\n")
-	for i := 0; i < len(lines); i++ {
+	for i := range lines {
 		l := lines[i]
 		if l == "" {
 			continue

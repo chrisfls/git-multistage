@@ -1,6 +1,7 @@
 package test
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,7 +12,9 @@ import (
 func (r *repo) hook(name, script string) {
 	r.t.Helper()
 	p := r.path(".git/hooks/" + name)
-	os.MkdirAll(filepath.Dir(p), 0o755)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		r.t.Fatal(err)
+	}
 	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+script), 0o755); err != nil {
 		r.t.Fatal(err)
 	}
@@ -75,7 +78,7 @@ func TestSignedCommits(t *testing.T) {
 	}
 	r := newRepo(t)
 	key := filepath.Join(t.TempDir(), "key")
-	if out, err := exec.Command(keygen, "-q", "-t", "ed25519", "-N", "", "-f", key).CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(context.Background(), keygen, "-q", "-t", "ed25519", "-N", "", "-f", key).CombinedOutput(); err != nil {
 		t.Skipf("ssh-keygen: %v %s", err, out)
 	}
 	r.git("config", "gpg.format", "ssh")

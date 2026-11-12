@@ -81,7 +81,9 @@ func TestGarbageCollectionKeepsStagedObjects(t *testing.T) {
 	r := newRepo(t)
 	r.write("new.txt", "unique staged content 7f3a\n")
 	r.mustMS("agent-a", "add", "new.txt")
-	os.Remove(r.path("new.txt"))
+	if err := os.Remove(r.path("new.txt")); err != nil {
+		t.Fatal(err)
+	}
 	r.git("gc", "-q", "--prune=now")
 	r.mustMS("agent-a", "status")
 	r.mustMS("agent-a", "commit", "-m", "new")
@@ -102,17 +104,20 @@ func TestGarbageCollectionKeepsStagedObjects(t *testing.T) {
 	}
 }
 
-func caseInsensitiveFS(dir string) bool {
+func caseInsensitiveFS(tb testing.TB, dir string) bool {
+	tb.Helper()
 	p := filepath.Join(dir, "CaseProbe")
-	os.WriteFile(p, nil, 0o644)
-	defer os.Remove(p)
+	if err := os.WriteFile(p, nil, 0o644); err != nil {
+		tb.Fatal(err)
+	}
+	defer func() { _ = os.Remove(p) }()
 	_, err := os.Stat(filepath.Join(dir, "caseprobe"))
 	return err == nil
 }
 
 func TestHunkPathWithOtherCase(t *testing.T) {
 	r := newRepo(t)
-	if !caseInsensitiveFS(r.dir) {
+	if !caseInsensitiveFS(t, r.dir) {
 		t.Skip("case-sensitive file system")
 	}
 	r.write("Foo.txt", "a\nb\nc\n")
@@ -137,7 +142,9 @@ func TestMissingStageIndexIsRefused(t *testing.T) {
 	r.mustMS("agent-a", "add", "a.txt")
 	matches, _ := filepath.Glob(r.path(".git/multistage/stages/agent-a/index-*"))
 	for _, m := range matches {
-		os.Remove(m)
+		if err := os.Remove(m); err != nil {
+			t.Fatal(err)
+		}
 	}
 	r.write("d.txt", "d\n")
 	if res := r.ms("agent-a", "add", "d.txt"); res.code == 0 {

@@ -93,7 +93,7 @@ func (r *Repo) Stages() ([]StageInfo, error) {
 	for _, e := range entries {
 		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 			if strings.HasPrefix(e.Name(), ".dropped-") {
-				os.RemoveAll(filepath.Join(r.stagesDir(), e.Name()))
+				_ = os.RemoveAll(filepath.Join(r.stagesDir(), e.Name()))
 			}
 			continue
 		}
@@ -165,8 +165,8 @@ func (r *Repo) Doctor() (*DoctorReport, error) {
 		return nil, err
 	}
 	tip, _ := r.ResolveRef(head)
-	switch {
-	case tip == "":
+	switch tip {
+	case "":
 		add("ok", "HEAD is %s, which has no commits yet", describeTarget(head))
 	default:
 		add("ok", "HEAD is %s at %s", describeTarget(head), short(tip))
@@ -250,9 +250,11 @@ func (l *Stage) Drop(force bool) (string, error) {
 		return "", err
 	}
 	if (staged != base || l.Damaged) && !force {
-		return "", &Error{Code: ExitRefused, Kind: "has-staged",
+		return "", &Error{
+			Code: ExitRefused, Kind: "has-staged",
 			Message: "stage " + l.ID + " has staged changes or is damaged; nothing was dropped",
-			Hint:    "commit or unstage the changes, or pass --force"}
+			Hint:    "commit or unstage the changes, or pass --force",
+		}
 	}
 	if _, err := l.r.Run(gitx.Opt{}, "update-ref", "-d", l.keepRef()); err != nil {
 		return "", err

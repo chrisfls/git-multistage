@@ -50,16 +50,20 @@ func (r *Repo) configBool(key string, def bool) bool {
 	return v == "true"
 }
 
-var idRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
-var reservedRE = regexp.MustCompile(`^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$`)
+var (
+	idRE       = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+	reservedRE = regexp.MustCompile(`^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$`)
+)
 
 // ValidateStageID checks that id is usable as a directory name on every
 // platform, including case-insensitive file systems, and as a ref name.
 func ValidateStageID(id string) error {
 	if id == "" {
-		return &Error{Code: ExitUsage, Kind: "no-stage-id",
+		return &Error{
+			Code: ExitUsage, Kind: "no-stage-id",
 			Message: "no stage ID: pass --stage <id>, set GIT_MULTISTAGE_ID, or pass --agentic inside an agent",
-			Hint:    "run `git multistage init` to create a stage with a new unique ID"}
+			Hint:    "run `git multistage init` to create a stage with a new unique ID",
+		}
 	}
 	if !idRE.MatchString(id) || strings.HasSuffix(id, ".") || strings.HasSuffix(id, ".lock") ||
 		strings.Contains(id, "..") || reservedRE.MatchString(id) {
@@ -73,7 +77,7 @@ func ValidateStageID(id string) error {
 func sanitizeID(s string) string {
 	b := []byte(strings.ToLower(s))
 	for i, c := range b {
-		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' && c != '-' {
 			b[i] = '-'
 		}
 	}
@@ -151,9 +155,11 @@ func (r *Repo) openStage(id string, exclusive bool, timeout time.Duration) (*Sta
 	if exclusive {
 		if err := os.Mkdir(dir, 0o777); err != nil {
 			if errors.Is(err, fs.ErrExist) {
-				return nil, &Error{Code: ExitRefused, Kind: "stage-exists",
+				return nil, &Error{
+					Code: ExitRefused, Kind: "stage-exists",
 					Message: fmt.Sprintf("stage %q already exists", id),
-					Hint:    "if this stage is yours, keep using it; otherwise choose another ID"}
+					Hint:    "if this stage is yours, keep using it; otherwise choose another ID",
+				}
 			}
 			return nil, err
 		}
@@ -187,7 +193,7 @@ func (r *Repo) openStage(id string, exclusive bool, timeout time.Duration) (*Sta
 	l.removeLeftovers()
 	if _, err := os.Stat(l.IndexPath()); err != nil {
 		l.Damaged = true
-		return l, nil
+		return l, nil //nolint:nilerr // a stage without its index is returned as damaged, for drop --force
 	}
 	if err := l.recover(); err != nil {
 		lk.Release()
@@ -211,9 +217,11 @@ func (l *Stage) Close() {
 
 // errDamaged reports a stage whose index file is missing.
 func (l *Stage) errDamaged() error {
-	return &Error{Code: ExitError, Kind: "damaged-stage",
+	return &Error{
+		Code: ExitError, Kind: "damaged-stage",
 		Message: fmt.Sprintf("stage %s is damaged: its index file %s is missing", l.ID, l.M.Index),
-		Hint:    "run `git multistage drop --force`; " + l.keepRef() + " holds the last protected staged tree, if any"}
+		Hint:    "run `git multistage drop --force`; " + l.keepRef() + " holds the last protected staged tree, if any",
+	}
 }
 
 func (l *Stage) create() error {
@@ -265,8 +273,8 @@ func (l *Stage) setIndexTree(tree, base string) error {
 func (l *Stage) newIndexFile() (string, int) {
 	gen := l.M.Gen + 1
 	name := fmt.Sprintf("index-%d", gen)
-	os.Remove(filepath.Join(l.Dir, name))
-	os.Remove(filepath.Join(l.Dir, name+".lock"))
+	_ = os.Remove(filepath.Join(l.Dir, name))
+	_ = os.Remove(filepath.Join(l.Dir, name+".lock"))
 	return name, gen
 }
 
@@ -279,7 +287,7 @@ func (l *Stage) adoptIndex(name string, gen int) error {
 		return err
 	}
 	if old != "" && old != name {
-		os.Remove(filepath.Join(l.Dir, old))
+		_ = os.Remove(filepath.Join(l.Dir, old))
 	}
 	return nil
 }
@@ -418,8 +426,10 @@ func (l *Stage) protect() error {
 	if l.M.Base != "" {
 		args = append(args, "-p", l.M.Base)
 	}
-	id := []string{"GIT_AUTHOR_NAME=git-multistage", "GIT_AUTHOR_EMAIL=git-multistage@localhost",
-		"GIT_COMMITTER_NAME=git-multistage", "GIT_COMMITTER_EMAIL=git-multistage@localhost"}
+	id := []string{
+		"GIT_AUTHOR_NAME=git-multistage", "GIT_AUTHOR_EMAIL=git-multistage@localhost",
+		"GIT_COMMITTER_NAME=git-multistage", "GIT_COMMITTER_EMAIL=git-multistage@localhost",
+	}
 	c, err := l.r.Line(gitx.Opt{Env: id}, args...)
 	if err != nil {
 		return err
@@ -447,7 +457,7 @@ func (l *Stage) removeLeftovers() {
 			(strings.HasPrefix(n, "index-") && n != l.M.Index) ||
 			n == "hook-index"
 		if stale {
-			os.Remove(filepath.Join(l.Dir, n))
+			_ = os.Remove(filepath.Join(l.Dir, n))
 		}
 	}
 }
@@ -513,21 +523,21 @@ func writeFileAtomic(path string, data []byte) error {
 		return err
 	}
 	if _, err := f.Write(data); err != nil {
-		f.Close()
-		os.Remove(tmp)
+		_ = f.Close()
+		_ = os.Remove(tmp)
 		return err
 	}
 	if err := f.Sync(); err != nil {
-		f.Close()
-		os.Remove(tmp)
+		_ = f.Close()
+		_ = os.Remove(tmp)
 		return err
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return err
 	}
 	if err := rename(tmp, path); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return err
 	}
 	return nil

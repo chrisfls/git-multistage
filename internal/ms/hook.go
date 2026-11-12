@@ -175,7 +175,7 @@ func newEditHook(in hookInput, stage, file string) (*editHook, error) {
 	// An edit through a symbolic link changes the link's target.
 	if info, err := os.Lstat(abs); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		if abs, err = filepath.EvalSymlinks(abs); err != nil {
-			return nil, nil
+			return nil, nil //nolint:nilerr // TODO: a Write through a dangling symbolic link goes unrecorded; resolve the link target
 		}
 	}
 	dir := filepath.Dir(abs)
@@ -191,11 +191,11 @@ func newEditHook(in hookInput, stage, file string) (*editHook, error) {
 	}
 	r, err := OpenRepo(dir)
 	if err != nil {
-		return nil, nil // not in a Git worktree
+		return nil, nil //nolint:nilerr // not in a Git worktree, so the hook records nothing
 	}
 	rel, err := r.RepoPath(abs)
 	if err != nil {
-		return nil, nil
+		return nil, nil //nolint:nilerr // the file is outside the repository, so the hook records nothing
 	}
 	// On a case-insensitive file system, use the index's spelling, so that
 	// the lease and the record name one file whatever case the editor used.
@@ -272,7 +272,7 @@ func (h *editHook) after(stdout, stderr io.Writer, succeeded bool) {
 		}
 		return
 	}
-	os.Remove(h.pendingPath())
+	_ = os.Remove(h.pendingPath())
 	var p pendingEdit
 	if err := json.Unmarshal(data, &p); err != nil {
 		return
@@ -319,7 +319,8 @@ func (h *editHook) after(stdout, stderr io.Writer, succeeded bool) {
 	msg := fmt.Sprintf("git-multistage records your file edits in stage %s. To commit them: "+
 		"`git multistage --stage %s add --edits` then `git multistage --stage %s commit -m \"<message>\"`.", h.stage, h.stage, h.stage)
 	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{
-		"hookEventName": "PostToolUse", "additionalContext": msg}})
+		"hookEventName": "PostToolUse", "additionalContext": msg,
+	}})
 	fmt.Fprintln(stdout, string(out))
 }
 
@@ -330,7 +331,7 @@ func (h *editHook) abandon() {
 	if err != nil {
 		return
 	}
-	os.Remove(h.pendingPath())
+	_ = os.Remove(h.pendingPath())
 	var p pendingEdit
 	if json.Unmarshal(data, &p) == nil {
 		h.releaseLease(p.Nonce)

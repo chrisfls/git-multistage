@@ -28,8 +28,8 @@ func (r *Repo) RepoPath(arg string) (string, error) {
 			// Resolve its deepest existing directory; the rest may not exist yet.
 			dir, rest := filepath.Dir(arg), filepath.Base(arg)
 			for {
-				if real, err2 := filepath.EvalSymlinks(dir); err2 == nil {
-					p, err = filepath.Rel(r.Top, filepath.Join(real, rest))
+				if resolved, err2 := filepath.EvalSymlinks(dir); err2 == nil {
+					p, err = filepath.Rel(r.Top, filepath.Join(resolved, rest))
 					break
 				}
 				parent := filepath.Dir(dir)
@@ -123,7 +123,7 @@ func (l *Stage) otherStagesStaged() (map[string][]string, error) {
 	res := map[string][]string{}
 	entries, err := os.ReadDir(l.r.stagesDir())
 	if err != nil {
-		return res, nil
+		return res, nil //nolint:nilerr // an unreadable stages directory holds no other stages
 	}
 	for _, e := range entries {
 		if !e.IsDir() || e.Name() == l.ID || strings.HasPrefix(e.Name(), ".") {
@@ -143,7 +143,7 @@ func (l *Stage) otherStagesStaged() (map[string][]string, error) {
 // stageStagedPaths reads another stage's staged paths without locking it or
 // writing its index. A stage that replaces its index meanwhile is read again.
 func (r *Repo) stageStagedPaths(dir string) ([]string, error) {
-	for attempt := 0; attempt < 5; attempt++ {
+	for range 5 {
 		m, err := readMeta(dir)
 		if err != nil {
 			return nil, err
@@ -196,7 +196,7 @@ func (l *Stage) AddPaths(paths []string, force, allowShared bool) ([]gitx.Entry,
 	adopted := false
 	defer func() {
 		if !adopted {
-			os.Remove(idx)
+			_ = os.Remove(idx)
 		}
 	}()
 	args := []string{"add"}
@@ -237,11 +237,13 @@ func (l *Stage) AddPaths(paths []string, force, allowShared bool) ([]gitx.Entry,
 		}
 	}
 	if len(shared) > 0 {
-		return nil, &Error{Code: ExitRefused, Kind: "shared-path",
+		return nil, &Error{
+			Code: ExitRefused, Kind: "shared-path",
 			Message: "another stage has staged changes in these files, so the whole file may hold its changes too; nothing was staged",
 			Paths:   shared, Details: details,
 			Hint: "stage only your hunks: `git multistage hunks <path>`, then `git multistage add <path> --hunk <id>`; " +
-				"or pass --allow-shared to stage the whole file anyway"}
+				"or pass --allow-shared to stage the whole file anyway",
+		}
 	}
 	return adopt()
 }
@@ -563,9 +565,11 @@ func selectHunks(files []FileHunks, ids []string) (map[string][]hunks.Hunk, erro
 		}
 	}
 	if len(unknown) > 0 || len(ambiguous) > 0 {
-		e := &Error{Code: ExitStale, Kind: "stale-hunk",
+		e := &Error{
+			Code: ExitStale, Kind: "stale-hunk",
 			Message: "hunk IDs do not match the current diff; nothing was changed",
-			Hint:    "the file changed since the hunks were listed; run `git multistage hunks <path>` again"}
+			Hint:    "the file changed since the hunks were listed; run `git multistage hunks <path>` again",
+		}
 		for _, id := range unknown {
 			e.Details = append(e.Details, "unknown hunk "+id)
 		}
@@ -608,9 +612,11 @@ func (l *Stage) AddHunks(paths, ids []string, force bool) ([]string, error) {
 				return nil, err
 			}
 			if err == nil {
-				return nil, &Error{Code: ExitError, Kind: "ignored",
+				return nil, &Error{
+					Code: ExitError, Kind: "ignored",
 					Message: "the path is ignored by a .gitignore file; nothing was staged", Paths: []string{f.Path},
-					Hint: "pass -f to stage it anyway"}
+					Hint: "pass -f to stage it anyway",
+				}
 			}
 		}
 		old, err := l.r.catBlob(f.oldBlob)

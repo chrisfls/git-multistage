@@ -3,6 +3,7 @@ package gitx
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -169,7 +170,7 @@ func (r *Repo) Run(o Opt, args ...string) ([]byte, error) {
 		// index, which would break an idle stage.
 		gitArgs = append([]string{"-c", "core.splitIndex=false", "-c", "index.sparse=false"}, args...)
 	}
-	cmd := exec.Command("git", gitArgs...)
+	cmd := exec.CommandContext(context.Background(), "git", gitArgs...)
 	cmd.Dir = o.Dir
 	if cmd.Dir == "" {
 		cmd.Dir = r.Top
@@ -354,6 +355,7 @@ func (r *Repo) MergeTrees(base, ours, theirs string) (MergeResult, error) {
 	if err != nil && code != 1 {
 		return MergeResult{}, err
 	}
+	//nolint:dupword // git merge-tree -z ends the conflicted paths with two NULs
 	// <tree> NUL <path> NUL ... NUL NUL <messages>
 	parts := strings.Split(string(out), "\x00")
 	res := MergeResult{Tree: parts[0]}

@@ -21,7 +21,7 @@ func ancestors() []proc {
 	var chain []proc
 	seen := map[int]bool{}
 	pid := os.Getpid()
-	for i := 0; i < 64; i++ {
+	for i := range 64 {
 		p, ok := table[pid]
 		if !ok || seen[pid] {
 			break

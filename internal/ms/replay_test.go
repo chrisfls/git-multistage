@@ -1,6 +1,7 @@
 package ms
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,9 +14,13 @@ func diff(t *testing.T, a, b string) []hunks.Hunk {
 	t.Helper()
 	dir := t.TempDir()
 	pa, pb := filepath.Join(dir, "a"), filepath.Join(dir, "b")
-	os.WriteFile(pa, []byte(a), 0o644)
-	os.WriteFile(pb, []byte(b), 0o644)
-	out, _ := exec.Command("git", "diff", "--no-index", "--no-color", "-U0", "--inter-hunk-context=0",
+	if err := os.WriteFile(pa, []byte(a), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pb, []byte(b), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := exec.CommandContext(context.Background(), "git", "diff", "--no-index", "--no-color", "-U0", "--inter-hunk-context=0",
 		"--diff-algorithm=myers", pa, pb).Output()
 	hs, err := hunks.Parse("f", out)
 	if err != nil {

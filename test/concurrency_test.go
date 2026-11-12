@@ -22,7 +22,7 @@ func iterations() int {
 func parallel(n int, f func(i int)) {
 	var start, done sync.WaitGroup
 	start.Add(1)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		done.Add(1)
 		go func(i int) {
 			defer done.Done()
@@ -50,7 +50,7 @@ func (r *repo) commitBySubject() map[string]string {
 func TestParallelStagingOfDifferentFiles(t *testing.T) {
 	r := newRepo(t)
 	const n = 8
-	for i := 0; i < n; i++ {
+	for i := range n {
 		r.write(fmt.Sprintf("f%d.txt", i), "content\n")
 	}
 	errs := make([]string, n)
@@ -59,7 +59,7 @@ func TestParallelStagingOfDifferentFiles(t *testing.T) {
 			errs[i] = res.String()
 		}
 	})
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if errs[i] != "" {
 			t.Fatalf("agent-%d: %s", i, errs[i])
 		}
@@ -73,14 +73,14 @@ func TestParallelStagingOfDifferentFiles(t *testing.T) {
 // to one branch at the same time, in several rounds, with random delays
 // inside each commit.
 func TestManyAgentsCommitConcurrently(t *testing.T) {
-	for it := 0; it < iterations(); it++ {
+	for range iterations() {
 		r := newRepo(t)
 		const agents, rounds = 8, 3
 		env := []string{"GIT_MULTISTAGE_TEST_DELAY_MS=15"}
 		errs := make([]string, agents)
 		parallel(agents, func(i int) {
 			agent := fmt.Sprintf("agent-%d", i)
-			for round := 0; round < rounds; round++ {
+			for round := range rounds {
 				p := fmt.Sprintf("%s/round-%d.txt", agent, round)
 				r.write(p, fmt.Sprintf("%s %d\n", agent, round))
 				if res := run(r.dir, agent, env, "add", p); res.code != 0 {
@@ -102,8 +102,8 @@ func TestManyAgentsCommitConcurrently(t *testing.T) {
 		if got := len(r.commits()); got != 1+agents*rounds {
 			t.Fatalf("%d commits, want %d", got, 1+agents*rounds)
 		}
-		for i := 0; i < agents; i++ {
-			for round := 0; round < rounds; round++ {
+		for i := range agents {
+			for round := range rounds {
 				subject := fmt.Sprintf("agent-%d round %d", i, round)
 				c, ok := bySubject[subject]
 				if !ok {
@@ -126,7 +126,7 @@ func TestManyAgentsCommitConcurrently(t *testing.T) {
 // TestAgentsCommitDifferentHunksOfOneFile has agents edit separate sections
 // of one file, stage only their hunk, and commit at the same time.
 func TestAgentsCommitDifferentHunksOfOneFile(t *testing.T) {
-	for it := 0; it < iterations(); it++ {
+	for range iterations() {
 		r := newRepo(t)
 		const agents = 5
 		// Sections of four lines; each agent edits the first line of its section.
@@ -137,7 +137,7 @@ func TestAgentsCommitDifferentHunksOfOneFile(t *testing.T) {
 		errs := make([]string, agents)
 		parallel(agents, func(i int) {
 			agent := fmt.Sprintf("agent-%d", i)
-			mine := fmt.Sprintf("edited by %s", agent)
+			mine := "edited by " + agent
 			fileMu.Lock()
 			content := r.read("shared.txt")
 			r.write("shared.txt", strings.Replace(content, fmt.Sprintf("line %d\n", i*4+1), mine+"\n", 1))
@@ -162,7 +162,7 @@ func TestAgentsCommitDifferentHunksOfOneFile(t *testing.T) {
 		}
 		final := r.git("show", "main:shared.txt")
 		bySubject := r.commitBySubject()
-		for i := 0; i < agents; i++ {
+		for i := range agents {
 			agent := fmt.Sprintf("agent-%d", i)
 			if !strings.Contains(final, "edited by "+agent+"\n") {
 				t.Fatalf("final file lacks %s's edit:\n%s", agent, final)
@@ -314,7 +314,7 @@ func TestIdenticalEditsCommitOnce(t *testing.T) {
 func (r *repo) externalCommit(msg string, update func(index string)) {
 	r.t.Helper()
 	idx := r.path(".git/external-index")
-	defer os.Remove(idx)
+	defer func() { _ = os.Remove(idx) }()
 	env := append(os.Environ(), "GIT_INDEX_FILE="+idx)
 	gitIdx := func(args ...string) string {
 		cmd := gitCmd(r.dir, env, args...)
@@ -342,8 +342,12 @@ func TestRenamedUpstreamFollowsRename(t *testing.T) {
 	blob := strings.TrimSpace(r.git("rev-parse", "main:x.txt"))
 	r.externalCommit("rename", func(idx string) {
 		env := append(os.Environ(), "GIT_INDEX_FILE="+idx)
-		gitCmd(r.dir, env, "update-index", "--force-remove", "x.txt").Run()
-		gitCmd(r.dir, env, "update-index", "--add", "--cacheinfo", "100644", blob, "y.txt").Run()
+		if err := gitCmd(r.dir, env, "update-index", "--force-remove", "x.txt").Run(); err != nil {
+			t.Fatal(err)
+		}
+		if err := gitCmd(r.dir, env, "update-index", "--add", "--cacheinfo", "100644", blob, "y.txt").Run(); err != nil {
+			t.Fatal(err)
+		}
 	})
 	r.mustMS("agent-a", "commit", "-m", "edit x")
 	if got := r.git("show", "main:y.txt"); !strings.Contains(got, "X2\n") {
@@ -362,7 +366,9 @@ func TestDeletedUpstreamConflicts(t *testing.T) {
 	r.write("x.txt", "changed\n")
 	r.mustMS("agent-a", "add", "x.txt")
 	r.externalCommit("delete", func(idx string) {
-		gitCmd(r.dir, append(os.Environ(), "GIT_INDEX_FILE="+idx), "update-index", "--force-remove", "x.txt").Run()
+		if err := gitCmd(r.dir, append(os.Environ(), "GIT_INDEX_FILE="+idx), "update-index", "--force-remove", "x.txt").Run(); err != nil {
+			t.Fatal(err)
+		}
 	})
 	r.expectCode(3, "agent-a", "commit", "-m", "edit x")
 	if diff := r.mustMS("agent-a", "diff", "--cached").out; !strings.Contains(diff, "+changed") {
@@ -373,13 +379,13 @@ func TestDeletedUpstreamConflicts(t *testing.T) {
 // TestNativeGitActivityDuringAgentCommits runs ordinary `git add` and
 // `git commit` while agents commit to the same branch.
 func TestNativeGitActivityDuringAgentCommits(t *testing.T) {
-	for it := 0; it < iterations(); it++ {
+	for range iterations() {
 		r := newRepo(t)
 		const agents, rounds, natives = 4, 3, 6
 		errs := make([]string, agents+1)
 		parallel(agents+1, func(i int) {
 			if i == agents {
-				for n := 0; n < natives; n++ {
+				for n := range natives {
 					p := fmt.Sprintf("native-%d.txt", n)
 					r.write(p, "native\n")
 					for {
@@ -396,7 +402,7 @@ func TestNativeGitActivityDuringAgentCommits(t *testing.T) {
 				return
 			}
 			agent := fmt.Sprintf("agent-%d", i)
-			for round := 0; round < rounds; round++ {
+			for round := range rounds {
 				p := fmt.Sprintf("%s-%d.txt", agent, round)
 				r.write(p, "agent\n")
 				if res := r.ms(agent, "add", p); res.code != 0 {

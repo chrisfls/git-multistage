@@ -1,6 +1,7 @@
 package ms
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/chrisfls/git-multistage/internal/gitx"
@@ -32,11 +33,13 @@ func (r *Repo) integrate(baseTree, staged, tip string) (string, error) {
 			}
 			return replayed, nil
 		}
-		return "", &Error{Code: ExitConflict, Kind: "conflict",
-			Message: fmt.Sprintf("staged changes conflict with %s", short(tip)),
+		return "", &Error{
+			Code: ExitConflict, Kind: "conflict",
+			Message: "staged changes conflict with " + short(tip),
 			Paths:   res.Conflicts, Details: res.Messages,
 			Hint: "the staged changes are kept; edit the files so they include the branch's changes, " +
-				"then `git multistage restore --staged <path>` and stage them again"}
+				"then `git multistage restore --staged <path>` and stage them again",
+		}
 	}
 	if err := r.verifyIntegration(baseTree, staged, tipTree, res.Tree); err != nil {
 		return "", err
@@ -83,9 +86,11 @@ func (r *Repo) verifyIntegration(baseTree, staged, tipTree, result string) error
 		}
 	}
 	if len(outside) > 0 {
-		return &Error{Code: ExitConflict, Kind: "outside-paths",
+		return &Error{
+			Code: ExitConflict, Kind: "outside-paths",
 			Message: "the merged result changes paths that are not staged; refusing to commit it",
-			Paths:   outside}
+			Paths:   outside,
+		}
 	}
 	touched := map[string]bool{}
 	for _, e := range theirsPlain {
@@ -102,9 +107,11 @@ func (r *Repo) verifyIntegration(baseTree, staged, tipTree, result string) error
 		}
 	}
 	if len(missing) > 0 {
-		return &Error{Code: ExitConflict, Kind: "missing-content",
+		return &Error{
+			Code: ExitConflict, Kind: "missing-content",
 			Message: "the merged result does not contain the staged content; refusing to commit it",
-			Paths:   missing}
+			Paths:   missing,
+		}
 	}
 	return nil
 }
@@ -147,7 +154,7 @@ func (l *Stage) refresh() (Freshness, error) {
 		if ok, err := l.r.IsAncestor(l.M.Base, tip); err != nil || !ok {
 			f.Stale = true
 			f.Reason = "the detached HEAD moved to a commit that does not contain this stage's base"
-			return f, nil
+			return f, nil //nolint:nilerr // a base that git cannot check, such as a pruned commit, is reported as stale
 		}
 	}
 	if tip == "" {
@@ -171,7 +178,8 @@ func (l *Stage) refresh() (Freshness, error) {
 		return f, nil
 	}
 	merged, err := l.r.integrate(baseTree, staged, tip)
-	if e, ok := err.(*Error); ok {
+	e := &Error{}
+	if errors.As(err, &e) {
 		f.Stale = true
 		f.Conflicts = e.Paths
 		f.Reason = e.Message
