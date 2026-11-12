@@ -363,13 +363,19 @@ func (r *Repo) editOnDisk(idx string, rec EditRecord) (bool, error) {
 	}
 	// mine's added lines occupy [NewStart-1, NewStart-1+NewLines) of After;
 	// a later change that removes any of them, or inserts inside them,
-	// overwrote the edit. A deletion adds no lines: it sits after line
-	// NewStart of After, and a later insertion at that point undid it.
+	// overwrote the edit. A deletion adds no lines: it sits between lines
+	// NewStart and NewStart+1 of After. A later change that adds lines there
+	// may have put the deleted lines back: an insertion after line NewStart,
+	// or a replacement whose old lines include line NewStart or NewStart+1.
 	for _, h := range mine {
 		lo, hi := h.NewStart-1, h.NewStart-1+h.NewLines
 		for _, d := range later {
 			if h.NewLines == 0 {
-				if d.OldLines == 0 && d.OldStart == h.NewStart {
+				if d.NewLines == 0 {
+					continue
+				}
+				if d.OldLines == 0 && d.OldStart == h.NewStart ||
+					d.OldLines > 0 && d.OldStart <= h.NewStart+1 && h.NewStart <= d.OldStart+d.OldLines-1 {
 					return false, nil
 				}
 				continue

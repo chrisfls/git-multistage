@@ -84,21 +84,25 @@ func TestAddEditsKeepsRacyEntriesRacy(t *testing.T) {
 }
 
 // TestAddEditsRefusesARestoredDeletion records an edit that deletes lines;
-// another writer then puts the lines back. The edit is lost, so `add --edits`
-// must refuse it instead of staging the deletion.
+// another writer then puts the lines back, alone or with a change to a line
+// next to them. The edit is lost, so `add --edits` must refuse it instead of
+// staging the deletion.
 func TestAddEditsRefusesARestoredDeletion(t *testing.T) {
-	for _, tc := range []struct{ name, before, after string }{
-		{"middle", "a\nb\nc\nd\ne\n", "a\nb\ne\n"},
-		{"start", "a\nb\nc\nd\ne\n", "c\nd\ne\n"},
-		{"end", "a\nb\nc\nd\ne\n", "a\nb\nc\n"},
+	const before = "a\nb\nc\nd\ne\n"
+	for _, tc := range []struct{ name, after, disk string }{
+		{"middle", "a\nb\ne\n", before},
+		{"start", "c\nd\ne\n", before},
+		{"end", "a\nb\nc\n", before},
+		{"with the line above changed", "a\nb\ne\n", "a\nB\nc\nd\ne\n"},
+		{"with the line below changed", "a\nb\ne\n", "a\nb\nc\nd\nE\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := newRepo(t)
-			r.write("f.txt", tc.before)
+			r.write("f.txt", before)
 			r.git("add", "f.txt")
 			r.git("commit", "-q", "-m", "f")
 			r.hookedEdit("s", "", "f.txt", tc.after)
-			r.write("f.txt", tc.before)
+			r.write("f.txt", tc.disk)
 			res := r.expectCode(3, "", "--stage", "claude-s", "add", "--edits")
 			if !strings.Contains(res.out+res.err, "no longer holds the edit") {
 				t.Fatalf("want edit-lost:\n%s", res)
