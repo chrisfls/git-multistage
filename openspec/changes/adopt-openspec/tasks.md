@@ -7,7 +7,7 @@
 
 ## 2. Validate OpenSpec in CI
 
-- [ ] 2.1 Add an `openspec` job to `.github/workflows/ci.yml` that sets up Node 22, installs `@fission-ai/openspec@2.0.0`, and runs `openspec validate --all --strict`, then verify that the same commands pass locally and that the pushed CI run passes
+- [x] 2.1 Add an `openspec` job to `.github/workflows/ci.yml` that sets up Node 22, installs `@fission-ai/openspec@2.0.0`, and runs `openspec validate --all --strict`, then verify that the same commands pass locally and that the pushed CI run passes
 
 ## 3. Check the baseline against the code
 

@@ -18,6 +18,18 @@ jobs:
       - name: Lint
         run: golangci-lint run ./...
 
+  openspec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: node npm:@fission-ai/openspec
+      - name: Validate specs and changes
+        env:
+          OPENSPEC_NO_UPDATE_CHECK: "1"
+        run: openspec validate --all --strict
+
   test:
     strategy:
       fail-fast: false

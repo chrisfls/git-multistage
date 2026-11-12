@@ -24,7 +24,7 @@ Every change to this repository starts as an OpenSpec change in `openspec/change
 - Write behavior in specs only. Do not add documentation files. `README.md` holds only the overview, the install, the quick start, the plugin install, the contributing commands, and links to the specs.
 - OpenSpec artifacts take precedence over the plan and spec files of other skills, such as Superpowers' `docs/superpowers/`. Do not write those files here.
 
-The skills run the `openspec` CLI. Install it with `npm install -g @fission-ai/openspec@2.0.0`, the version that `rulesync.jsonc` pins.
+The skills run the `openspec` CLI, which `mise.toml` pins to the same version as the skills' ref in `rulesync.jsonc`. Run `mise install` to install it.
 
 ## Commit often
 
