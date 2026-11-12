@@ -282,14 +282,24 @@ func (l *Stage) setIndexTree(tree, base string) error {
 	return l.adoptIndex(name, gen)
 }
 
-// newIndexFile returns the name and generation of the next index file, after
-// removing any leftover file of that name.
+// newIndexFile returns the name and generation of the next index file. It
+// skips every generation whose index file or lock file exists: a Git child
+// of a killed process may still hold such a lock file and later rename it,
+// so the name is never reused while the file is there.
 func (l *Stage) newIndexFile() (string, int) {
 	gen := l.M.Gen + 1
-	name := fmt.Sprintf("index-%d", gen)
-	_ = os.Remove(filepath.Join(l.Dir, name))
-	_ = os.Remove(filepath.Join(l.Dir, name+".lock"))
-	return name, gen
+	for {
+		name := fmt.Sprintf("index-%d", gen)
+		if !exists(filepath.Join(l.Dir, name)) && !exists(filepath.Join(l.Dir, name+".lock")) {
+			return name, gen
+		}
+		gen++
+	}
+}
+
+func exists(path string) bool {
+	_, err := os.Lstat(path)
+	return !errors.Is(err, fs.ErrNotExist)
 }
 
 // adoptIndex makes the index file name current. The metadata rename is the
@@ -460,16 +470,28 @@ func (l *Stage) save() error {
 	return writeFileAtomic(filepath.Join(l.Dir, "meta.json"), append(data, '\n'))
 }
 
+// leftoverLockAge is the age after which a lock file is surely abandoned: a
+// Git child of a killed process may hold a younger one.
+const leftoverLockAge = time.Hour
+
 // removeLeftovers deletes files that an interrupted process left behind.
-// The stage lock guarantees that no other git-multistage process uses them.
+// The stage lock guarantees that no other git-multistage process uses them,
+// but a Git child of a killed process may still hold a lock file and later
+// rename it, so a lock file is deleted only when it is old; newIndexFile
+// never reuses a generation whose files exist.
 func (l *Stage) removeLeftovers() {
 	entries, _ := os.ReadDir(l.Dir)
 	for _, e := range entries {
 		n := e.Name()
+		if strings.HasSuffix(n, ".lock") {
+			if info, err := e.Info(); err != nil || time.Since(info.ModTime()) < leftoverLockAge {
+				continue
+			}
+		}
 		stale := strings.HasSuffix(n, ".lock") ||
 			strings.Contains(n, ".tmp-") ||
 			(strings.HasPrefix(n, "index-") && n != l.M.Index) ||
-			n == "hook-index"
+			strings.HasPrefix(n, "hook-index")
 		if stale {
 			_ = os.Remove(filepath.Join(l.Dir, n))
 		}

@@ -1,7 +1,10 @@
 package test
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -210,6 +213,40 @@ func TestAddEditsAfterACrashSkipsAppliedRecords(t *testing.T) {
 	r.mustMS("", "--stage", "claude-s", "add", "--edits")
 	r.mustMS("", "--stage", "claude-s", "commit", "-m", "fg")
 	if got := r.git("show", "main:f.txt") + r.git("show", "main:g.txt"); got != "a\nBB\nc\ng\nG\n" {
+		t.Fatalf("committed %q", got)
+	}
+}
+
+// TestOrphanedIndexLockIsKept leaves the lock file of the next index
+// generation, as a Git child of a killed git-multistage holds it. The next
+// command must neither delete it nor reuse its generation, so the orphan
+// cannot later rename a lock file of the new command.
+func TestOrphanedIndexLockIsKept(t *testing.T) {
+	r := newRepo(t)
+	r.mustMS("a", "status")
+	dir := r.path(".git/multistage/stages/a")
+	var m struct {
+		Gen int `json:"gen"`
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "meta.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatal(err)
+	}
+	orphan := filepath.Join(dir, fmt.Sprintf("index-%d.lock", m.Gen+1))
+	if err := os.WriteFile(orphan, []byte("half-written"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r.write("f.txt", "f\n")
+	r.mustMS("a", "add", "f.txt")
+	r.mustMS("a", "status")
+	if got, err := os.ReadFile(orphan); err != nil || string(got) != "half-written" {
+		t.Fatalf("the orphaned lock file changed: %q, %v", got, err)
+	}
+	r.mustMS("a", "commit", "-m", "f")
+	if got := r.git("show", "main:f.txt"); got != "f\n" {
 		t.Fatalf("committed %q", got)
 	}
 }

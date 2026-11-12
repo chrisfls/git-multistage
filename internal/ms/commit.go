@@ -2,6 +2,8 @@ package ms
 
 import (
 	"bytes"
+	crand "crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"math/rand"
 	"os"
@@ -141,11 +143,19 @@ func (l *Stage) prepareMessage(raw string, noVerify bool) (string, error) {
 
 func stringOut(b []byte, err error) (string, error) { return string(b), err }
 
+// hookIndexPath returns a new name for an index that a Git hook may write.
+// Each run has its own name, so a lock file that a hook orphaned by a killed
+// process still holds never blocks or meets a later run.
+func (l *Stage) hookIndexPath() string {
+	b := make([]byte, 4)
+	_, _ = crand.Read(b)
+	return filepath.Join(l.Dir, "hook-index-"+hex.EncodeToString(b))
+}
+
 // runPreCommit runs the pre-commit hook against an index that holds tree,
 // and returns the tree that the hook leaves in that index.
 func (l *Stage) runPreCommit(tree string) (string, error) {
-	idx := filepath.Join(l.Dir, "hook-index")
-	_ = os.Remove(idx)
+	idx := l.hookIndexPath()
 	defer func() { _ = os.Remove(idx) }()
 	if _, err := l.r.Run(gitx.Opt{Index: idx}, "read-tree", tree); err != nil {
 		return "", err
@@ -382,8 +392,7 @@ func firstErr(errs ...error) error {
 // withIndexCopy runs f with a copy of the stage's index, so that a hook
 // cannot rewrite the stage's own index (for example in split-index format).
 func (l *Stage) withIndexCopy(f func(idx string) error) error {
-	idx := filepath.Join(l.Dir, "hook-index")
-	_ = os.Remove(idx)
+	idx := l.hookIndexPath()
 	defer func() { _ = os.Remove(idx) }()
 	if err := copyFile(l.IndexPath(), idx); err != nil {
 		return err
