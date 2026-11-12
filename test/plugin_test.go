@@ -36,8 +36,10 @@ func TestPluginFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parts := strings.SplitN(string(skill), "---\n", 3)
-	if len(parts) != 3 || strings.TrimPrefix(parts[2], "\n") != string(guide) {
+	// A Windows checkout may convert both files to CRLF.
+	lf := strings.NewReplacer("\r\n", "\n")
+	parts := strings.SplitN(lf.Replace(string(skill)), "---\n", 3)
+	if len(parts) != 3 || strings.TrimPrefix(parts[2], "\n") != lf.Replace(string(guide)) {
 		t.Fatal("skills/git-multistage/SKILL.md must hold docs/agent-guide.md after its front matter; copy the guide into it")
 	}
 }
