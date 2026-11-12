@@ -84,15 +84,15 @@ func userEnv() []string {
 }
 
 // internalEnv is the environment of git-multistage's own Git calls: path
-// arguments are never globs, read-only commands never rewrite an index, and
-// nothing prompts.
+// arguments are never globs, read-only commands never rewrite an index,
+// nothing prompts, and GIT_DIFF_OPTS cannot change the context of a diff.
 func internalEnv() []string {
 	var env []string
 	for _, kv := range userEnv() {
 		name, _, _ := strings.Cut(kv, "=")
 		switch strings.ToUpper(name) {
 		case "GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS",
-			"GIT_ICASE_PATHSPECS", "GIT_OPTIONAL_LOCKS", "GIT_TERMINAL_PROMPT", "GIT_EDITOR":
+			"GIT_ICASE_PATHSPECS", "GIT_OPTIONAL_LOCKS", "GIT_TERMINAL_PROMPT", "GIT_EDITOR", "GIT_DIFF_OPTS":
 			continue
 		}
 		env = append(env, kv)
