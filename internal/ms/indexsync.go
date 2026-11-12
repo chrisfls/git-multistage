@@ -413,7 +413,7 @@ func (r *Repo) applyIndexChanges(changes []gitx.Entry, res *SyncResult, dryRun b
 		return "", nil
 	}
 	// Git treats a missing index as an empty one.
-	info, err := os.Stat(r.IndexPath)
+	_, err := os.Stat(r.IndexPath)
 	missing := errors.Is(err, fs.ErrNotExist)
 	if err != nil && !missing {
 		return "", err
@@ -432,11 +432,6 @@ func (r *Repo) applyIndexChanges(changes []gitx.Entry, res *SyncResult, dryRun b
 	defer func() { _ = os.Remove(tmp) }()
 	if !missing {
 		if err := copyFile(r.IndexPath, tmp); err != nil {
-			return "", err
-		}
-		// Keep the original timestamp so that Git's racy-entry detection
-		// treats the copy exactly like the original.
-		if err := os.Chtimes(tmp, info.ModTime(), info.ModTime()); err != nil {
 			return "", err
 		}
 	}
@@ -524,12 +519,19 @@ func (r *Repo) planIndexChanges(index string, changes []gitx.Entry, res *SyncRes
 	return input.String(), nil
 }
 
+// copyFile copies an index file. The copy keeps the original's modification
+// time, so that Git's racy-entry detection treats the copy exactly like the
+// original: an entry changed in the second of the index write stays suspect.
 func copyFile(from, to string) error {
 	src, err := os.Open(from)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = src.Close() }()
+	info, err := src.Stat()
+	if err != nil {
+		return err
+	}
 	dst, err := os.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o666)
 	if err != nil {
 		return err
@@ -538,5 +540,8 @@ func copyFile(from, to string) error {
 		_ = dst.Close()
 		return err
 	}
-	return dst.Close()
+	if err := dst.Close(); err != nil {
+		return err
+	}
+	return os.Chtimes(to, info.ModTime(), info.ModTime())
 }

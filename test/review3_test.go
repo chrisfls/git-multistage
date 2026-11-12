@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // These tests reproduce defects found in the third review.
@@ -43,5 +44,35 @@ func TestHunksIgnoreGitDiffOpts(t *testing.T) {
 	decode(t, res, &fj)
 	if res.code != 0 || len(fj.Files) != 1 || len(fj.Files[0].Hunks) != 1 || len(fj.Files[0].Hunks[0].Lines) != 2 {
 		t.Fatalf("want one hunk of two lines:\n%s", res)
+	}
+}
+
+// TestAddEditsKeepsRacyEntriesRacy rewrites a staged file in the second in
+// which it was staged, with the same size. `add --edits` of another file must
+// not make that entry look clean, or a later `add` keeps the old content.
+func TestAddEditsKeepsRacyEntriesRacy(t *testing.T) {
+	r := newRepo(t)
+	r.write("g.txt", "g\n")
+	r.git("add", "g.txt")
+	r.git("commit", "-q", "-m", "g")
+	r.hookedEdit("s", "", "g.txt", "g\ng2\n")
+	for attempt := 0; ; attempt++ {
+		start := time.Now().Unix()
+		r.write("f.txt", "old\n")
+		r.mustMS("", "--stage", "claude-s", "add", "f.txt")
+		r.write("f.txt", "new\n")
+		if time.Now().Unix() == start {
+			break
+		}
+		if attempt == 5 {
+			t.Skip("cannot stage and rewrite a file within one second")
+		}
+	}
+	time.Sleep(time.Until(time.Unix(time.Now().Unix()+1, 0)) + 50*time.Millisecond)
+	r.mustMS("", "--stage", "claude-s", "add", "--edits")
+	r.mustMS("", "--stage", "claude-s", "add", "f.txt")
+	r.mustMS("", "--stage", "claude-s", "commit", "-m", "f and g")
+	if got := r.git("show", "main:f.txt"); got != "new\n" {
+		t.Fatalf("committed f.txt = %q, want the rewritten content", got)
 	}
 }
