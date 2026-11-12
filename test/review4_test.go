@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -118,4 +119,47 @@ func TestTakingAnExpiredLeaseMakesTheEditUncertain(t *testing.T) {
 		t.Fatalf("add --edits:\n%s", res)
 	}
 	r.expectCode(3, "", "--stage", "codex-a", "add", "--edits")
+}
+
+func TestWriteThroughADanglingSymlinkIsRecorded(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symbolic links need privileges on Windows")
+	}
+	r := newRepo(t)
+	if err := os.Symlink("docs/AGENTS.md", r.path("CLAUDE.md")); err != nil {
+		t.Fatal(err)
+	}
+	r.git("add", ".")
+	r.git("commit", "-q", "-m", "link")
+	file := r.path("CLAUDE.md")
+	r.hookCall("PreToolUse", "Write", "s", "", file)
+	r.write("docs/AGENTS.md", "- one\n")
+	r.hookCall("PostToolUse", "Write", "s", "", file)
+	r.mustMS("", "--stage", "claude-s", "add", "--edits")
+	if got := r.stagedPaths("claude-s"); !eq(got, []string{"docs/AGENTS.md"}) {
+		t.Fatalf("staged %q", got)
+	}
+}
+
+func TestHookAcceptsAPathInAnotherCase(t *testing.T) {
+	r := newRepo(t)
+	if strings.TrimSpace(r.git("config", "--get", "core.ignoreCase")) != "true" {
+		t.Skip("the file system is case-sensitive")
+	}
+	r.write("f.txt", "1\n")
+	r.git("add", "f.txt")
+	r.git("commit", "-q", "-m", "f")
+	// The test's temporary directory, such as TestHook.../001, in upper case.
+	parent := filepath.Dir(r.dir)
+	file := filepath.Join(filepath.Dir(parent), strings.ToUpper(filepath.Base(parent)), filepath.Base(r.dir), "f.txt")
+	if _, err := os.Stat(file); err != nil {
+		t.Skip("the file system is case-sensitive")
+	}
+	r.hookCall("PreToolUse", "Edit", "s", "", file)
+	r.write("f.txt", "2\n")
+	r.hookCall("PostToolUse", "Edit", "s", "", file)
+	r.mustMS("", "--stage", "claude-s", "add", "--edits")
+	if got := r.stagedPaths("claude-s"); !eq(got, []string{"f.txt"}) {
+		t.Fatalf("staged %q", got)
+	}
 }

@@ -181,12 +181,9 @@ func newEditHook(in hookInput, stage, file string) (*editHook, error) {
 	if err != nil {
 		return nil, err
 	}
-	// An edit through a symbolic link changes the link's target.
-	if info, err := os.Lstat(abs); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		if abs, err = filepath.EvalSymlinks(abs); err != nil {
-			return nil, nil //nolint:nilerr // TODO: a Write through a dangling symbolic link goes unrecorded; resolve the link target
-		}
-	}
+	// An edit through a symbolic link changes the link's target, which a
+	// Write creates when the link dangles.
+	abs = linkTarget(abs)
 	dir := filepath.Dir(abs)
 	for {
 		if _, err := os.Stat(dir); err == nil {
@@ -202,7 +199,7 @@ func newEditHook(in hookInput, stage, file string) (*editHook, error) {
 	if err != nil {
 		return nil, nil //nolint:nilerr // not in a Git worktree, so the hook records nothing
 	}
-	rel, err := r.RepoPath(abs)
+	rel, err := r.RepoPath(r.topSpelling(dir, abs))
 	if err != nil {
 		return nil, nil //nolint:nilerr // the file is outside the repository, so the hook records nothing
 	}
@@ -223,6 +220,47 @@ func newEditHook(in hookInput, stage, file string) (*editHook, error) {
 	sum := sha256.Sum256([]byte(rel))
 	h.key = sanitizeID(in.ToolUseID + "-" + hex.EncodeToString(sum[:8]))
 	return h, nil
+}
+
+// linkTarget follows the symbolic links at path, even to a target that does
+// not exist yet. It gives up after 40 links, as the kernel does.
+func linkTarget(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	for range 40 {
+		target, err := os.Readlink(path)
+		if err != nil {
+			return path
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(filepath.Dir(path), target)
+		}
+		path = target
+	}
+	return path
+}
+
+// topSpelling spells the worktree root of abs as Git does. On a
+// case-insensitive file system an editor may spell it in another case, and
+// the worktree may lie behind a symbolic link; dir is an existing directory
+// that holds abs.
+func (r *Repo) topSpelling(dir, abs string) string {
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return abs
+	}
+	rest, err := filepath.Rel(dir, abs)
+	if err != nil {
+		return abs
+	}
+	p := filepath.Join(resolved, rest)
+	n := len(r.Top)
+	if len(p) >= n && (len(p) == n || p[n] == filepath.Separator) && p[:n] != r.Top &&
+		strings.EqualFold(p[:n], r.Top) && r.configBool("core.ignoreCase", false) {
+		return r.Top + p[n:]
+	}
+	return abs
 }
 
 func (h *editHook) pendingPath() string {
