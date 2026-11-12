@@ -30,7 +30,7 @@ git multistage --stage <id> diff --cached
 git multistage --stage <id> commit -m "Add input validation"
 ```
 
-`add --edits` stages exactly the edits you made with the Edit and Write tools. Stage files that you changed through shell commands with `add` or `add --hunk`. If an edit is blocked because another agent is editing the file, make the edit again.
+`add --edits` stages exactly the edits you made with the file-editing tools (Claude Code's Edit and Write, Codex's apply_patch). Stage files that you changed through shell commands with `add` or `add --hunk`. If an edit is blocked because another agent is editing the file, make the edit again.
 
 ## Workflow without the hook
 

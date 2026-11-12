@@ -67,7 +67,7 @@ Files with a `filter` attribute (such as Git LFS), symbolic links, submodules, b
 
 ## Recorded edits
 
-The editor hook (`git multistage hook claude`) runs before and after each Claude Code `Edit`, `MultiEdit`, and `Write` call.
+The editor hook runs before and after each file edit: `git multistage hook claude` for Claude Code's `Edit`, `MultiEdit`, and `Write`, and `git multistage hook codex` for Codex's `apply_patch`, whose files come from the patch headers. A multi-file edit leases its files in a fixed order.
 
 1. Before the edit, it takes a lease on the file: `leases/<hash>.json` in the multistage directory names the stage, a nonce, and an expiry 15 seconds ahead, written under a short OS lock. Another stage's hook waits until the lease is released or expires, up to 20 seconds, then blocks its edit with exit code 2. It then hashes the file into a blob and writes a pending record keyed by the tool call ID.
 2. After the edit, it hashes the file again and writes an edit record with the before and after blobs into `stages/<id>/edits/`, one file per edit. If the lease changed hands meanwhile, the record is marked uncertain. It then releases the lease.

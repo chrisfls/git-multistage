@@ -92,7 +92,22 @@ With the editor hook, an agent never selects hunks: the hook records each file e
 }
 ```
 
-The first recorded edit tells the agent its stage ID. The agent then commits with:
+### Codex editor hook (optional)
+
+The same hook works for Codex's `apply_patch` tool: each Codex session, and each Codex subagent, gets its own stage (`codex-<id>`). Add this to the project's `.codex/hooks.json` (or `~/.codex/hooks.json`):
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [{"matcher": "^apply_patch$", "hooks": [{"type": "command", "command": "git multistage hook codex"}]}],
+    "PostToolUse": [{"matcher": "^apply_patch$", "hooks": [{"type": "command", "command": "git multistage hook codex"}]}]
+  }
+}
+```
+
+Codex runs a hook only after you trust its definition once: start `codex` in the project and review the hooks it lists (or open `/hooks`). A project's `.codex/` layer also needs the project to be trusted.
+
+For both editors, the first recorded edit tells the agent its stage ID. The agent then commits with:
 
 ```bash
 git multistage --stage <id> add --edits && git multistage --stage <id> commit -m "Describe the change"
@@ -123,7 +138,7 @@ Every command takes `--stage <id>` and `--agentic`. Most commands take `--json` 
 | `sync [--from <commit>]` | Bring the default index up to the branch tip, keeping natively staged entries. `--from` names the commit that the index matches when the tool cannot tell. |
 | `drop [--force]` | Delete the stage. Refuses when changes are staged, unless `--force`. |
 | `drop --edits [<path>...]` | Forget recorded edits. |
-| `hook claude` | Claude Code hook that records file edits; see above. |
+| `hook claude`, `hook codex` | Editor hooks that record file edits; see above. |
 
 ### Exit codes
 

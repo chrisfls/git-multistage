@@ -15,21 +15,14 @@ Every stage works on the same files on disk. git-multistage separates staging an
 
 ## Editor hooks
 
-`git multistage hook claude` is a Claude Code `PreToolUse` and `PostToolUse` hook for the `Edit`, `MultiEdit`, and `Write` tools.
+`git multistage hook claude` is a Claude Code `PreToolUse` and `PostToolUse` hook for the `Edit`, `MultiEdit`, and `Write` tools. `git multistage hook codex` is the same for Codex's `apply_patch`; it takes the files from the patch's `Update`, `Add`, `Delete`, and `Move to` headers.
 
-- Before an edit, it takes a lease on the file for up to 15 seconds and snapshots the file. A second hooked editor of the same file waits up to 20 seconds, then its edit is blocked with a message that asks the agent to retry.
-- After the edit, it records the before and after content in the agent's stage: `claude-<agent_id>` inside a subagent, `claude-<session_id>` in the main session, or `GIT_MULTISTAGE_ID` when that is set. The first recorded edit tells the agent its stage ID.
-- Edits made through Bash (`sed`, code generators, formatters) are not recorded; stage those with `add` or `add --hunk`.
+- Before an edit, it takes a lease on each file for up to 15 seconds, in a fixed order, and snapshots the files. A second hooked editor of the same file waits up to 20 seconds, then its edit is blocked with a message that asks the agent to retry.
+- After the edit, it records the before and after content in the agent's stage: `<editor>-<agent_id>` inside a subagent, `<editor>-<session_id>` otherwise, or `GIT_MULTISTAGE_ID` when that is set. The first recorded edit tells the agent its stage ID.
+- Edits made through shell commands (`sed`, code generators, formatters) are not recorded; stage those with `add` or `add --hunk`.
 - An edit through a symbolic link is recorded for the link's target. A recorded new file that `.gitignore` ignores needs `add --edits -f`.
 - A lease that expires during a long permission prompt marks the edit as uncertain; `add --edits` then refuses it.
-- Codex: its `PreToolUse` and `PostToolUse` hooks fire for `apply_patch`, but a hook definition runs only after a one-time trust review in Codex. git-multistage has no Codex hook yet.
-
-## Hooks
-
-- Hooks run in the shared checkout, with the caller's environment. `pre-commit` sees a temporary index that holds the tree to be committed, with HEAD at the parent commit.
-- A `pre-commit` hook that changes the staged content, such as a formatter that re-adds files, makes the commit fail with kind `hook-modified`, and the stage keeps its changes. The hook reads re-added files from the shared working tree, where unstaged edits that belong to other stages may be. Stage your changes again after the hook has formatted the files on disk; the next commit then passes.
-- Hooks that stash or rewrite unstaged changes, such as the pre-commit framework or lint-staged, change files that other writers are editing. They are unsafe while several stages are in use. The tool does not detect them.
-- When a commit replays onto a newer tip, `pre-commit` runs again only if the replay changes what the commit introduces.
+- Codex runs a hook only after its definition is trusted once (in its `/hooks` review), and reads a project's `.codex/hooks.json` only in a trusted project.
 
 ## Supported and refused setups
 
