@@ -32,6 +32,8 @@ type SyncResult struct {
 	Updated  []string `json:"updated,omitempty"`
 	Kept     []string `json:"kept,omitempty"` // entries with native staged changes, left as they are
 	Warnings []string `json:"warnings,omitempty"`
+
+	written []string // updated paths that still have an entry
 }
 
 func (r *Repo) syncEnabled() bool { return r.configBool("multistage.syncIndex", true) }
@@ -156,18 +158,15 @@ func (r *Repo) SyncIndex(from string, timeout time.Duration) (SyncResult, error)
 		return SyncResult{}, err
 	}
 	if from == "" {
-		if from, err = r.validRecord(head); err != nil {
-			return SyncResult{}, err
-		}
-	}
-	if from == "" {
-		if from, err = r.matchingAncestor(head); err != nil {
+		if from, err = r.provenLag(head); err != nil {
 			return SyncResult{}, err
 		}
 	}
 	if from == "" {
 		hint := "pass the commit that the index matches with --from; `git diff --cached` shows the difference"
-		if c, n := r.nearestAncestor(head); c != "" {
+		if c, _ := r.matchingAncestor(head); c != "" {
+			hint = fmt.Sprintf("the index equals %s, but Git commands changed the branch since, so the difference may be deliberate: pass --from %s if the index lags", short(c), short(c))
+		} else if c, n := r.nearestAncestor(head); c != "" {
 			hint = fmt.Sprintf("the closest commit is %s, which differs from the index at %d path(s): pass --from %s if the index lags behind it", short(c), n, short(c))
 		}
 		return SyncResult{}, &Error{Code: ExitError, Kind: "sync-unknown",
@@ -213,6 +212,31 @@ func (r *Repo) syncAfterCommit(parent string) (SyncResult, error) {
 		}
 	}
 	return r.syncIndexLocked(head, from, keep, false)
+}
+
+// provenLag returns the commit that the default index provably matches:
+// the commit of a valid sync record, or else the newest ancestor whose tree
+// equals the index, when the reflog shows that only index-free updates
+// moved the branch since. Without that proof, an index equal to an older
+// commit may be a person's deliberate change (such as `git rm --cached`).
+func (r *Repo) provenLag(head string) (string, error) {
+	tip, err := r.ResolveRef(head)
+	if err != nil || tip == "" {
+		return "", err
+	}
+	from, err := r.validRecord(head)
+	if err != nil {
+		return "", err
+	}
+	if from == "" {
+		if from, err = r.matchingAncestor(head); err != nil {
+			return "", err
+		}
+	}
+	if from == "" || from == tip || r.lagOnly(head, tip, from) {
+		return from, nil
+	}
+	return "", nil
 }
 
 // matchingAncestor returns the newest commit of head's first-parent history
@@ -425,7 +449,7 @@ func (r *Repo) applyIndexChanges(changes []gitx.Entry, res *SyncResult, dryRun b
 		return "", err
 	}
 	// --index-info drops the skip-worktree bit of the entries it replaces.
-	if err := r.copySkipWorktree(tmp, res.Updated, true); err != nil {
+	if err := r.copySkipWorktree(tmp, res.written, true); err != nil {
 		return "", err
 	}
 	tree, err := r.indexTree(tmp)
@@ -481,6 +505,7 @@ func (r *Repo) planIndexChanges(index string, changes []gitx.Entry, res *SyncRes
 				fmt.Fprintf(&input, "0 %s\t%s\x00", r.ZeroOID, c.Path)
 			} else {
 				fmt.Fprintf(&input, "%s %s\t%s\x00", c.NewMode, c.NewOID, c.Path)
+				res.written = append(res.written, c.Path)
 			}
 			res.Updated = append(res.Updated, c.Path)
 		default:

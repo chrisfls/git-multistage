@@ -46,14 +46,41 @@ func replayLines(base, theirs []byte, mineHunks, theirHunks []hunks.Hunk) ([]byt
 		}
 		return i + off
 	}
-	// conflictAtGap reports whether theirs inserted lines at base gap g
-	// (between base lines g-1 and g), or changed lines on both sides of it.
-	conflictAtGap := func(g int) bool {
+	// addsAtGap reports whether theirs adds lines at base gap g (between
+	// base lines g-1 and g): an insertion there, or a replacement that
+	// starts or ends there. Two sides adding lines at one point have no
+	// defined order, and identical additions would be duplicated.
+	addsAtGap := func(g int) bool {
 		for _, t := range theirHunks {
-			if t.OldLines == 0 && t.OldStart == g {
+			start := t.OldStart // gap before the hunk's first base line
+			if t.OldLines > 0 {
+				start = t.OldStart - 1
+			}
+			end := start + t.OldLines
+			if t.OldLines == 0 && start == g {
 				return true
 			}
+			if t.OldLines > 0 && t.NewLines > 0 && (start == g || end == g) {
+				return true
+			}
+		}
+		return false
+	}
+	// insideTheirs reports whether gap g lies strictly inside a block that
+	// theirs replaced or deleted.
+	insideTheirs := func(g int) bool {
+		for _, t := range theirHunks {
 			if t.OldLines > 0 && t.OldStart-1 < g && g < t.OldStart-1+t.OldLines {
+				return true
+			}
+		}
+		return false
+	}
+	// pureInsertAt reports whether theirs inserted lines (without replacing
+	// any) at gap g.
+	pureInsertAt := func(g int) bool {
+		for _, t := range theirHunks {
+			if t.OldLines == 0 && t.OldStart == g {
 				return true
 			}
 		}
@@ -72,9 +99,14 @@ func replayLines(base, theirs []byte, mineHunks, theirHunks []hunks.Hunk) ([]byt
 				}
 			}
 			for g := s + 1; g < s+h.OldLines; g++ {
-				if conflictAtGap(g) {
+				if pureInsertAt(g) || insideTheirs(g) {
 					return nil, false
 				}
+			}
+			// Their insertion right before or after my replaced block has no
+			// defined order relative to my new lines.
+			if h.NewLines > 0 && (pureInsertAt(s) || pureInsertAt(s+h.OldLines)) {
+				return nil, false
 			}
 			h.OldStart = tipLine(s) + 1
 			placed = append(placed, h)
@@ -82,7 +114,7 @@ func replayLines(base, theirs []byte, mineHunks, theirHunks []hunks.Hunk) ([]byt
 		}
 		// A pure insertion after base line h.OldStart (gap g).
 		g := h.OldStart
-		if conflictAtGap(g) {
+		if addsAtGap(g) || insideTheirs(g) {
 			return nil, false
 		}
 		switch {
@@ -106,6 +138,15 @@ func replayLines(base, theirs []byte, mineHunks, theirHunks []hunks.Hunk) ([]byt
 	}
 	out, err := hunks.Apply(theirs, placed)
 	if err != nil {
+		return nil, false
+	}
+	// A block placed after a tip line without a final newline would join
+	// two lines into one; such a result has fewer lines than it should.
+	want := len(hunks.SplitLines(theirs))
+	for _, h := range placed {
+		want += h.NewLines - h.OldLines
+	}
+	if len(hunks.SplitLines(out)) != want {
 		return nil, false
 	}
 	return out, true

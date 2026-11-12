@@ -137,6 +137,10 @@ func (l *Stage) IndexPath() string { return filepath.Join(l.Dir, l.M.Index) }
 // finishes any interrupted commit. When exclusive is set, an existing stage is
 // an error.
 func (r *Repo) OpenStage(id string, exclusive bool) (*Stage, error) {
+	return r.openStage(id, exclusive, stageLockTimeout)
+}
+
+func (r *Repo) openStage(id string, exclusive bool, timeout time.Duration) (*Stage, error) {
 	if err := ValidateStageID(id); err != nil {
 		return nil, err
 	}
@@ -156,7 +160,7 @@ func (r *Repo) OpenStage(id string, exclusive bool) (*Stage, error) {
 	} else if err := os.MkdirAll(dir, 0o777); err != nil {
 		return nil, err
 	}
-	lk, err := filelock.Acquire(filepath.Join(dir, "lock"), stageLockTimeout)
+	lk, err := filelock.Acquire(filepath.Join(dir, "lock"), timeout)
 	if err != nil {
 		if errors.Is(err, filelock.ErrBusy) {
 			return nil, errorf(ExitBusy, "busy", "stage %q is busy: another git-multistage process is using it", id)
@@ -287,47 +291,68 @@ func (l *Stage) keepRef() string { return "refs/worktree/multistage/" + l.ID }
 // protect points keepRef at a commit whose tree holds the staged tree and
 // the blobs of recorded edits, while the stage has either; otherwise it
 // deletes the ref.
-// skipWorktree returns the paths that a sparse checkout leaves out of the
-// working tree, from the default index; nil without a sparse checkout.
-func (r *Repo) skipWorktree() (map[string]bool, error) {
+// sparseState returns, from the default index, the paths that a sparse
+// checkout leaves out of the working tree and the set of all its paths; nil
+// maps without a sparse checkout.
+func (r *Repo) sparseState() (skip, known map[string]bool, err error) {
 	if !r.configBool("core.sparseCheckout", false) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	out, err := r.Run(gitx.Opt{}, "ls-files", "-t", "-z")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	skip := map[string]bool{}
+	skip, known = map[string]bool{}, map[string]bool{}
 	for _, rec := range strings.Split(string(out), "\x00") {
-		if strings.HasPrefix(rec, "S ") {
-			skip[rec[2:]] = true
-		}
-	}
-	return skip, nil
-}
-
-// copySkipWorktree marks the entries of index that the default index marks
-// skip-worktree, so a sparse checkout's missing files do not look deleted.
-// When only is set, it limits the marking to those paths.
-func (r *Repo) copySkipWorktree(index string, only []string, keepFormat bool) error {
-	skip, err := r.skipWorktree()
-	if err != nil || len(skip) == 0 {
-		return err
-	}
-	var paths []string
-	if only != nil {
-		for _, p := range only {
-			if skip[p] {
-				paths = append(paths, p)
+		if len(rec) > 2 {
+			known[rec[2:]] = true
+			if rec[0] == 'S' {
+				skip[rec[2:]] = true
 			}
 		}
-	} else {
+	}
+	return skip, known, nil
+}
+
+// copySkipWorktree marks entries of index skip-worktree as a sparse checkout
+// needs: as the default index marks them, and, for paths that the default
+// index does not have, when the sparse-checkout rules exclude them. When
+// only is set, it limits the marking to those paths.
+func (r *Repo) copySkipWorktree(index string, only []string, keepFormat bool) error {
+	skip, known, err := r.sparseState()
+	if err != nil || known == nil {
+		return err
+	}
+	candidates := only
+	if only == nil {
 		out, err := r.Run(gitx.Opt{Index: index}, "ls-files", "-z")
 		if err != nil {
 			return err
 		}
+		candidates = strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00")
+	}
+	var paths, unknown []string
+	for _, p := range candidates {
+		switch {
+		case p == "":
+		case skip[p]:
+			paths = append(paths, p)
+		case !known[p]:
+			unknown = append(unknown, p)
+		}
+	}
+	if len(unknown) > 0 {
+		out, err := r.Run(gitx.Opt{Stdin: strings.NewReader(strings.Join(unknown, "\x00") + "\x00")},
+			"sparse-checkout", "check-rules", "-z")
+		if err != nil {
+			return err
+		}
+		inside := map[string]bool{}
 		for _, p := range strings.Split(string(out), "\x00") {
-			if skip[p] {
+			inside[p] = true
+		}
+		for _, p := range unknown {
+			if !inside[p] {
 				paths = append(paths, p)
 			}
 		}

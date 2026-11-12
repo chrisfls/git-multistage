@@ -22,7 +22,7 @@ checkout, without waiting for each other.
 
 Stage ID: --stage <id>, or the GIT_MULTISTAGE_ID environment variable.
 --agentic takes the ID of the calling agent from its environment
-(PASEO_AGENT_ID, then CLAUDE_CODE_SESSION_ID) when no stage ID is given.
+(CLAUDE_CODE_SESSION_ID, then PASEO_AGENT_ID) when no stage ID is given.
 
 Commands:
   init [<id>]                  create a stage; without <id>, pick a unique ID
@@ -206,8 +206,8 @@ func (a *app) takeGlobal(argv []string) (rest []string, err error) {
 // agent, in the order --agentic tries them. Subagents that share their
 // parent's process environment share these values too.
 var agentSources = []struct{ env, prefix string }{
+	{"CLAUDE_CODE_SESSION_ID", "claude-"}, // the stage that the Claude Code editor hook records into
 	{"PASEO_AGENT_ID", "paseo-"},
-	{"CLAUDE_CODE_SESSION_ID", "claude-"},
 }
 
 // stageID resolves the stage ID: --stage, then GIT_MULTISTAGE_ID, then, with
@@ -516,7 +516,7 @@ func (a *app) add(l *Stage, p *parsed) error {
 		if err != nil {
 			return err
 		}
-		staged, err := l.AddEdits(paths)
+		staged, err := l.AddEdits(paths, p.has("--force"))
 		if err != nil {
 			return err
 		}

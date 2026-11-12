@@ -33,7 +33,10 @@ func TestReplayLines(t *testing.T) {
 		{"adjacent lines", "1\n2\nA\n4\n5\n6\n", "1\n2\n3\nB\n5\n6\n", "1\n2\nA\nB\n5\n6\n", true},
 		{"same line", "1\n2\nA\n4\n5\n6\n", "1\n2\nB\n4\n5\n6\n", "", false},
 		{"identical change", "1\n2\nA\n4\n5\n6\n", "1\n2\nA\n4\n5\n6\n", "1\n2\nA\n4\n5\n6\n", true},
-		{"insert after their block", "1\n2\n3\nnew\n4\n5\n6\n", "1\n2\nB\n4\n5\n6\n", "1\n2\nB\nnew\n4\n5\n6\n", true},
+		{"insert after their block", "1\n2\n3\nnew\n4\n5\n6\n", "1\n2\nB\n4\n5\n6\n", "", false},
+		{"insert where their replacement starts", "1\n2\n3\nB\n4\n5\n6\n", "1\n2\n3\nB\nC\n5\n6\n", "", false},
+		{"their replacement ends where mine inserts", "1\n2\nB\n3\n4\n5\n6\n", "1\nX\nB\n3\n4\n5\n6\n", "", false},
+		{"their insertion next to my replacement", "1\n2\nA\n4\n5\n6\n", "1\n2\nnew\n3\n4\n5\n6\n", "", false},
 		{"insert at their insertion point", "1\n2\n3\nmine\n4\n5\n6\n", "1\n2\n3\ntheirs\n4\n5\n6\n", "", false},
 		{"theirs inserted lines above", "1\n2\n3\n4\nA\n6\n", "0\n1\n2\n3\n4\n5\n6\n", "0\n1\n2\n3\n4\nA\n6\n", true},
 		{"theirs deleted a neighbour", "1\n2\nA\n4\n5\n6\n", "1\n2\n3\n5\n6\n", "1\n2\nA\n5\n6\n", true},
@@ -43,5 +46,14 @@ func TestReplayLines(t *testing.T) {
 		if ok != c.ok || ok && string(got) != c.want {
 			t.Errorf("%s: got %q, %v; want %q, %v", c.name, got, ok, c.want, c.ok)
 		}
+	}
+}
+
+func TestReplayRefusesToJoinLines(t *testing.T) {
+	base := "a\nx\n"
+	theirs := "a\ny"
+	got, ok := replayLines([]byte(base), []byte(theirs), diff(t, base, "a\nx\nnew\n"), diff(t, base, theirs))
+	if ok {
+		t.Fatalf("joined lines: %q", got)
 	}
 }

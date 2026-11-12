@@ -183,14 +183,9 @@ func (r *Repo) Doctor() (*DoctorReport, error) {
 		add("warning", "multistage.syncIndex is false: commits leave the default index behind the branch")
 	}
 	if tip != "" {
-		from, err := r.validRecord(head)
+		from, err := r.provenLag(head)
 		if err != nil {
 			return nil, err
-		}
-		if from == "" {
-			if from, err = r.matchingAncestor(head); err != nil {
-				return nil, err
-			}
 		}
 		if from == "" {
 			msg := "the default index holds natively staged changes (`git status` shows them)"

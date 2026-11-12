@@ -35,6 +35,7 @@ func (r *Repo) inProgress() (op string, blocking bool) {
 		blocking bool
 	}{
 		{"rebase-merge", "a rebase", true}, {"rebase-apply", "a rebase or am", true},
+		{"sequencer", "a cherry-pick or revert sequence", true},
 		{"MERGE_HEAD", "a merge", false}, {"CHERRY_PICK_HEAD", "a cherry-pick", false}, {"REVERT_HEAD", "a revert", false},
 	} {
 		if _, err := os.Stat(filepath.Join(r.GitDir, f.name)); err == nil {
@@ -102,7 +103,7 @@ func (l *Stage) prepareMessage(raw string, noVerify bool) (string, error) {
 	if err := os.WriteFile(file, []byte(raw), 0o666); err != nil {
 		return "", err
 	}
-	if err := l.r.runHook(l.IndexPath(), "prepare-commit-msg", file, "message"); err != nil {
+	if err := l.withIndexCopy(func(idx string) error { return l.r.runHook(idx, "prepare-commit-msg", file, "message") }); err != nil {
 		return "", &Error{Code: ExitError, Kind: "hook-failed", Message: "the prepare-commit-msg hook failed; nothing was committed"}
 	}
 	data, err := os.ReadFile(file)
@@ -117,7 +118,7 @@ func (l *Stage) prepareMessage(raw string, noVerify bool) (string, error) {
 		if err := os.WriteFile(file, []byte(msg), 0o666); err != nil {
 			return "", err
 		}
-		if err := l.r.runHook(l.IndexPath(), "commit-msg", file); err != nil {
+		if err := l.withIndexCopy(func(idx string) error { return l.r.runHook(idx, "commit-msg", file) }); err != nil {
 			return "", &Error{Code: ExitError, Kind: "hook-failed", Message: "the commit-msg hook failed; nothing was committed and the staged changes are kept"}
 		}
 		if data, err = os.ReadFile(file); err != nil {
@@ -157,14 +158,12 @@ func (l *Stage) runPreCommit(tree string) (string, error) {
 func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
 	r := l.r
 	res := &CommitResult{Branch: l.M.Branch}
-	head, err := r.headTarget()
+	tip0, err := r.ResolveRef(l.M.Branch)
 	if err != nil {
 		return nil, err
 	}
-	if head != l.M.Branch {
-		return nil, &Error{Code: ExitRefused, Kind: "branch-mismatch",
-			Message: fmt.Sprintf("HEAD is %s, but this stage targets %s; nothing was committed", describeTarget(head), describeTarget(l.M.Branch)),
-			Hint:    "check out " + strings.TrimPrefix(l.M.Branch, "refs/heads/") + " again, or drop the stage"}
+	if err := l.checkTarget(tip0); err != nil {
+		return nil, err
 	}
 	if op, blocking := r.inProgress(); blocking {
 		return nil, errorf(ExitRefused, "operation-in-progress", "%s is in progress in this worktree; finish or abort it before committing", op)
@@ -269,8 +268,9 @@ func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
 				return nil, err
 			}
 		}
-		// A native merge or rebase may have started since the first check.
-		if err := r.checkOperation(tip, commit, sync); err != nil {
+		// HEAD may have moved, or a native merge or rebase may have started,
+		// since the first check.
+		if err := firstErr(l.checkTarget(tip), r.checkOperation(tip, commit, sync)); err != nil {
 			lk.release()
 			l.M.Pending = nil
 			_ = l.save()
@@ -314,7 +314,7 @@ func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
 			return nil, err
 		}
 		// Like `git commit`, a failing post-commit hook does not undo the commit.
-		_ = r.runHook(l.IndexPath(), "post-commit")
+		_ = l.withIndexCopy(func(idx string) error { return r.runHook(idx, "post-commit") })
 		res.Result, res.Commit, res.Parent = "committed", commit, tip
 		return res, nil
 	}
@@ -332,6 +332,50 @@ func sameEntries(a, b []gitx.Entry) bool {
 		}
 	}
 	return true
+}
+
+// checkTarget refuses a commit when HEAD no longer points where the stage
+// commits: another branch, or, for a stage of a detached HEAD, a commit
+// outside the history of the stage's base.
+func (l *Stage) checkTarget(tip string) error {
+	head, err := l.r.headTarget()
+	if err != nil {
+		return err
+	}
+	if head != l.M.Branch {
+		return &Error{Code: ExitRefused, Kind: "branch-mismatch",
+			Message: fmt.Sprintf("HEAD is %s, but this stage targets %s; nothing was committed", describeTarget(head), describeTarget(l.M.Branch)),
+			Hint:    "check out " + strings.TrimPrefix(l.M.Branch, "refs/heads/") + " again, or drop the stage"}
+	}
+	if l.M.Branch == "HEAD" && l.M.Base != "" && tip != l.M.Base {
+		if ok, err := l.r.IsAncestor(l.M.Base, tip); err != nil || !ok {
+			return &Error{Code: ExitRefused, Kind: "branch-mismatch",
+				Message: "the detached HEAD moved to a commit that does not contain this stage's base; nothing was committed",
+				Hint:    "check out " + short(l.M.Base) + " or a descendant again, or drop the stage"}
+		}
+	}
+	return nil
+}
+
+func firstErr(errs ...error) error {
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// withIndexCopy runs f with a copy of the stage's index, so that a hook
+// cannot rewrite the stage's own index (for example in split-index format).
+func (l *Stage) withIndexCopy(f func(idx string) error) error {
+	idx := filepath.Join(l.Dir, "hook-index")
+	os.Remove(idx)
+	defer os.Remove(idx)
+	if err := copyFile(l.IndexPath(), idx); err != nil {
+		return err
+	}
+	return f(idx)
 }
 
 // commitMessage joins -m paragraphs as `git commit` does.

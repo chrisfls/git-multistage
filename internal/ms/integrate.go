@@ -143,6 +143,13 @@ func (l *Stage) refresh() (Freshness, error) {
 	if tip == l.M.Base {
 		return f, nil
 	}
+	if l.M.Branch == "HEAD" && l.M.Base != "" {
+		if ok, err := l.r.IsAncestor(l.M.Base, tip); err != nil || !ok {
+			f.Stale = true
+			f.Reason = "the detached HEAD moved to a commit that does not contain this stage's base"
+			return f, nil
+		}
+	}
 	if tip == "" {
 		f.Stale = true
 		f.Reason = fmt.Sprintf("branch %s no longer exists", l.M.Branch)

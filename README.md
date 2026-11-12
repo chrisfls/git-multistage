@@ -98,7 +98,7 @@ The first recorded edit tells the agent its stage ID. The agent then commits wit
 git multistage --stage <id> add --edits && git multistage --stage <id> commit -m "Describe the change"
 ```
 
-`--agentic` is an opt-in shortcut: when no stage ID is given, it takes the calling agent's ID from its environment, `PASEO_AGENT_ID` and then `CLAUDE_CODE_SESSION_ID`, as `paseo-<id>` or `claude-<id>`. Without the flag, these variables are ignored. Subagents inherit their parent's environment, so Claude Code subagents of one session get the same ID; give each subagent an explicit `--stage` instead.
+`--agentic` is an opt-in shortcut: when no stage ID is given, it takes the calling agent's ID from its environment, `CLAUDE_CODE_SESSION_ID` and then `PASEO_AGENT_ID`, as `claude-<id>` or `paseo-<id>`. In a Claude Code main session, that is the stage the editor hook records into. Without the flag, these variables are ignored. Subagents inherit their parent's environment, so Claude Code subagents of one session get the same ID; with the editor hook they use the stage ID the hook announces, and without it an explicit `--stage`.
 
 ## Commands
 
@@ -112,7 +112,7 @@ Every command takes `--stage <id>` and `--agentic`. Most commands take `--json` 
 | `hunks [--cached] [<path>...]` | List hunks with IDs. Without paths, list every changed tracked file. `--cached` lists staged hunks. |
 | `add <path>...` | Stage whole files: new, modified, deleted, renamed (pass both paths), binary. `-f` stages ignored files. |
 | `add <path>... --hunk <id>...` | Stage only the listed hunks. `-f` stages hunks of an ignored untracked file. |
-| `add --edits [<path>...]` | Stage the edits that the editor hook recorded. |
+| `add --edits [<path>...]` | Stage the edits that the editor hook recorded. `-f` stages a recorded new file that `.gitignore` ignores. |
 | `add -p <path>...` | Interactive hunk selection for people (`git add -p` on the stage). |
 | `apply [-R] <patch>\|-` | Apply a patch to the stage's index, like `git apply --cached`. The working tree is untouched. |
 | `restore --staged <path>... [--hunk <id>...]` | Unstage files, or only the listed staged hunks. |

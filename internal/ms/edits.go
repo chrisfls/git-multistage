@@ -102,7 +102,7 @@ func (l *Stage) RecordedPaths() ([]string, error) {
 
 // AddEdits stages the recorded edits of the given paths (all when none),
 // and removes the records it staged.
-func (l *Stage) AddEdits(paths []string) ([]string, error) {
+func (l *Stage) AddEdits(paths []string, force bool) ([]string, error) {
 	recs, err := readRecords(l.Dir)
 	if err != nil {
 		return nil, err
@@ -170,7 +170,7 @@ func (l *Stage) AddEdits(paths []string) ([]string, error) {
 	var failed []string
 	staged := map[string]bool{}
 	for _, r := range chosen {
-		if err := l.r.applyRecord(idx, r); err != nil {
+		if err := l.r.applyRecord(idx, r, force); err != nil {
 			var e *Error
 			if errors.As(err, &e) {
 				failed = append(failed, r.Path+": "+e.Message)
@@ -228,7 +228,7 @@ func (r *Repo) blobContent(oid string) ([]byte, error) {
 }
 
 // applyRecord replays one recorded edit onto the index entry of its path.
-func (r *Repo) applyRecord(idx string, rec EditRecord) error {
+func (r *Repo) applyRecord(idx string, rec EditRecord, force bool) error {
 	cur, inIndex, err := r.lsIndex(idx, rec.Path)
 	if err != nil {
 		return err
@@ -244,9 +244,22 @@ func (r *Repo) applyRecord(idx string, rec EditRecord) error {
 		_, err := r.Run(gitx.Opt{Index: idx}, "update-index", "--force-remove", "--", rec.Path)
 		return err
 	case !inIndex && rec.Before == "": // a new file
+		if !force {
+			// Like `git add`, an ignored file needs --force.
+			_, err := r.Run(gitx.Opt{Index: idx, Env: []string{"GIT_LITERAL_PATHSPECS=0"}}, "check-ignore", "-q", "--", rec.Path)
+			if err == nil {
+				return errorf(ExitConflict, "edit-conflict", "the file is ignored by .gitignore; pass -f to stage it")
+			}
+			if gitx.ExitCode(err) != 1 {
+				return err
+			}
+		}
 		return r.setIndexBlob(idx, rec.Path, rec.Mode, rec.After)
 	case !inIndex:
 		return errorf(ExitConflict, "edit-conflict", "the file is not in the stage; it was created by another writer")
+	}
+	if cur.mode == "120000" || cur.mode == "160000" {
+		return errorf(ExitConflict, "edit-conflict", "the stage holds a symbolic link or submodule at this path")
 	}
 	if cur.oid == rec.Before {
 		return r.setIndexBlob(idx, rec.Path, cur.mode, rec.After)

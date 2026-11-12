@@ -346,18 +346,20 @@ func TestAgenticFlag(t *testing.T) {
 	if res := run(r.dir, "", paseo, "--agentic", "add", "a.txt"); res.code != 0 {
 		t.Fatalf("--agentic:\n%s", res)
 	}
-	if got := r.stagedPaths("paseo-b3f659cc-3a31"); !eq(got, []string{"a.txt"}) {
-		t.Fatalf("stage paseo-b3f659cc-3a31 staged %v", got)
+	// CLAUDE_CODE_SESSION_ID wins, so --agentic picks the stage that the
+	// Claude Code editor hook records into.
+	if got := r.stagedPaths("claude-052d8848"); !eq(got, []string{"a.txt"}) {
+		t.Fatalf("stage claude-052d8848 staged %v", got)
 	}
-	if res := run(r.dir, "", paseo[1:], "status", "--agentic", "--json"); res.code != 0 || !strings.Contains(res.out, `"stage": "claude-052d8848"`) {
-		t.Fatalf("CLAUDE_CODE_SESSION_ID:\n%s", res)
+	if res := run(r.dir, "", paseo[:1], "status", "--agentic", "--json"); res.code != 0 || !strings.Contains(res.out, `"stage": "paseo-b3f659cc-3a31"`) {
+		t.Fatalf("PASEO_AGENT_ID:\n%s", res)
 	}
 	// An explicit stage ID wins over --agentic.
 	if res := run(r.dir, "", paseo, "--agentic", "--stage", "mine", "status", "--json"); !strings.Contains(res.out, `"stage": "mine"`) {
 		t.Fatalf("--stage with --agentic:\n%s", res)
 	}
 	res := run(r.dir, "", nil, "--agentic", "status")
-	if res.code != 2 || !strings.Contains(res.err, "PASEO_AGENT_ID") {
+	if res.code != 2 || !strings.Contains(res.err, "CLAUDE_CODE_SESSION_ID") {
 		t.Fatalf("--agentic without an agent ID:\n%s", res)
 	}
 }

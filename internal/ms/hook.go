@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/chrisfls/git-multistage/internal/filelock"
@@ -121,6 +122,12 @@ func newEditHook(in hookInput, stage string) (*editHook, error) {
 	if err != nil {
 		return nil, err
 	}
+	// An edit through a symbolic link changes the link's target.
+	if info, err := os.Lstat(abs); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		if abs, err = filepath.EvalSymlinks(abs); err != nil {
+			return nil, nil
+		}
+	}
 	dir := filepath.Dir(abs)
 	for {
 		if _, err := os.Stat(dir); err == nil {
@@ -155,7 +162,11 @@ func (h *editHook) pendingPath() string {
 }
 
 func (h *editHook) leasePath() string {
-	sum := sha256.Sum256([]byte(h.path))
+	key := h.path
+	if h.r.configBool("core.ignoreCase", false) {
+		key = strings.ToLower(key) // one file, whatever case the editor used
+	}
+	sum := sha256.Sum256([]byte(key))
 	return filepath.Join(h.r.Dir, "leases", hex.EncodeToString(sum[:8])+".json")
 }
 
@@ -207,16 +218,18 @@ func (h *editHook) after(stdout, stderr io.Writer, succeeded bool) {
 	if err := json.Unmarshal(data, &p); err != nil {
 		return
 	}
-	held := h.leaseHeld(p.Nonce)
 	defer h.releaseLease(p.Nonce)
 	if !succeeded {
 		return
 	}
+	// Snapshot first: the lease must still be ours after the snapshot, or
+	// another writer may have changed the file before it.
 	after, err := h.snapshot()
 	if err != nil {
 		fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
 		return
 	}
+	held := h.leaseHeld(p.Nonce)
 	if after == p.Before {
 		return
 	}
@@ -231,6 +244,10 @@ func (h *editHook) after(stdout, stderr io.Writer, succeeded bool) {
 	if err := writeRecord(h.stageDir, rec); err != nil {
 		fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
 		return
+	}
+	// Keep the recorded blobs reachable for garbage collection.
+	if st, err := h.r.openStage(h.stage, false, 10*time.Second); err == nil {
+		st.Close()
 	}
 	// Tell the agent its stage ID once.
 	marker := filepath.Join(h.stageDir, "announced")

@@ -11,7 +11,7 @@ Every stage works on the same files on disk. git-multistage separates staging an
 ## Hunk granularity
 
 - Hunks are zero-context, so each run of changed lines is one hunk. Two writers' edits on adjacent lines, with no unchanged line between them, form one hunk, and a new file is one hunk. Recorded edits (`add --edits`) have no such limit: each edit is replayed at its own lines. Without the hook, write a patch and use `git multistage apply <patch>`.
-- When two stages' changes sit on adjacent lines, Git's three-way merge reports a conflict. git-multistage then replays the staged lines at their positions, which succeeds when the tip left those lines unchanged. Changes to the same lines, or insertions at the same point, still conflict.
+- When two stages' changes sit on adjacent lines, Git's three-way merge reports a conflict. git-multistage then replays the staged lines at their positions, which succeeds when the tip left those lines unchanged. Changes to the same lines still conflict, and so do lines added at one point by both sides (an insertion next to the other side's changed block): their order is undefined, and identical additions would be duplicated. A replay that would join a line into a tip line without a final newline also conflicts.
 
 ## Editor hooks
 
@@ -20,6 +20,7 @@ Every stage works on the same files on disk. git-multistage separates staging an
 - Before an edit, it takes a lease on the file for up to 15 seconds and snapshots the file. A second hooked editor of the same file waits up to 20 seconds, then its edit is blocked with a message that asks the agent to retry.
 - After the edit, it records the before and after content in the agent's stage: `claude-<agent_id>` inside a subagent, `claude-<session_id>` in the main session, or `GIT_MULTISTAGE_ID` when that is set. The first recorded edit tells the agent its stage ID.
 - Edits made through Bash (`sed`, code generators, formatters) are not recorded; stage those with `add` or `add --hunk`.
+- An edit through a symbolic link is recorded for the link's target. A recorded new file that `.gitignore` ignores needs `add --edits -f`.
 - A lease that expires during a long permission prompt marks the edit as uncertain; `add --edits` then refuses it.
 - Codex: its `PreToolUse` and `PostToolUse` hooks fire for `apply_patch`, but a hook definition runs only after a one-time trust review in Codex. git-multistage has no Codex hook yet.
 
@@ -34,10 +35,11 @@ Every stage works on the same files on disk. git-multistage separates staging an
 
 | Setup | Behavior |
 | --- | --- |
-| Detached HEAD | A stage created on a detached HEAD targets HEAD and commits with `update-ref --no-deref`. |
+| Detached HEAD | A stage created on a detached HEAD targets HEAD and commits with `update-ref --no-deref`, as long as HEAD stays detached on a descendant of the stage's base. |
 | HEAD on another branch or state than the stage's target | `commit` fails with exit code 5. Switch back, or `drop` the stage. |
 | Merge, cherry-pick, or revert in progress | `commit` lands when the operation has not changed the same paths in the default index; the operation's own commit later includes it. Otherwise it fails with exit code 5 and lists the paths. |
 | Rebase or `git am` in progress | `commit` fails with exit code 5: a rebase finishes by moving the branch from the commit it started on. |
+| Cherry-pick or revert of several commits in progress (`.git/sequencer`) | `commit` fails with exit code 5: `--abort` would no longer rewind once HEAD moved. A single conflicted cherry-pick or revert is handled like a merge. |
 | Sparse checkout, sparse index | Supported. Stage indexes copy the skip-worktree bits of the default index. |
 | Split index | Supported. Stage indexes are written whole; the default index keeps its format. |
 | Bare repository | Fails: a stage needs a working tree. |
@@ -54,7 +56,7 @@ Every stage works on the same files on disk. git-multistage separates staging an
 ## Default index
 
 - After each stage commit, the default index is brought from the commit's parent to the commit, except at entries that someone staged natively. Those entries are kept, and `git status` shows them against the new HEAD. Check them before running `git commit`.
-- A tool that moves the branch without updating the index, such as a plain `git update-ref`, leaves the default index behind. The next stage commit catches that lag up when the index exactly matches an older commit and the branch's reflog shows only index-free updates since. `git multistage sync` finds the matching commit itself; when the index also holds natively staged changes, `doctor` names the closest commit for `sync --from <commit>`. Until then, `git status` shows those commits as staged reversals, and a native `git commit` would undo them.
+- A tool that moves the branch without updating the index, such as a plain `git update-ref`, leaves the default index behind. The next stage commit, `git multistage sync`, and `doctor` treat the index as lagging only when it exactly matches an older commit (or the last sync) and the branch's reflog shows only index-free updates since. Otherwise the difference may be a deliberate change, such as `git rm --cached`; `sync` then needs `--from <commit>`, and `doctor` names the closest commit. Until the index is synced, `git status` shows those commits as staged reversals, and a native `git commit` would undo them.
 - With `multistage.syncIndex=false`, stage commits leave the default index behind; their reflog entries say `index not synced`, so the next synced commit or `sync` catches up.
 - A process killed while it holds `.git/index.lock` leaves the lock behind, as a killed `git commit` would. Git commands then fail with "Another git process seems to be running". See below.
 
