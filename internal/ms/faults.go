@@ -7,6 +7,7 @@ import "time"
 // Test-only fault injection; see faults_testhooks.go.
 func fault(string)           {}
 func testDelay()             {}
+func testPause(string)       {}
 func testRace(*Repo, string) {}
 
 // testLockTimeout returns d; tests shorten it, see faults_testhooks.go.

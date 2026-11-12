@@ -169,10 +169,12 @@ func (r *Repo) openStage(id string, exclusive bool, timeout time.Duration) (*Sta
 	} else if err := os.MkdirAll(dir, 0o777); err != nil {
 		return nil, err
 	}
+	testPause("before-stage-lock")
 	lk, err := filelock.Acquire(filepath.Join(dir, "lock"), timeout)
 	// A drop that renamed the stage directory away while this process waited
 	// leaves no lock file to lock; the stage is then created again.
 	for i := 0; i < 5 && errors.Is(err, fs.ErrNotExist); i++ {
+		testPause("recreate-dropped-stage")
 		if err = os.MkdirAll(dir, 0o777); err == nil {
 			lk, err = filelock.Acquire(filepath.Join(dir, "lock"), timeout)
 		}
@@ -183,6 +185,7 @@ func (r *Repo) openStage(id string, exclusive bool, timeout time.Duration) (*Sta
 		}
 		return nil, err
 	}
+	testPause("after-stage-lock")
 	l := &Stage{r: r, ID: id, Dir: dir, lock: lk}
 	data, err := os.ReadFile(filepath.Join(dir, "meta.json"))
 	switch {

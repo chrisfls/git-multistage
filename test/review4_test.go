@@ -1,13 +1,20 @@
 package test
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/chrisfls/git-multistage/internal/filelock"
 )
 
 // These tests reproduce defects found in the fourth review.
@@ -388,4 +395,82 @@ func TestUndeletableEditRecordsWarn(t *testing.T) {
 			}
 		})
 	}
+}
+
+// startPaused starts git-multistage in the background, paused at each of
+// the named points; the pause files appear in dir.
+func (r *repo) startPaused(dir string, points []string, args ...string) (*exec.Cmd, *bytes.Buffer) {
+	r.t.Helper()
+	var out bytes.Buffer
+	cmd := exec.CommandContext(context.Background(), bin, args...)
+	cmd.Dir = r.dir
+	cmd.Env = append(os.Environ(), "GIT_MULTISTAGE_TEST_PAUSE="+strings.Join(points, ","), "GIT_MULTISTAGE_TEST_PAUSE_DIR="+dir)
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		r.t.Fatal(err)
+	}
+	r.t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	return cmd, &out
+}
+
+// waitPause waits until a paused process reaches the pause file p.
+func waitPause(t *testing.T, p string) {
+	t.Helper()
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if _, err := os.Stat(p); err == nil {
+			return
+		}
+	}
+	t.Fatalf("no process reached %s", filepath.Base(p))
+}
+
+// resume lets a paused process go on past the pause file p.
+func resume(t *testing.T, p string) {
+	t.Helper()
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestWaiterRecreatesADroppedStage drops a stage while another process
+// waits for its lock. The drop renames the stage directory away, so the
+// waiter finds no lock file and creates the stage again. The waiter must
+// lock the stage only after the drop ended, and hold the lock file at the
+// stage path, which another process then cannot lock.
+func TestWaiterRecreatesADroppedStage(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows cannot rename a directory that holds an open file, so drop releases the lock before the rename")
+	}
+	r := newRepo(t)
+	r.mustMS("a", "status")
+	pauses := t.TempDir()
+	at := func(point string) string { return filepath.Join(pauses, point) }
+	drop, dropOut := r.startPaused(pauses, []string{"before-drop-rename"}, "--stage", "a", "drop")
+	waitPause(t, at("before-drop-rename"))
+	waiter, waiterOut := r.startPaused(pauses, []string{"before-stage-lock", "recreate-dropped-stage", "after-stage-lock"}, "--stage", "a", "status")
+	waitPause(t, at("before-stage-lock"))
+	resume(t, at("before-stage-lock"))
+	// The waiter is one file open away from its lock wait.
+	time.Sleep(300 * time.Millisecond)
+	resume(t, at("before-drop-rename"))
+	if err := drop.Wait(); err != nil {
+		t.Fatalf("drop: %v\n%s", err, dropOut)
+	}
+	waitPause(t, at("recreate-dropped-stage"))
+	resume(t, at("recreate-dropped-stage"))
+	waitPause(t, at("after-stage-lock"))
+	if _, err := filelock.Acquire(r.path(".git/multistage/stages/a/lock"), 50*time.Millisecond); !errors.Is(err, filelock.ErrBusy) {
+		t.Fatalf("the waiter does not hold the lock at the stage path: %v", err)
+	}
+	resume(t, at("after-stage-lock"))
+	if err := waiter.Wait(); err != nil {
+		t.Fatalf("waiter: %v\n%s", err, waiterOut)
+	}
+	if !strings.Contains(waiterOut.String(), "created stage a") {
+		t.Fatalf("the waiter did not create the stage again:\n%s", waiterOut)
+	}
+	if left, _ := filepath.Glob(r.path(".git/multistage/stages/.dropped-*")); len(left) != 0 {
+		t.Fatalf("drop left %q", left)
+	}
+	r.mustMS("a", "status")
 }

@@ -5,9 +5,11 @@ package ms
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +21,25 @@ import (
 func fault(point string) {
 	if os.Getenv("GIT_MULTISTAGE_FAULT") == point {
 		os.Exit(86)
+	}
+}
+
+// testPause stops at a named point while GIT_MULTISTAGE_TEST_PAUSE, a
+// comma-separated list, names it: it creates the file named after the point
+// in GIT_MULTISTAGE_TEST_PAUSE_DIR and waits, up to a minute, until the test
+// deletes it.
+func testPause(point string) {
+	if !slices.Contains(strings.Split(os.Getenv("GIT_MULTISTAGE_TEST_PAUSE"), ","), point) {
+		return
+	}
+	p := filepath.Join(os.Getenv("GIT_MULTISTAGE_TEST_PAUSE_DIR"), point)
+	if os.WriteFile(p, nil, 0o666) != nil {
+		return
+	}
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if _, err := os.Stat(p); errors.Is(err, fs.ErrNotExist) {
+			return
+		}
 	}
 }
 

@@ -265,6 +265,7 @@ func (l *Stage) Drop(force bool) (string, error) {
 	// where the system allows renaming a directory with an open file; a
 	// process that waited for the lock finds that its lock file moved, and
 	// locks the lock path again.
+	testPause("before-drop-rename")
 	if runtime.GOOS == "windows" {
 		l.lock.Release()
 		l.lock = nil
