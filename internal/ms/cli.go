@@ -787,8 +787,10 @@ func (a *app) log(args []string, id string) error {
 		a.printf("stage %s has made no commits\n", id)
 		return nil
 	}
-	gitArgs := append([]string{"log", "--no-walk=unsorted"}, args...)
-	_, err = a.repo.Run(gitx.Opt{User: true, Stdout: os.Stdout, Stderr: os.Stderr}, append(append(gitArgs, commits...), "--")...)
+	// The commits come first, so that the user's paths, with or without
+	// `--`, filter them.
+	gitArgs := append(append([]string{"log", "--no-walk=unsorted"}, commits...), args...)
+	_, err = a.repo.Run(gitx.Opt{User: true, Stdout: os.Stdout, Stderr: os.Stderr}, gitArgs...)
 	return err
 }
 

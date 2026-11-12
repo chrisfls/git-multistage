@@ -22,3 +22,26 @@ func TestJSONOutputKeepsStageWarnings(t *testing.T) {
 		t.Fatalf("text mode printed the warning %d times:\n%s", n, res)
 	}
 }
+
+func TestLogFiltersByThePathspec(t *testing.T) {
+	r := newRepo(t)
+	r.write("a.txt", "a\n")
+	r.mustMS("agent-a", "add", "a.txt")
+	r.mustMS("agent-a", "commit", "-m", "add a")
+	r.write("b.txt", "b\n")
+	r.mustMS("agent-b", "add", "b.txt")
+	r.mustMS("agent-b", "commit", "-m", "add b")
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"log", "--format=%s"}, "add a\n"},
+		{[]string{"log", "--format=%s", "a.txt"}, "add a\n"},
+		{[]string{"log", "--format=%s", "--", "a.txt"}, "add a\n"},
+		{[]string{"log", "--format=%s", "--", "b.txt"}, ""},
+	} {
+		if res := r.mustMS("agent-a", c.args...); res.out != c.want {
+			t.Errorf("%s = %q, want %q", strings.Join(c.args, " "), res.out, c.want)
+		}
+	}
+}
