@@ -1,0 +1,17 @@
+{
+  "session_id": "8f2c1d3e-5b6a-4c7d-9e0f-1a2b3c4d5e6f",
+  "prompt_id": "550e8400-e29b-41d4-a716-446655440000",
+  "transcript_path": "/home/user/.claude/projects/-home-user-project/8f2c1d3e-5b6a-4c7d-9e0f-1a2b3c4d5e6f.jsonl",
+  "cwd": "{{CWD}}",
+  "permission_mode": "acceptEdits",
+  "effort": {"level": "medium"},
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "{{FILE}}",
+    "old_string": "two\n",
+    "new_string": "TWO\n",
+    "replace_all": false
+  },
+  "tool_use_id": "toolu_01EditA1b2C3d4E5f6G7h8J9k0"
+}

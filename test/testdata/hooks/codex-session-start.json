@@ -1,0 +1,9 @@
+{
+  "session_id": "019a7c2e-4f1b-7d30-9a8e-5c6b7d8e9f01",
+  "transcript_path": "/home/user/.codex/sessions/2026/11/13/rollout-2026-11-13T10-00-00-019a7c2e-4f1b-7d30-9a8e-5c6b7d8e9f01.jsonl",
+  "cwd": "{{CWD}}",
+  "hook_event_name": "SessionStart",
+  "model": "gpt-5.5-codex",
+  "permission_mode": "default",
+  "source": "startup"
+}

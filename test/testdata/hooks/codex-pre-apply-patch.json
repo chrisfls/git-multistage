@@ -1,0 +1,14 @@
+{
+  "session_id": "019a7c2e-4f1b-7d30-9a8e-5c6b7d8e9f01",
+  "transcript_path": "/home/user/.codex/sessions/2026/11/13/rollout-2026-11-13T10-00-00-019a7c2e-4f1b-7d30-9a8e-5c6b7d8e9f01.jsonl",
+  "cwd": "{{CWD}}",
+  "hook_event_name": "PreToolUse",
+  "model": "gpt-5.5-codex",
+  "permission_mode": "default",
+  "turn_id": "019a7c2e-5a00-7e11-8b2c-0d1e2f3a4b5c",
+  "tool_name": "apply_patch",
+  "tool_use_id": "call_Qm9yZXN0UGF0Y2gx",
+  "tool_input": {
+    "command": "*** Begin Patch\n*** Update File: f.txt\n@@\n one\n-two\n+TWO\n three\n*** End Patch\n"
+  }
+}

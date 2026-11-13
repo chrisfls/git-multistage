@@ -6,7 +6,7 @@
 
 ## 2. Replay real hook inputs
 
-- [ ] 2.1 Add Claude Code and Codex hook inputs under `test/testdata/hooks/`, and a test that replays them through `git multistage hook` around a file edit and checks the recording stage, the SessionStart message, and the committed content; verify with `go test -count=1 -run TestHookReplay ./test/` and `GOOS=windows go test -c ./test/`
+- [x] 2.1 Add Claude Code and Codex hook inputs under `test/testdata/hooks/`, and a test that replays them through `git multistage hook` around a file edit and checks the recording stage, the SessionStart message, and the committed content; verify with `go test -count=1 -run TestHookReplay ./test/` and `GOOS=windows go test -c ./test/`
 
 ## Workflow follow-up
 
