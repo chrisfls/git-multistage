@@ -12,6 +12,9 @@ func TestMoveTrailerRoundTrip(t *testing.T) {
 		{"quote and backslash", `a"b\c.go`, "d.go", `"a\"b\\c.go" -> d.go`},
 		{"control characters", "a\tb\x01.go", "c.go", `"a\tb\001.go" -> c.go`},
 		{"non-ASCII stays", "café.go", "d.go", "café.go -> d.go"},
+		{"old path ending in an arrow", "p.go ->", "r.go", `"p.go ->" -> r.go`},
+		{"new path starting with an arrow", "r.go", "-> p.go", `r.go -> "-> p.go"`},
+		{"surrounding spaces", " p.go", "r.go ", `" p.go" -> "r.go "`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -323,3 +323,14 @@ func TestCommitOfARecreatedMoveWritesNoTrailer(t *testing.T) {
 		t.Fatalf("kind %q", out.Error.Kind)
 	}
 }
+
+func TestCommitAMoveOfPathsWithSurroundingSpaces(t *testing.T) {
+	const oldp, newp = " p.go", "r.go "
+	r := committedRepo(t, map[string]string{oldp: twenty})
+	r.stageLineOne("b", oldp)
+	r.moveAndRewrite("a", oldp, newp, true)
+	r.mustMS("b", "commit", "-m", "first line")
+	if !eq(r.changedPaths("main"), []string{newp}) {
+		t.Fatalf("the commit changed %q", r.changedPaths("main"))
+	}
+}

@@ -179,10 +179,10 @@ func parseMoveTrailer(v string) (string, string, bool) {
 }
 
 // quotePath returns p in double quotes with C-style escapes, as `git diff`
-// writes paths, when p holds " -> ", a double quote, a backslash, or a
-// control character; otherwise p.
+// writes paths, when p holds "->", a double quote, a backslash, or a control
+// character, or starts or ends with whitespace; otherwise p.
 func quotePath(p string) string {
-	plain := !strings.Contains(p, " -> ") && !strings.ContainsAny(p, `"\`) &&
+	plain := !strings.Contains(p, "->") && strings.TrimSpace(p) == p && !strings.ContainsAny(p, `"\`) &&
 		!strings.ContainsFunc(p, func(c rune) bool { return c < 0x20 || c == 0x7f })
 	if plain {
 		return p
