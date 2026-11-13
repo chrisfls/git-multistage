@@ -2,8 +2,10 @@ package ms
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/chrisfls/git-multistage/internal/gitx"
 )
@@ -30,8 +32,15 @@ func (r *Repo) entryIfIndex(indexFile, path string) (indexEntry, bool, error) {
 // without stat data, so Git always reads the file again.
 func (r *Repo) snapshotBlob(indexFile, path string) (string, error) {
 	full := filepath.Join(r.Top, filepath.FromSlash(path))
-	if info, err := os.Lstat(full); err == nil && !info.Mode().IsRegular() {
-		// An index stores a symbolic link as its target name; keep the content.
+	if info, err := os.Lstat(full); err == nil && info.Mode()&fs.ModeSymlink != 0 {
+		// An index stores a symbolic link as its target name, which
+		// hash-object would follow.
+		target, err := os.Readlink(full)
+		if err != nil {
+			return "", err
+		}
+		return r.Line(gitx.Opt{Stdin: strings.NewReader(target)}, "hash-object", "-w", "--stdin")
+	} else if err == nil && !info.Mode().IsRegular() {
 		return r.Line(gitx.Opt{}, "hash-object", "-w", "--path="+path, "--", path)
 	}
 	dir, err := r.tempDir("snapshot-")

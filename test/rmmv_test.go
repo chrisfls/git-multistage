@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -552,6 +553,104 @@ func TestMvFinishesACaseOnlyRenameAfterAStopBetweenTheRenames(t *testing.T) {
 		}
 	}
 	if !eq(found, []string{"README.md"}) || r.read("README.md") != "doc\n" {
+		t.Fatalf("the disk holds %v", found)
+	}
+}
+
+func TestRmFinishesAfterACrashWithThePathInAnotherCase(t *testing.T) {
+	r := committedRepo(t, map[string]string{"README.md": "doc\n"})
+	if !caseInsensitiveFS(t, r.dir) {
+		t.Skip("the file system is case-sensitive")
+	}
+	if strings.TrimSpace(r.git("config", "--bool", "core.ignoreCase")) != "true" {
+		t.Skip("core.ignoreCase is not set")
+	}
+	if res := run(r.dir, "a", []string{"GIT_MULTISTAGE_FAULT=before-disk-write"}, "rm", "readme.md"); res.code != 86 {
+		t.Fatalf("fault did not fire:\n%s", res)
+	}
+	r.mustMS("a", "rm", "readme.md")
+	if !gone(t, r.path("README.md")) {
+		t.Fatal("the second run left the file")
+	}
+}
+
+func TestRmOfAnUnchangedSymbolicLink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symbolic links need privileges on Windows")
+	}
+	r := committedRepo(t, map[string]string{"target.txt": "target\n"})
+	if err := os.Symlink("target.txt", r.path("link")); err != nil {
+		t.Fatal(err)
+	}
+	r.git("add", "link")
+	r.git("commit", "-q", "-m", "link")
+	r.mustMS("a", "rm", "link")
+	if _, err := os.Lstat(r.path("link")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("link is still on disk: %v", err)
+	}
+	if got := r.stagedStatus("a"); !eq(got, []string{"D link"}) {
+		t.Fatalf("stage a holds %v", got)
+	}
+}
+
+// caseNames returns the names in dir that spell readme.md or start with
+// .git-multistage.
+func caseNames(t *testing.T, dir string) []string {
+	t.Helper()
+	names, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found []string
+	for _, n := range names {
+		if strings.EqualFold(n.Name(), "readme.md") || strings.HasPrefix(n.Name(), ".git-multistage") {
+			found = append(found, n.Name())
+		}
+	}
+	return found
+}
+
+func TestMvCaseOnlyRenameRunsAsNewAfterAStopAndARestore(t *testing.T) {
+	r := committedRepo(t, map[string]string{"Readme.md": "doc\n"})
+	if !caseInsensitiveFS(t, r.dir) {
+		t.Skip("the file system is case-sensitive")
+	}
+	two := []string{"GIT_MULTISTAGE_TEST_TWO_STEP_RENAME=1"}
+	if res := run(r.dir, "a", append(two, "GIT_MULTISTAGE_FAULT=between-case-renames"), "mv", "Readme.md", "README.md"); res.code != 86 {
+		t.Fatalf("fault did not fire:\n%s", res)
+	}
+	r.mustMS("a", "restore", "--staged", "Readme.md", "README.md")
+	if res := run(r.dir, "a", two, "mv", "Readme.md", "README.md"); res.code != 0 {
+		t.Fatalf("mv again:\n%s", res)
+	}
+	if found := caseNames(t, r.dir); !eq(found, []string{"README.md"}) || r.read("README.md") != "doc\n" {
+		t.Fatalf("the disk holds %v", found)
+	}
+	if got := r.stageMoves("a"); !eq(got, []string{"Readme.md -> README.md"}) {
+		t.Fatalf("moves %v", got)
+	}
+}
+
+func TestMvCaseOnlyRenameKeepsTheTemporaryNameWhenItCannotRollBack(t *testing.T) {
+	r := committedRepo(t, map[string]string{"Readme.md": "doc\n"})
+	if !caseInsensitiveFS(t, r.dir) {
+		t.Skip("the file system is case-sensitive")
+	}
+	pauses := t.TempDir()
+	at := filepath.Join(pauses, "between-case-renames")
+	t.Setenv("GIT_MULTISTAGE_TEST_TWO_STEP_RENAME", "1")
+	cmd, out := r.startPaused(pauses, []string{"between-case-renames"}, "--stage", "a", "mv", "Readme.md", "README.md")
+	waitPause(t, at)
+	r.write("README.md", "another writer\n")
+	resume(t, at)
+	if err := cmd.Wait(); err == nil {
+		t.Fatalf("mv succeeded:\n%s", out)
+	}
+	if err := os.Remove(r.path("README.md")); err != nil {
+		t.Fatal(err)
+	}
+	r.mustMS("a", "mv", "Readme.md", "README.md")
+	if found := caseNames(t, r.dir); !eq(found, []string{"README.md"}) || r.read("README.md") != "doc\n" {
 		t.Fatalf("the disk holds %v", found)
 	}
 }

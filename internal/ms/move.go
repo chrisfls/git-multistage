@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path"
@@ -74,15 +75,47 @@ func (l *Stage) pendingDisk(command string, paths []string) (int, error) {
 			return -1, err
 		}
 		if !shown {
+			if err := l.leaveTemp(d); err != nil {
+				return -1, err
+			}
 			continue
 		}
-		if d.Command == command && slices.Equal(d.Paths, paths) {
+		if d.Command == command && l.samePaths(d.Paths, paths) {
 			found = len(kept)
 		}
 		kept = append(kept, d)
 	}
 	l.M.PendingDisk = kept
 	return found, nil
+}
+
+// samePaths reports whether a command with paths names the paths of a
+// pending disk change, as the stage's index spells them. With
+// core.ignoreCase, a path may differ in case, except in a case-only move,
+// whose two paths differ only in case.
+func (l *Stage) samePaths(pending, paths []string) bool {
+	if slices.Equal(pending, paths) {
+		return true
+	}
+	if len(pending) != len(paths) || len(paths) == 2 && strings.EqualFold(paths[0], paths[1]) {
+		return false
+	}
+	for i := range paths {
+		if !strings.EqualFold(pending[i], paths[i]) {
+			return false
+		}
+	}
+	return l.r.configBool("core.ignoreCase", false)
+}
+
+// leaveTemp renames the file of d that is at its temporary name back to
+// the old path, so that d can be dropped. It fails when the old path is
+// taken, and d stays.
+func (l *Stage) leaveTemp(d DiskChange) error {
+	if d.Temp == "" || !exists(l.r.diskPath(d.Temp)) {
+		return nil
+	}
+	return renameNoReplace(l.r.diskPath(d.Temp), l.r.diskPath(d.Paths[0]))
 }
 
 // showsChange reports whether the stage's index still shows the change of
@@ -226,8 +259,14 @@ func (l *Stage) renameCaseOnly(d *DiskChange) error {
 		return err
 	}
 	fault("between-case-renames")
+	testPause("between-case-renames")
 	if err := renameNoReplace(tmp, l.r.diskPath(newp)); err != nil {
-		_ = renameNoReplace(tmp, from)
+		if rerr := renameNoReplace(tmp, from); rerr != nil {
+			// The file keeps the temporary name, so d must stay: the
+			// error does not wrap fs.ErrExist, which would roll d back.
+			return fmt.Errorf("cannot rename %s to %s (%v), and the file stays at %s: %v", d.Temp, newp, err, d.Temp, rerr) //nolint:errorlint // wrapping err would make the caller drop d
+		}
+		d.Temp = ""
 		return err
 	}
 	return nil
