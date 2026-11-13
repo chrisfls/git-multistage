@@ -1,7 +1,7 @@
 schema: spec-driven
 
 context: |
-  git-multistage must work on Windows, macOS, and Linux. CI tests all three.
+  git-multistage must work on Windows, macOS, and Linux. Only macOS is tested on every change, with `mise run ci`; the manual CI workflow tests the other two.
 
 rules:
   proposal:

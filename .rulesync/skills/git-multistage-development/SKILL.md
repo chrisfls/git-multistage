@@ -9,13 +9,12 @@ git-multistage is a Go CLI with no dependencies outside the standard library. Th
 
 ## Checks
 
-`mise.toml` pins Go, golangci-lint, and `act`, and CI installs the same versions with `jdx/mise-action`. Run `mise install` once, then run these checks from the repository root before you report a change as done. CI runs the same checks.
+`mise.toml` pins Go, golangci-lint, and `act`. Run `mise install` once, then run the checks from the repository root before you report a change as done and before you push. No workflow runs on push or pull request; the CI workflow starts by hand.
 
 ```bash
-golangci-lint fmt ./...                 # gofumpt and goimports
-golangci-lint run ./...                 # linters from .golangci.yml, build tag testhooks
-go vet ./... && go vet -tags testhooks ./...
-go test -count=1 ./...
+mise run ci          # format check, linters, vet with and without testhooks, tests, OpenSpec validation
+mise run ci:stress   # repeat the concurrency and crash tests
+golangci-lint fmt ./...   # apply gofumpt and goimports, which `ci` only checks
 ```
 
 - `.golangci.yml` is the source of truth for the linters. Each disabled linter has its reason there.

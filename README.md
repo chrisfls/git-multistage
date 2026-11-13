@@ -1,6 +1,5 @@
 # git-multistage
 
-[![CI](https://img.shields.io/github/actions/workflow/status/chrisfls/git-multistage/ci.yml?branch=main&style=for-the-badge&logo=github)](https://github.com/chrisfls/git-multistage/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
 git-multistage lets several agents commit from the same Git checkout at the same time.
@@ -216,16 +215,15 @@ rulesync install && rulesync generate
 
 Every change starts as an [OpenSpec](https://openspec.dev) change in `openspec/changes/`, as `AGENTS.md` describes.
 
-[mise](https://mise.jdx.dev) installs the Go, golangci-lint, `act`, and OpenSpec versions that [mise.toml](mise.toml) pins, the same ones CI uses:
+[mise](https://mise.jdx.dev) installs the Go, golangci-lint, `act`, and OpenSpec versions that [mise.toml](mise.toml) pins, the same ones the manual CI workflow uses:
 
 ```bash
 mise install
-go test ./...                                                       # all tests
-MULTISTAGE_STRESS=10 go test -run 'Many|Hunks|Native|Kill' ./test/  # repeat the concurrency and crash tests
-golangci-lint fmt --diff ./... && golangci-lint run ./...           # format and lint
+mise run ci          # format, lint, vet, tests, and OpenSpec validation; run it before you push
+mise run ci:stress   # repeat the concurrency and crash tests
 ```
 
-The tests run real Git in temporary repositories. CI covers Linux, macOS, and Windows. To run the Linux jobs locally before pushing, run `act` with a Docker engine, such as Docker Desktop, OrbStack, Colima, or Podman.
+The tests run real Git in temporary repositories. No workflow runs on push or pull request: the CI workflow starts by hand from the Actions tab and tests on Linux, macOS, and Windows. To run its Linux job locally, run `act` with a Docker engine, such as Docker Desktop, OrbStack, Colima, or Podman.
 
 ## License
 

@@ -13,3 +13,22 @@ act = "0.2.97"
 [tasks.release]
 description = "Build the release archives from the pushed default branch and publish them: mise run release <version>"
 run = "bash scripts/release.sh"
+
+[tasks.ci]
+description = "Run the checks of the project: format, lint, vet, tests, and OpenSpec validation"
+shell = "bash -c"
+env = { OPENSPEC_NO_UPDATE_CHECK = "1" }
+run = [
+  "golangci-lint fmt --diff ./...",
+  "golangci-lint run ./...",
+  "go vet ./...",
+  "go vet -tags testhooks ./...",
+  "go test -count=1 -timeout 30m ./...",
+  "openspec validate --all --strict",
+]
+
+[tasks."ci:stress"]
+description = "Repeat the concurrency and crash tests"
+shell = "bash -c"
+env = { MULTISTAGE_STRESS = "3" }
+run = "go test -count=1 -timeout 30m -run 'Many|Hunks|Native|Kill' ./test/"

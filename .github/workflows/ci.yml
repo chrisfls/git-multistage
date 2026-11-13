@@ -1,35 +1,10 @@
 name: CI
 
 on:
-  push:
-  pull_request:
+  # The workflow runs by hand only: GitHub bills its minutes, and `mise run ci` runs the same checks locally.
+  workflow_dispatch:
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      # Installs the versions that mise.toml pins.
-      - uses: jdx/mise-action@v5
-        with:
-          install_args: go golangci-lint
-      - name: Format
-        run: golangci-lint fmt --diff ./...
-      - name: Lint
-        run: golangci-lint run ./...
-
-  openspec:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v5
-        with:
-          install_args: node npm:@fission-ai/openspec
-      - name: Validate specs and changes
-        env:
-          OPENSPEC_NO_UPDATE_CHECK: "1"
-        run: openspec validate --all --strict
-
   plugin:
     runs-on: ubuntu-latest
     steps:
@@ -41,7 +16,7 @@ jobs:
       - name: Validate the plugin
         run: claude plugin validate --strict .
 
-  test:
+  ci:
     strategy:
       fail-fast: false
       matrix:
@@ -51,15 +26,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v5
         with:
-          install_args: go
+          install_args: go golangci-lint node npm:@fission-ai/openspec
       - name: Git version
         run: git --version
-      - name: Vet
-        run: go vet ./... && go vet -tags testhooks ./...
-        shell: bash
-      - name: Test
-        run: go test -count=1 -timeout 30m ./...
-      - name: Stress
-        env:
-          MULTISTAGE_STRESS: "3"
-        run: go test -count=1 -timeout 30m -run "Many|Hunks|Native|Kill" ./test/
+      - name: Checks
+        run: mise run ci
