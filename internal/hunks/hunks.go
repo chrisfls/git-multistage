@@ -100,29 +100,41 @@ func Parse(path string, diff []byte, versions string, side Side) ([]Hunk, error)
 			cur.Added = append(cur.Added, l[1:])
 		case l[0] == '\\':
 			// "\ No newline at end of file" belongs to the previous line.
-			if i == 0 {
-				continue
-			}
-			prev := lines[i-1]
-			target := &cur.Added
-			if prev[0] == '-' {
-				target = &cur.Removed
-			}
-			if n := len(*target); n > 0 {
-				(*target)[n-1] = strings.TrimSuffix((*target)[n-1], "\n")
+			if i > 0 {
+				cur.trimNewline(lines[i-1])
 			}
 		default:
 			return nil, fmt.Errorf("unexpected diff line %q", l)
 		}
 	}
-	for i := range hs {
-		h := &hs[i]
-		if len(h.Removed) != h.OldLines || len(h.Added) != h.NewLines {
-			return nil, fmt.Errorf("hunk %s has %d/%d lines", h.Header(), len(h.Removed), len(h.Added))
-		}
+	if err := checkLineCounts(hs); err != nil {
+		return nil, err
 	}
 	assignIDs(path, hs, versions, side)
 	return hs, nil
+}
+
+// trimNewline removes the newline of the last line of h on the side of
+// prev, the diff line before a "\ No newline at end of file" marker.
+func (h *Hunk) trimNewline(prev string) {
+	target := &h.Added
+	if prev[0] == '-' {
+		target = &h.Removed
+	}
+	if n := len(*target); n > 0 {
+		(*target)[n-1] = strings.TrimSuffix((*target)[n-1], "\n")
+	}
+}
+
+// checkLineCounts checks that each hunk has the lines its header counts.
+func checkLineCounts(hs []Hunk) error {
+	for i := range hs {
+		h := &hs[i]
+		if len(h.Removed) != h.OldLines || len(h.Added) != h.NewLines {
+			return fmt.Errorf("hunk %s has %d/%d lines", h.Header(), len(h.Removed), len(h.Added))
+		}
+	}
+	return nil
 }
 
 // assignIDs gives each hunk a 12-hex-digit hash of its path and changed

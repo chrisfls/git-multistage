@@ -118,33 +118,40 @@ func TestRandomSubsets(t *testing.T) {
 		if old == updated {
 			continue
 		}
-		hs, err := Parse("f", gitDiff(t, old, updated), updated, NewSide)
-		if err != nil {
-			t.Fatalf("parse: %v", err)
+		checkSubset(t, rng, old, updated)
+	}
+}
+
+// checkSubset applies all hunks from old to updated, then a random subset,
+// then the rest on top of the subset.
+func checkSubset(t *testing.T, rng *rand.Rand, old, updated string) {
+	t.Helper()
+	hs, err := Parse("f", gitDiff(t, old, updated), updated, NewSide)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	all, err := Apply([]byte(old), hs)
+	if err != nil || string(all) != updated {
+		t.Fatalf("apply all: %q, %v; old=%q new=%q", all, err, old, updated)
+	}
+	var chosen []Hunk
+	for _, h := range hs {
+		if rng.Intn(2) == 0 {
+			chosen = append(chosen, h)
 		}
-		all, err := Apply([]byte(old), hs)
-		if err != nil || string(all) != updated {
-			t.Fatalf("apply all: %q, %v; old=%q new=%q", all, err, old, updated)
-		}
-		var chosen []Hunk
-		for _, h := range hs {
-			if rng.Intn(2) == 0 {
-				chosen = append(chosen, h)
-			}
-		}
-		part, err := Apply([]byte(old), chosen)
-		if err != nil {
-			t.Fatalf("apply subset: %v", err)
-		}
-		// The rest of the hunks, applied on top of part, must reach updated.
-		rest, err := Parse("f", gitDiff(t, string(part), updated), updated, NewSide)
-		if err != nil {
-			t.Fatal(err)
-		}
-		final, err := Apply(part, rest)
-		if err != nil || string(final) != updated {
-			t.Fatalf("apply rest: %q, %v", final, err)
-		}
+	}
+	part, err := Apply([]byte(old), chosen)
+	if err != nil {
+		t.Fatalf("apply subset: %v", err)
+	}
+	// The rest of the hunks, applied on top of part, must reach updated.
+	rest, err := Parse("f", gitDiff(t, string(part), updated), updated, NewSide)
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, err := Apply(part, rest)
+	if err != nil || string(final) != updated {
+		t.Fatalf("apply rest: %q, %v", final, err)
 	}
 }
 

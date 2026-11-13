@@ -188,31 +188,44 @@ const objectWriteRetries = 5
 
 // Run runs git with args and returns its stdout.
 func (r *Repo) Run(o Opt, args ...string) ([]byte, error) {
-	// Only Git for Windows creates loose objects by rename. A rerun must
-	// read the same stdin and must not repeat streamed output.
-	stdin, rewindable := o.Stdin.(io.Seeker)
-	retry := renamesObjects && !o.User && o.Stdout == nil && o.Stderr == nil &&
-		(o.Stdin == nil || rewindable)
-	var start int64
-	if retry && rewindable {
-		var err error
-		if start, err = stdin.Seek(0, io.SeekCurrent); err != nil {
-			retry = false
-		}
-	}
+	rewind, retry := rerunnable(o)
 	for attempt := 1; ; attempt++ {
 		out, err := r.run(o, args...)
 		var ee *ExitError
 		if !retry || attempt > objectWriteRetries || !errors.As(err, &ee) || !lostObjectWrite(ee.Stderr) {
 			return out, err
 		}
-		if rewindable {
-			if _, serr := stdin.Seek(start, io.SeekStart); serr != nil {
-				return out, err
-			}
+		if rewind() != nil {
+			return out, err
 		}
 		time.Sleep(time.Duration(attempt) * 10 * time.Millisecond)
 	}
+}
+
+// rerunnable reports whether Run may rerun a call with o after a lost
+// object write, and returns the function that rewinds its stdin for the
+// rerun. Only Git for Windows creates loose objects by rename. A rerun must
+// read the same stdin and must not repeat streamed output.
+func rerunnable(o Opt) (rewind func() error, ok bool) {
+	noop := func() error { return nil }
+	if !renamesObjects || o.User || o.Stdout != nil || o.Stderr != nil {
+		return noop, false
+	}
+	if o.Stdin == nil {
+		return noop, true
+	}
+	stdin, rewindable := o.Stdin.(io.Seeker)
+	if !rewindable {
+		return noop, false
+	}
+	start, err := stdin.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return noop, false
+	}
+	return func() error {
+		_, err := stdin.Seek(start, io.SeekStart)
+		return err
+	}, true
 }
 
 // run runs git with args once.
@@ -405,6 +418,39 @@ type MergeResult struct {
 	ContentOnly map[string]bool // paths whose only conflict is in their content
 }
 
+// parseMergeMessages reads the messages of git merge-tree -z. Each is
+// <count> NUL <path>... NUL <type> NUL <text> NUL. It returns the texts of
+// the conflicts, and the paths whose only conflict is in their content.
+func parseMergeMessages(parts []string) (messages []string, contentOnly map[string]bool) {
+	contentOnly = map[string]bool{}
+	other := map[string]bool{}
+	for i := 0; i < len(parts); {
+		n, err := strconv.Atoi(parts[i])
+		if err != nil || i+n+2 >= len(parts) {
+			break
+		}
+		paths := parts[i+1 : i+1+n]
+		i += 1 + n
+		typ, text := parts[i], parts[i+1]
+		i += 2
+		if !strings.HasPrefix(typ, "CONFLICT") {
+			continue
+		}
+		messages = append(messages, strings.TrimSpace(text))
+		for _, p := range paths {
+			if typ == "CONFLICT (contents)" {
+				if _, seen := other[p]; !seen {
+					contentOnly[p] = true
+				}
+			} else {
+				other[p] = true
+				delete(contentOnly, p)
+			}
+		}
+	}
+	return messages, contentOnly
+}
+
 // MergeTrees merges the changes from base to theirs into ours, without
 // touching any index or the working tree.
 func (r *Repo) MergeTrees(base, ours, theirs string) (MergeResult, error) {
@@ -425,33 +471,11 @@ func (r *Repo) MergeTrees(base, ours, theirs string) (MergeResult, error) {
 	for ; i < len(parts) && parts[i] != ""; i++ {
 		res.Conflicts = append(res.Conflicts, parts[i])
 	}
-	// Each message: <count> NUL <path>... NUL <type> NUL <text> NUL
-	res.ContentOnly = map[string]bool{}
-	other := map[string]bool{}
-	for i++; i < len(parts); {
-		n, err := strconv.Atoi(parts[i])
-		if err != nil || i+n+2 >= len(parts) {
-			break
-		}
-		paths := parts[i+1 : i+1+n]
-		i += 1 + n
-		typ, text := parts[i], parts[i+1]
-		i += 2
-		if !strings.HasPrefix(typ, "CONFLICT") {
-			continue
-		}
-		res.Messages = append(res.Messages, strings.TrimSpace(text))
-		for _, p := range paths {
-			if typ == "CONFLICT (contents)" {
-				if _, seen := other[p]; !seen {
-					res.ContentOnly[p] = true
-				}
-			} else {
-				other[p] = true
-				delete(res.ContentOnly, p)
-			}
-		}
+	var messages []string
+	if i+1 < len(parts) {
+		messages = parts[i+1:]
 	}
+	res.Messages, res.ContentOnly = parseMergeMessages(messages)
 	if len(res.Conflicts) == 0 {
 		res.Conflicts = []string{"(unknown)"}
 	}
