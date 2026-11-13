@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/chrisfls/git-multistage/internal/gitx"
+	"github.com/chrisfls/git-multistage/internal/hunks"
 )
 
 // An edit record is one file edit that an agent's editor hook observed: the
@@ -341,6 +342,16 @@ func (r *Repo) applyRecord(idx string, rec EditRecord, force bool) error {
 	return r.setIndexBlob(idx, rec.Path, cur.mode, oid)
 }
 
+// addsBack reports whether later adds any line that the deletion removed.
+// A line at the end of the file can lose or gain its newline in the change.
+func addsBack(later, deletion hunks.Hunk) bool {
+	removed := map[string]bool{}
+	for _, l := range deletion.Removed {
+		removed[strings.TrimSuffix(l, "\n")] = true
+	}
+	return slices.ContainsFunc(later.Added, func(l string) bool { return removed[strings.TrimSuffix(l, "\n")] })
+}
+
 func (r *Repo) setIndexBlob(idx, p, mode, oid string) error {
 	if mode == "" {
 		mode = "100644"
@@ -383,9 +394,10 @@ func (r *Repo) editOnDisk(idx string, rec EditRecord) (bool, error) {
 	// mine's added lines occupy [NewStart-1, NewStart-1+NewLines) of After;
 	// a later change that removes any of them, or inserts inside them,
 	// overwrote the edit. A deletion adds no lines: it sits between lines
-	// NewStart and NewStart+1 of After. A later change that adds lines there
-	// may have put the deleted lines back: an insertion after line NewStart,
-	// or a replacement whose old lines include line NewStart or NewStart+1.
+	// NewStart and NewStart+1 of After. A later change there puts the
+	// deletion back when it adds any of the deleted lines: an insertion after
+	// line NewStart, or a replacement whose old lines include line NewStart
+	// or NewStart+1. A change of a neighbouring line alone adds none of them.
 	for _, h := range mine {
 		lo, hi := h.NewStart-1, h.NewStart-1+h.NewLines
 		for _, d := range later {
@@ -393,8 +405,9 @@ func (r *Repo) editOnDisk(idx string, rec EditRecord) (bool, error) {
 				if d.NewLines == 0 {
 					continue
 				}
-				if d.OldLines == 0 && d.OldStart == h.NewStart ||
-					d.OldLines > 0 && d.OldStart <= h.NewStart+1 && h.NewStart <= d.OldStart+d.OldLines-1 {
+				atPoint := d.OldLines == 0 && d.OldStart == h.NewStart ||
+					d.OldLines > 0 && d.OldStart <= h.NewStart+1 && h.NewStart <= d.OldStart+d.OldLines-1
+				if atPoint && addsBack(d, h) {
 					return false, nil
 				}
 				continue

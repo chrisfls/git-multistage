@@ -570,3 +570,29 @@ func TestAgenticBoundsAHangingProcessTableRead(t *testing.T) {
 		t.Fatalf("--agentic waited %s for ps", d)
 	}
 }
+
+// TestDeletionNextToANeighbourEdit deletes lines with a hooked edit; another
+// agent then changes the line below or above them. The deletion is still on
+// disk, so add --edits must stage it.
+func TestDeletionNextToANeighbourEdit(t *testing.T) {
+	for _, tc := range []struct{ name, after, other string }{
+		{"line below changed", "a\nb\ne\n", "a\nb\nE\n"},
+		{"line above changed", "a\nb\ne\n", "a\nB\ne\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRepo(t)
+			r.write("f.txt", "a\nb\nc\nd\ne\n")
+			r.git("add", "f.txt")
+			r.git("commit", "-q", "-m", "f")
+			r.hookedEdit("s", "", "f.txt", tc.after)
+			r.hookedEdit("t", "", "f.txt", tc.other)
+			if res := r.ms("", "--stage", "claude-s", "add", "--edits"); res.code != 0 {
+				t.Fatalf("add --edits refused the surviving deletion:\n%s", res)
+			}
+			r.mustMS("", "--stage", "claude-s", "commit", "-m", "del")
+			if c := r.git("show", "HEAD:f.txt"); c != "a\nb\ne\n" {
+				t.Fatalf("committed %q", c)
+			}
+		})
+	}
+}

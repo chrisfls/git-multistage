@@ -2,7 +2,7 @@
 
 ## 1. Deletion next to a later change
 
-- [ ] 1.1 Port `TestGapDeletionNextToNeighbourEdit` to `test/`, and require at the deletion point that the later hunk adds back a deleted line; verify that the test fails before and passes after, and that the restored-deletion tests of `test/review3_test.go` still pass
+- [x] 1.1 Port `TestGapDeletionNextToNeighbourEdit` to `test/`, and require at the deletion point that the later hunk adds back a deleted line; verify that the test fails before and passes after, and that the restored-deletion tests of `test/review3_test.go` still pass
 
 ## 2. Staged-by for identical copies
 
