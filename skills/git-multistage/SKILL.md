@@ -39,7 +39,18 @@ git multistage --stage <id> diff --cached
 git multistage --stage <id> commit -m "Add input validation"
 ```
 
-`add --edits` stages exactly the edits you made with the file-editing tools (Claude Code's Edit and Write, Codex's apply_patch). It stages them even when another agent later changed those lines or deleted the file, so your commit holds what you wrote, not what the file holds now. Stage files that you changed through shell commands with `add` or `add --hunk`.
+`add --edits` stages exactly the edits you made with the file-editing tools (Claude Code's Edit and Write, Codex's apply_patch). It stages them even when another agent later changed those lines or deleted the file, so your commit holds what you wrote, not what the file holds now. It also stages the deletions and moves of Codex's apply_patch. Stage files that you changed through shell commands with `add` or `add --hunk`.
+
+## Delete and move files
+
+Delete and move tracked files with `rm` and `mv`. They change the working tree and stage the change in your stage:
+
+```bash
+git multistage --stage agent-a rm src/old.ts
+git multistage --stage agent-a mv src/a.ts src/b.ts
+```
+
+`add` stages no deletions and no moves: a missing file can be another agent's deletion or move. If you already deleted or moved the file with a shell command, run the same `rm` or `mv`; it stages the change and leaves the disk alone. `rm` needs `-f` when the file differs from your stage, because the difference may be another agent's unstaged edit. A commit of a move carries a `Multistage-Moved: <old> -> <new>` trailer, so that other stages' changes of the file follow it.
 
 ## Workflow without the hook
 
@@ -78,6 +89,7 @@ Add `--json` to `status`, `hunks`, `add`, and `commit` when you parse the output
 | --- | --- | --- |
 | 3 with `edit-conflict` | Your recorded edit changes lines that another stage added and has not committed yet. Your records are kept. | Run `add --edits` again after that stage commits, or stage the file with `hunks` and `add --hunk`. |
 | 3 | Your staged change conflicts with a commit that landed on the branch. Your staged changes are kept. | Read the listed paths. Edit the files so that they include both changes, then `restore --staged <path>`, stage again, and commit. |
+| 3 with `path-deleted` | A commit on the branch deleted a file that your staged change or recorded edit changes. The error names the deleting commit. Your staged changes and records are kept. | Keep your version as a new file with `commit --recreate <path>` or `add --edits --recreate <path>`. Or give up your change with `restore --staged <path>` or `drop --edits <path>`. |
 | 4 | A hunk ID is stale: the file changed after you listed the hunks. | Run `hunks <path>` again and use the new IDs. |
 | 5 with `shared-path` | Another stage has staged changes in that file, so a whole-file `add` could take its changes. | Stage your hunks with `--hunk`. |
 | 5, other | HEAD is detached or on another branch, or a merge or rebase is in progress. | Stop and report it. Do not change branches. |
@@ -91,6 +103,7 @@ In Codex, the default sandbox makes `.git` read-only, so every `git multistage` 
 
 ## Rules
 
+- Delete and move tracked files with `git multistage rm` and `git multistage mv`, not with `git rm`, `git mv`, or `add` of a missing file.
 - Do not run `git add`, `git commit`, `git stash`, `git checkout -- <file>`, `git restore <file>`, `git reset --hard`, or `git switch`. They change state that every agent shares.
 - Do not edit a file at the same moment as another agent. git-multistage separates staging and commits; it cannot merge two simultaneous writes to the same file on disk.
 - `git status`, `git log`, `git diff <commit>`, and `git show` are safe to run.
