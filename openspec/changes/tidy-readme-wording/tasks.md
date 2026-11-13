@@ -2,7 +2,7 @@
 
 ## 1. README
 
-- [ ] 1.1 Apply the four rewrites: the introduction, the plugin sentence in "What it keeps apart", the stage creation sentence in "Quick start", and the RuleSync sentence in "Contributing"
+- [x] 1.1 Apply the four rewrites: the introduction, the plugin sentence in "What it keeps apart", the stage creation sentence in "Quick start", and the RuleSync sentence in "Contributing"
 
 ## 2. Check
 

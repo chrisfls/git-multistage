@@ -4,7 +4,7 @@
 
 git-multistage lets several agents commit from the same Git checkout at the same time.
 
-Each agent gets its own staging area. Each agent can commit its changes independently, and its commits contain only its own changes. It works without agents too, for example to keep two unrelated changes apart.
+Each agent gets its own staging area and can commit independently, without including changes staged by other agents. It works without agents too, for example to keep two unrelated changes apart.
 
 It runs as `git multistage` and writes normal Git history.
 
@@ -12,7 +12,7 @@ It runs as `git multistage` and writes normal Git history.
 
 Stages share a working tree, so agents can edit the same files. git-multistage keeps their staged changes and their commits apart.
 
-With the [agent plugin](#coding-agents), edits that agents make to one file through their file tools wait for each other. The plugin also records which lines each agent changed, so each agent can stage its own edits in a file that others edit too.
+With the [agent plugin](#coding-agents), agents that edit the same file through their file tools take turns, so their edits do not overlap. The plugin also records which lines each agent changed, so each agent can stage its own edits in a file that others edit too.
 
 Edits made through shell commands, such as a formatter, are not recorded. Stage them separately, with `add` or `add --hunk`.
 
@@ -90,7 +90,7 @@ git multistage --stage fix-login add src/login.ts
 git multistage --stage fix-login commit -m "Honor returnTo after login"
 ```
 
-The first command creates the stage `fix-login`. The commit contains only changes staged under `fix-login`. Other changes in the checkout stay in the working tree, or in their own stages.
+The first command creates `fix-login` if it does not exist yet. The commit contains only changes staged under `fix-login`. Other changes in the checkout stay in the working tree, or in their own stages.
 
 ### Stage part of a file
 
@@ -195,7 +195,7 @@ This rule also lets the agent run commands that discard staged changes, such as 
 
 ## Contributing
 
-[RuleSync](https://github.com/dyoshikawa/rulesync) generates `AGENTS.md` and each agent's skills, so a fresh clone has neither. Install RuleSync, such as with `brew install rulesync`, and run:
+[RuleSync](https://github.com/dyoshikawa/rulesync) generates `AGENTS.md` and the skills in each coding agent's folder, such as `.claude/skills/`, so a fresh clone has neither. Install RuleSync, such as with `brew install rulesync`, and run:
 
 ```bash
 rulesync install && rulesync generate
