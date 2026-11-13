@@ -23,3 +23,7 @@ func renameNoReplace(oldpath, newpath string) error {
 	}
 	return nil
 }
+
+// caseRenameInOneCall reports whether renameNoReplace renames between two
+// spellings of one path on a case-insensitive file system.
+const caseRenameInOneCall = false

@@ -43,6 +43,11 @@ func testPause(point string) {
 	}
 }
 
+// testTwoStepRename reports whether GIT_MULTISTAGE_TEST_TWO_STEP_RENAME is
+// set, which makes a case-only move rename through a temporary name, as on
+// systems that cannot rename it in one call.
+func testTwoStepRename() bool { return os.Getenv("GIT_MULTISTAGE_TEST_TWO_STEP_RENAME") != "" }
+
 // testDelay sleeps for a random time up to GIT_MULTISTAGE_TEST_DELAY_MS.
 func testDelay() {
 	if n, _ := strconv.Atoi(os.Getenv("GIT_MULTISTAGE_TEST_DELAY_MS")); n > 0 {

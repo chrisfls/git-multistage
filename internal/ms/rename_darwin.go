@@ -38,3 +38,8 @@ func renameNoReplace(oldpath, newpath string) error {
 	}
 	return &os.LinkError{Op: "rename", Old: oldpath, New: newpath, Err: errno}
 }
+
+// caseRenameInOneCall reports whether renameNoReplace renames between two
+// spellings of one path on a case-insensitive file system: renameatx_np
+// with RENAME_EXCL accepts it on APFS.
+const caseRenameInOneCall = true

@@ -530,3 +530,28 @@ func TestMvChangesNothingWhenTheTargetAppearsAfterTheCheck(t *testing.T) {
 		t.Fatal("a later mv did not move the file")
 	}
 }
+
+func TestMvFinishesACaseOnlyRenameAfterAStopBetweenTheRenames(t *testing.T) {
+	r := committedRepo(t, map[string]string{"Readme.md": "doc\n"})
+	if _, err := os.Stat(r.path("README.md")); err != nil {
+		t.Skip("the file system is case-sensitive")
+	}
+	env := []string{"GIT_MULTISTAGE_TEST_TWO_STEP_RENAME=1", "GIT_MULTISTAGE_FAULT=between-case-renames"}
+	if res := run(r.dir, "a", env, "mv", "Readme.md", "README.md"); res.code != 86 {
+		t.Fatalf("fault did not fire:\n%s", res)
+	}
+	r.mustMS("a", "mv", "Readme.md", "README.md")
+	names, err := os.ReadDir(r.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found []string
+	for _, n := range names {
+		if strings.EqualFold(n.Name(), "readme.md") || strings.HasPrefix(n.Name(), ".git-multistage") {
+			found = append(found, n.Name())
+		}
+	}
+	if !eq(found, []string{"README.md"}) || r.read("README.md") != "doc\n" {
+		t.Fatalf("the disk holds %v", found)
+	}
+}

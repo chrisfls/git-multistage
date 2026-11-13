@@ -5,3 +5,7 @@ package ms
 // renameNoReplace renames oldpath to newpath, and fails with an error that
 // matches fs.ErrExist when newpath exists.
 func renameNoReplace(oldpath, newpath string) error { return linkRename(oldpath, newpath) }
+
+// caseRenameInOneCall reports whether renameNoReplace renames between two
+// spellings of one path on a case-insensitive file system.
+const caseRenameInOneCall = false

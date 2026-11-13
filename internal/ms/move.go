@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -137,7 +138,7 @@ func (l *Stage) finishDisk(i int) error {
 	var err error
 	if d.Command == cmdRm {
 		kept, err = l.removeFiles(d)
-	} else if kept, err = l.moveFile(d); err == nil {
+	} else if kept, err = l.moveFile(&l.M.PendingDisk[i]); err == nil {
 		err = l.moveRecords(d.Paths[0], d.Paths[1])
 	}
 	if err != nil {
@@ -173,9 +174,13 @@ func (l *Stage) removeFiles(d DiskChange) ([]string, error) {
 
 // moveFile moves the file of d when the old path holds its expected bytes,
 // and returns the old path when another writer changed it. It fails with
-// errTargetExists when the new path exists.
-func (l *Stage) moveFile(d DiskChange) ([]string, error) {
+// errTargetExists when the new path exists. A temporary name that d records
+// is the old file after the first rename of a case-only move.
+func (l *Stage) moveFile(d *DiskChange) ([]string, error) {
 	oldp, newp := d.Paths[0], d.Paths[1]
+	if d.Temp != "" && exists(l.r.diskPath(d.Temp)) {
+		return nil, targetErr(renameNoReplace(l.r.diskPath(d.Temp), l.r.diskPath(newp)))
+	}
 	if d.Blobs[0] == "" {
 		return nil, nil // the disk showed the move already
 	}
@@ -190,28 +195,38 @@ func (l *Stage) moveFile(d DiskChange) ([]string, error) {
 		return nil, err
 	}
 	testPause("before-rename")
-	err = l.r.renameFile(oldp, newp)
-	if errors.Is(err, fs.ErrExist) {
-		return nil, errTargetExists
+	if l.r.caseOnly(oldp, newp) && (!caseRenameInOneCall || testTwoStepRename()) {
+		return nil, targetErr(l.renameCaseOnly(d))
 	}
-	return nil, err
+	return nil, targetErr(renameNoReplace(l.r.diskPath(oldp), l.r.diskPath(newp)))
 }
 
-// renameFile renames the working-tree file oldp to newp, and fails when
-// newp exists. A move between two spellings of one path, on a
-// case-insensitive file system, renames through a temporary name.
-func (r *Repo) renameFile(oldp, newp string) error {
-	from, to := r.diskPath(oldp), r.diskPath(newp)
-	if !r.caseOnly(oldp, newp) {
-		return renameNoReplace(from, to)
+// targetErr returns errTargetExists for an error of a rename onto an
+// existing file, and err otherwise.
+func targetErr(err error) error {
+	if errors.Is(err, fs.ErrExist) {
+		return errTargetExists
 	}
+	return err
+}
+
+// renameCaseOnly moves the file of d between two spellings of one path,
+// through a temporary name that it first records in d, so that a rerun
+// finishes the second rename.
+func (l *Stage) renameCaseOnly(d *DiskChange) error {
+	oldp, newp := d.Paths[0], d.Paths[1]
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
-	tmp := filepath.Join(filepath.Dir(from), ".git-multistage-"+hex.EncodeToString(b)+"-"+filepath.Base(from))
+	d.Temp = path.Join(path.Dir(oldp), ".git-multistage-"+hex.EncodeToString(b)+"-"+path.Base(oldp))
+	if err := l.save(); err != nil {
+		return err
+	}
+	from, tmp := l.r.diskPath(oldp), l.r.diskPath(d.Temp)
 	if err := renameNoReplace(from, tmp); err != nil {
 		return err
 	}
-	if err := renameNoReplace(tmp, to); err != nil {
+	fault("between-case-renames")
+	if err := renameNoReplace(tmp, l.r.diskPath(newp)); err != nil {
 		_ = renameNoReplace(tmp, from)
 		return err
 	}

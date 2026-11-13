@@ -10,6 +10,10 @@ func testDelay()             {}
 func testPause(string)       {}
 func testRace(*Repo, string) {}
 
+// testTwoStepRename forces the two renames of a case-only move in tests;
+// see faults_testhooks.go.
+func testTwoStepRename() bool { return false }
+
 // testLockTimeout returns d; tests shorten it, see faults_testhooks.go.
 func testLockTimeout(d time.Duration) time.Duration { return d }
 
