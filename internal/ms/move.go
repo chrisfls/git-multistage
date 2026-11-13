@@ -1,6 +1,8 @@
 package ms
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -129,7 +131,50 @@ func (l *Stage) moveFile(d *DiskChange) ([]string, error) {
 	if err := os.MkdirAll(filepath.Dir(l.r.diskPath(newp)), 0o777); err != nil {
 		return nil, err
 	}
-	return nil, os.Rename(l.r.diskPath(oldp), l.r.diskPath(newp))
+	err = l.r.renameFile(oldp, newp)
+	if errors.Is(err, fs.ErrExist) {
+		return nil, &Error{
+			Code: ExitRefused, Kind: "path-exists",
+			Message: newp + " already exists in the working tree; the file was not moved", Paths: []string{newp},
+			Hint: "the stage holds the move; move or delete " + newp + ", then run the command again",
+		}
+	}
+	return nil, err
+}
+
+// renameFile renames the working-tree file oldp to newp, and fails when
+// newp exists. A move between two spellings of one path, on a
+// case-insensitive file system, renames through a temporary name.
+func (r *Repo) renameFile(oldp, newp string) error {
+	from, to := r.diskPath(oldp), r.diskPath(newp)
+	if !r.caseOnly(oldp, newp) {
+		return renameNoReplace(from, to)
+	}
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	tmp := filepath.Join(filepath.Dir(from), ".git-multistage-"+hex.EncodeToString(b)+"-"+filepath.Base(from))
+	if err := renameNoReplace(from, tmp); err != nil {
+		return err
+	}
+	if err := renameNoReplace(tmp, to); err != nil {
+		_ = renameNoReplace(tmp, from)
+		return err
+	}
+	return nil
+}
+
+// caseOnly reports whether oldp and newp are two spellings of one existing
+// file, as on a case-insensitive file system.
+func (r *Repo) caseOnly(oldp, newp string) bool {
+	if !strings.EqualFold(oldp, newp) {
+		return false
+	}
+	a, err := os.Lstat(r.diskPath(oldp))
+	if err != nil {
+		return false
+	}
+	b, err := os.Lstat(r.diskPath(newp))
+	return err == nil && os.SameFile(a, b)
 }
 
 // diskBlob returns the blob of the working-tree file p, or "" when it does
@@ -282,7 +327,7 @@ func (l *Stage) checkMoveIndex(oldp, newp string) (indexEntry, error) {
 func (r *Repo) checkMoveDisk(oldp, newp string) (bool, error) {
 	oldOnDisk, newOnDisk := exists(r.diskPath(oldp)), exists(r.diskPath(newp))
 	switch {
-	case oldOnDisk && newOnDisk:
+	case oldOnDisk && newOnDisk && !r.caseOnly(oldp, newp):
 		return false, &Error{
 			Code: ExitRefused, Kind: "path-exists",
 			Message: newp + " already exists in the working tree; nothing was moved", Paths: []string{newp},

@@ -360,3 +360,54 @@ func TestRmRerunKeepsAFileThatAnotherWriterChanged(t *testing.T) {
 		t.Fatal("the rerun deleted another writer's file")
 	}
 }
+
+func TestMvRefusesATargetOnDisk(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": "x\n"})
+	r.write("y.go", "untracked\n")
+	var out struct {
+		Error struct{ Kind string } `json:"error"`
+	}
+	decode(t, r.expectCode(5, "a", "mv", "x.go", "y.go", "--json"), &out)
+	if out.Error.Kind != "path-exists" || r.read("x.go") != "x\n" || r.read("y.go") != "untracked\n" {
+		t.Fatalf("kind %q, or a file changed", out.Error.Kind)
+	}
+	// A target that appears after the stage changed is refused by the rename.
+	if err := os.Remove(r.path("y.go")); err != nil {
+		t.Fatal(err)
+	}
+	if res := run(r.dir, "a", []string{"GIT_MULTISTAGE_FAULT=before-disk-write"}, "mv", "x.go", "y.go"); res.code != 86 {
+		t.Fatalf("fault did not fire:\n%s", res)
+	}
+	r.write("y.go", "another writer\n")
+	decode(t, r.expectCode(5, "a", "mv", "x.go", "y.go", "--json"), &out)
+	if out.Error.Kind != "path-exists" || r.read("x.go") != "x\n" || r.read("y.go") != "another writer\n" {
+		t.Fatalf("kind %q, or a file changed", out.Error.Kind)
+	}
+}
+
+func TestMvCaseOnlyRename(t *testing.T) {
+	r := committedRepo(t, map[string]string{"Readme.md": "doc\n"})
+	if _, err := os.Stat(r.path("README.md")); err != nil {
+		t.Skip("the file system is case-sensitive")
+	}
+	if strings.TrimSpace(r.git("config", "--bool", "core.ignoreCase")) != "true" {
+		t.Skip("core.ignoreCase is not set")
+	}
+	r.mustMS("a", "mv", "Readme.md", "README.md")
+	names, err := os.ReadDir(r.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found []string
+	for _, n := range names {
+		if strings.EqualFold(n.Name(), "readme.md") {
+			found = append(found, n.Name())
+		}
+	}
+	if !eq(found, []string{"README.md"}) || r.read("README.md") != "doc\n" {
+		t.Fatalf("the disk holds %v", found)
+	}
+	if got := r.stageMoves("a"); !eq(got, []string{"Readme.md -> README.md"}) {
+		t.Fatalf("moves %v", got)
+	}
+}
