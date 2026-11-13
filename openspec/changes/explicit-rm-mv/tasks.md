@@ -2,9 +2,9 @@
 
 ## 1. Explicit deletions and moves
 
-- [ ] 1.1 Make `add` refuse a missing path and a rename pair, with exit code 1 and a hint at `rm` and `mv`. Verify: the "Missing file" scenario passes, and existing tests that staged deletions through `add` move to `rm`.
-- [ ] 1.2 Add `rm <path>... [-f]`: stage the deletion, then delete the file. Accept a file already gone from disk. Need `-f` when the disk differs from the stage. Verify: the three "Delete files" scenarios pass with `--json` too.
-- [ ] 1.3 Add `Meta.Moves` and `mv <old> <new>`: stage the move with the staged blob, rewrite pending records of `<old>`, then move the file. Handle the "already made on disk" case. `restore --staged` drops the move. Verify: the three "Move files" scenarios and "Move writes only its paths" pass.
+- [x] 1.1 Make `add` refuse a missing path and a rename pair, with exit code 1 and a hint at `rm` and `mv`. Verify: the "Missing file" scenario passes, and existing tests that staged deletions through `add` move to `rm`.
+- [x] 1.2 Add `rm <path>... [-f]`: stage the deletion, then delete the file. Accept a file already gone from disk. Need `-f` when the disk differs from the stage. Verify: the three "Delete files" scenarios pass with `--json` too.
+- [x] 1.3 Add `Meta.Moves` and `mv <old> <new>`: stage the move with the staged blob, rewrite pending records of `<old>`, then move the file. Handle the "already made on disk" case. `restore --staged` drops the move. Verify: the three "Move files" scenarios and "Move writes only its paths" pass.
 
 ## 2. Commits follow moves and report deletions
 

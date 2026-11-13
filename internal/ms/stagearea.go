@@ -111,6 +111,14 @@ type Meta struct {
 	// AppliedEdits names the edit records that the current index already
 	// holds; they are deleted when the stage is next opened.
 	AppliedEdits []string `json:"applied_edits,omitempty"`
+	// Moves are the moves that the index stages, made with `mv`, oldest first.
+	Moves []Move `json:"moves,omitempty"`
+}
+
+// Move is one staged move of a file.
+type Move struct {
+	Old string `json:"old"`
+	New string `json:"new"`
 }
 
 // Pending records a commit whose branch update may or may not have happened.
@@ -286,6 +294,8 @@ func (l *Stage) setIndex(base string) error {
 	if err != nil {
 		return err
 	}
+	// An index that holds the base stages no moves.
+	l.M.Moves = nil
 	return l.setIndexTree(tree, base)
 }
 

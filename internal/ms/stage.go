@@ -185,6 +185,9 @@ func (l *Stage) AddPaths(paths []string, force, allowShared bool) ([]gitx.Entry,
 	if err := l.canonicalPaths(paths); err != nil {
 		return nil, err
 	}
+	if missing := l.r.missingOnDisk(paths); len(missing) > 0 {
+		return nil, errMissingPaths(missing)
+	}
 	before, err := l.r.WriteTree(l.IndexPath())
 	if err != nil {
 		return nil, err
@@ -218,19 +221,60 @@ func (l *Stage) AddPaths(paths []string, force, allowShared bool) ([]gitx.Entry,
 	if err != nil {
 		return nil, err
 	}
-	adopt := func() ([]gitx.Entry, error) {
-		if err := l.adoptIndex(name, gen); err != nil {
-			return nil, err
-		}
-		adopted = true
-		return changed, nil
+	if err := l.checkAdded(changed, allowShared); err != nil {
+		return nil, err
 	}
-	if !allowShared && len(changed) > 0 {
-		if err := l.refuseShared(changed); err != nil {
-			return nil, err
+	if err := l.adoptIndex(name, gen); err != nil {
+		return nil, err
+	}
+	adopted = true
+	return changed, nil
+}
+
+// checkAdded refuses the changes that a whole-file add staged when they
+// delete a file, or, unless allowShared, touch a file of another stage.
+func (l *Stage) checkAdded(changed []gitx.Entry, allowShared bool) error {
+	if deleted := deletedEntries(changed); len(deleted) > 0 {
+		// A directory argument stages the deletions of the files missing inside it.
+		return errMissingPaths(deleted)
+	}
+	if allowShared || len(changed) == 0 {
+		return nil
+	}
+	return l.refuseShared(changed)
+}
+
+// missingOnDisk returns the paths that are missing from the working tree.
+func (r *Repo) missingOnDisk(paths []string) []string {
+	var missing []string
+	for _, p := range paths {
+		if _, err := os.Lstat(r.diskPath(p)); errors.Is(err, fs.ErrNotExist) {
+			missing = append(missing, p)
 		}
 	}
-	return adopt()
+	return missing
+}
+
+// deletedEntries returns the paths that changed deletes.
+func deletedEntries(changed []gitx.Entry) []string {
+	var deleted []string
+	for _, c := range changed {
+		if c.Status == 'D' {
+			deleted = append(deleted, c.Path)
+		}
+	}
+	return deleted
+}
+
+// errMissingPaths refuses to stage the deletion of paths that are missing
+// from the working tree: another agent may have deleted or moved them.
+func errMissingPaths(paths []string) error {
+	return &Error{
+		Code: ExitError, Kind: "missing-path",
+		Message: "these paths are missing from the working tree, and add stages no deletions or moves; nothing was staged",
+		Paths:   paths,
+		Hint:    "delete a file with `git multistage rm <path>`, and move one with `git multistage mv <old> <new>`",
+	}
 }
 
 // refuseShared fails with shared-path when another stage has staged changes
@@ -402,7 +446,7 @@ func (l *Stage) unstagedHunks(p string) (FileHunks, error) {
 		if !tracked {
 			return fh, usageErr("path %s is neither in the working tree nor in the stage's index", p)
 		}
-		fh.Status, fh.Note = "deleted", "stage the deletion with `git multistage add "+p+"`"
+		fh.Status, fh.Note = "deleted", "stage the deletion with `git multistage rm "+p+"`"
 		return fh, nil
 	}
 	if err != nil {
@@ -777,9 +821,17 @@ func (l *Stage) setBlob(idx, p, mode string, content []byte) error {
 	return err
 }
 
-// RestorePaths unstages whole files: their stage index entries return to the base.
+// RestorePaths unstages whole files: their stage index entries return to the
+// base, and the staged moves of those files are forgotten.
 func (l *Stage) RestorePaths(paths []string) error {
-	return l.restorePaths(l.IndexPath(), paths)
+	if err := l.restorePaths(l.IndexPath(), paths); err != nil {
+		return err
+	}
+	if moves := dropMoves(l.M.Moves, paths); len(moves) != len(l.M.Moves) {
+		l.M.Moves = moves
+		return l.save()
+	}
+	return nil
 }
 
 // restorePaths returns the entries of paths in the index file idx to the base.

@@ -37,6 +37,8 @@ Commands:
   add <path>...                stage whole files
   add <path>... --hunk <id>... stage only the listed hunks
   add --edits [<path>...]      stage the edits that the editor hook recorded
+  rm [-f] <path>...            delete files and stage their deletions
+  mv <old> <new>               move a file and stage the move
   apply [-R] <patch>|-         apply a patch to this stage's index
   restore --staged <path>... [--hunk <id>...]
                                unstage files or hunks
@@ -472,6 +474,8 @@ var commandSpecs = map[string][]flagSpec{
 		{[]string{"--patch", "-p"}, false},
 		{[]string{"--edits"}, false},
 	},
+	"rm":      {{[]string{"--force", "-f"}, false}},
+	"mv":      nil,
 	"apply":   {{[]string{"--reverse", "-R"}, false}},
 	"restore": {{[]string{"--staged", "-S"}, false}, {[]string{"--hunk"}, true}},
 	"commit":  {{[]string{"--message", "-m"}, true}, {[]string{"--file", "-F"}, true}, {[]string{"--no-verify", "-n"}, false}},
@@ -528,6 +532,10 @@ func (a *app) runOnFreshStage(cmd string, stage *Stage, p *parsed, f Freshness) 
 		return a.hunks(stage, p)
 	case cmdAdd:
 		return a.add(stage, p)
+	case "rm":
+		return a.rm(stage, p)
+	case "mv":
+		return a.mv(stage, p)
 	case "apply":
 		return a.apply(stage, p)
 	case "restore":
@@ -801,6 +809,46 @@ func (a *app) apply(l *Stage, p *parsed) error {
 		return nil
 	}
 	a.printf("applied patch to stage %s\n", l.ID)
+	return nil
+}
+
+func (a *app) rm(l *Stage, p *parsed) error {
+	if len(p.pos) == 0 {
+		return usageErr("usage: git multistage rm [-f] <path>...")
+	}
+	paths, err := a.repo.repoPaths(p.pos)
+	if err != nil {
+		return err
+	}
+	if err := l.RemovePaths(paths, p.has("--force")); err != nil {
+		return err
+	}
+	if a.json {
+		a.emit(map[string]any{"deleted_paths": paths, jsonWarnings: a.warnings})
+		a.warnings = nil
+		return nil
+	}
+	a.printf("deleted and staged: %s\n", strings.Join(paths, ", "))
+	return nil
+}
+
+func (a *app) mv(l *Stage, p *parsed) error {
+	if len(p.pos) != 2 {
+		return usageErr("usage: git multistage mv <old> <new>")
+	}
+	paths, err := a.repo.repoPaths(p.pos)
+	if err != nil {
+		return err
+	}
+	if err := l.MovePath(paths[0], paths[1]); err != nil {
+		return err
+	}
+	if a.json {
+		a.emit(map[string]any{"moved": Move{Old: paths[0], New: paths[1]}, jsonWarnings: a.warnings})
+		a.warnings = nil
+		return nil
+	}
+	a.printf("moved and staged: %s -> %s\n", paths[0], paths[1])
 	return nil
 }
 

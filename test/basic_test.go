@@ -111,14 +111,10 @@ func TestDeleteRenameAndNewFiles(t *testing.T) {
 	r.write("gone.txt", "gone\n")
 	r.git("add", ".")
 	r.git("commit", "-q", "-m", "files")
-	if err := os.Rename(r.path("old.txt"), r.path("new.txt")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(r.path("gone.txt")); err != nil {
-		t.Fatal(err)
-	}
+	r.mustMS("agent-a", "mv", "old.txt", "new.txt")
+	r.mustMS("agent-a", "rm", "gone.txt")
 	r.write("fresh.txt", "fresh\n")
-	r.mustMS("agent-a", "add", "old.txt", "new.txt", "gone.txt", "fresh.txt")
+	r.mustMS("agent-a", "add", "fresh.txt")
 	r.mustMS("agent-a", "commit", "-m", "move")
 	out := r.git("show", "--name-status", "-M", "--format=", "HEAD")
 	for _, want := range []string{"R100\told.txt\tnew.txt", "D\tgone.txt", "A\tfresh.txt"} {
