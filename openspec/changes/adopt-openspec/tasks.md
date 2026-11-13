@@ -18,7 +18,7 @@
 
 - [x] 4.1 Change `TestPluginFiles` in `test/plugin_test.go` to check the skill's front matter in place of comparing it with `docs/agent-guide.md`, and verify that `go test -run TestPluginFiles ./test/` passes
 - [x] 4.2 Point the links of `README.md` to `openspec/specs/` and `skills/git-multistage/SKILL.md`, and move the Codex sandbox rule from `docs/agents.md` into the README's plugin section. Verify that `git grep -n 'docs/' -- README.md AGENTS.md .rulesync skills test` lists no link to `docs/`
-- [ ] 4.3 Delete `docs/`, and verify that `go test ./...` passes and that `git grep -n 'docs/\(agent-guide\|agents\|architecture\|cli\|limitations\)'` outside `openspec/` finds nothing
+- [x] 4.3 Delete `docs/`, and verify that `go test ./...` passes and that `git grep -n 'docs/\(agent-guide\|agents\|architecture\|cli\|limitations\)'` outside `openspec/` finds nothing
 
 ## Workflow follow-up
 
