@@ -12,7 +12,7 @@ It runs as `git multistage` and writes normal Git history.
 
 Stages share a working tree, so agents can edit the same files. git-multistage keeps their staged changes and their commits apart.
 
-With the [agent plugin](#coding-agents), agents that edit the same file through their file tools take turns, so their edits do not overlap. The plugin also records which lines each agent changed, so each agent can stage its own edits in a file that others edit too.
+With the [agent plugin](#coding-agents), agents can edit the same file through their file tools at the same time. The plugin records the lines that each agent changed, so each agent stages only its own edits.
 
 Edits made through shell commands, such as a formatter, are not recorded. Stage them separately, with `add` or `add --hunk`.
 
@@ -163,7 +163,7 @@ git multistage --stage <id> add --edits
 git multistage --stage <id> commit -m "Add input validation"
 ```
 
-`add --edits` stages only the lines that the agent itself changed, even when another agent changed the next line. It stages them even after another writer overwrote those lines or deleted the file, so the stage keeps the agent's work.
+`add --edits` stages only the lines that the agent itself changed, even when another agent changed the next line. It stages them from the plugin's record, so the stage keeps the agent's work even after another writer overwrote those lines or deleted the file.
 
 The plugin calls the `git-multistage` binary, so [install it](#install) first: the hooks report an error while the binary is not on your `PATH`.
 
