@@ -27,38 +27,28 @@ The hook SHALL record into the stage that `--stage` names. Otherwise a subagent 
 - **WHEN** a stage records its first edit
 - **THEN** the hook's message to the model names the stage and the `add --edits` and `commit` commands
 
-### Requirement: File leases
-Before an edit, the hook SHALL take a lease of 15 seconds on each edited file, in a fixed order, and release it after the edit. When another stage holds an unexpired lease, the hook SHALL wait until that lease is released or expires, then take it. If other stages still hold the file after 20 seconds, the hook SHALL release the leases it took for the call and block the edit with exit code 2 and a message that names the holder and asks the agent to retry.
-
-#### Scenario: Lease released
-- **WHEN** agent A holds the lease on `x.go` and A's edit finishes while agent B's edit of `x.go` waits
-- **THEN** B takes the lease and its edit proceeds
-
-#### Scenario: Lease expires
-- **WHEN** agent A took the lease on `x.go` and does not release it
-- **THEN** agent B's edit of `x.go` proceeds once A's lease is 15 seconds old, and B's edit is recorded as uncertain
-
-#### Scenario: File held past the wait
-- **WHEN** other stages hold leases on `x.go` without a gap for 20 seconds of agent B's wait
-- **THEN** B's edit is blocked with exit code 2 and the message `x.go is being edited by stage <holder>. Wait a moment and make the edit again.`
-
-### Requirement: Uncertain edits
-When a lease expires and another stage takes the file before the edit is recorded, the edits of both stages SHALL be recorded as uncertain, and `add --edits` SHALL refuse them.
-
-#### Scenario: Lease expires during a permission prompt
-- **WHEN** agent A's lease expires during a long prompt and agent B then edits the file
-- **THEN** `add --edits` refuses the uncertain records
-
 ### Requirement: Stage recorded edits
-`add --edits [<path>...]` SHALL apply the recorded edits, oldest first, to the stage's index. Each edit SHALL be placed at its own lines, so other writers' changes stay out, even on neighbouring lines. If any record cannot apply, the command SHALL stage nothing: an erased edit or an uncertain record SHALL fail with error kind `edit-lost`, and a record that does not fit the stage index SHALL fail with `edit-conflict`. On success the records SHALL be deleted.
+`add --edits [<path>...]` SHALL apply the recorded edits, oldest first, to the stage's index, from the records alone and whatever the working tree now holds. Each edit SHALL be placed at its own lines, so other writers' changes stay out, even on neighbouring lines. If any record does not fit the stage's index, the command SHALL stage nothing and SHALL fail with error kind `edit-conflict`. On success the records SHALL be deleted.
 
 #### Scenario: Edits next to another agent's edits
 - **WHEN** agent A edited line 5 and agent B edited line 6 of one file
 - **THEN** agent A's `add --edits` stages only line 5
 
 #### Scenario: Edit erased
-- **WHEN** a later write removed the lines that a recorded edit added
-- **THEN** `add --edits` fails with `edit-lost` and stages nothing
+- **WHEN** agent A changed line 5 to `a`, agent B then changed line 5 to `b`, and A runs `add --edits`
+- **THEN** A's stage holds `a` on line 5, and the working tree still holds `b`
+
+#### Scenario: File deleted on disk
+- **WHEN** agent A edited `x.go`, another writer then deleted `x.go`, and A runs `add --edits`
+- **THEN** A's stage holds `x.go` with A's edit
+
+#### Scenario: Edit of lines that another stage has not committed
+- **WHEN** agent B added a function to `x.go` and has not committed it, agent A changed a line inside that function, and A runs `add --edits`
+- **THEN** the command fails with `edit-conflict`, stages nothing, and keeps A's records
+
+#### Scenario: Edit of lines that another stage then committed
+- **WHEN** agent B added a function to `x.go`, agent A changed a line inside it, B commits, and A then runs `add --edits`
+- **THEN** A's stage holds A's change of that line
 
 ### Requirement: Recorded edits and ignored or linked files
 A recorded new file that `.gitignore` ignores SHALL need `add --edits -f`. An edit through a symbolic link SHALL be recorded for the link's target.
@@ -108,19 +98,26 @@ In Claude Code and in Codex, the model SHALL receive the session start notice be
 - **THEN** the model can quote the shared-checkout notice before its first tool call
 
 ### Requirement: Failed edits
-On a `PostToolUseFailure` event, the hook SHALL release the leases and delete the pending records of the call, and SHALL record nothing.
+On a `PostToolUseFailure` event, the hook SHALL delete the pending record of the call and SHALL record nothing.
 
 #### Scenario: Edit fails
 - **WHEN** an `Edit` fails after its `PreToolUse` and the editor sends `PostToolUseFailure`
-- **THEN** no edit is recorded, and another stage's next edit of the file is not uncertain
+- **THEN** no edit is recorded
 
-### Requirement: Deletion next to a later change
-`add --edits` SHALL treat a recorded deletion as lost only when a later change on disk, at the point of the deletion, adds back at least one of the deleted lines. A later change of a neighbouring line that adds none of them SHALL leave the deletion in effect.
+### Requirement: Recorded change of a tool call
+The hook SHALL record only the change that the tool call made, without locking the file. A change that another writer makes to the file during the call SHALL stay out of the record.
 
-#### Scenario: Neighbour line changed after a deletion
-- **WHEN** agent `s` deletes lines `c` and `d` of `a b c d e` with a hooked edit, agent `t` then changes `e` to `E`, and `s` runs `add --edits`
-- **THEN** the command stages the deletion, and the commit holds `a b e`
+#### Scenario: Two agents edit one file at the same time
+- **WHEN** agent A's `Edit` of line 2 and agent B's `Edit` of line 8 of one file run at the same time
+- **THEN** neither edit waits, A's record holds only the line 2 change, and B's record holds only the line 8 change
 
-#### Scenario: Deleted line put back with a neighbour change
-- **WHEN** agent `s` deletes a line with a hooked edit, and a later change puts that line back and also changes the line next to it
-- **THEN** `add --edits` fails with `edit-lost` and stages nothing
+#### Scenario: Another writer changes the file during a Codex patch
+- **WHEN** another writer changes line 9 of `f.txt` between the PreToolUse and PostToolUse events of a Codex `apply_patch` that changes line 2
+- **THEN** the record holds only the line 2 change
+
+### Requirement: Source of a recorded change
+For Claude Code `Edit`, `MultiEdit`, and `Write`, the hook SHALL record the change from the original content in the tool response to the content that the tool wrote, or from the file before the call when the response holds no original content. For Codex `apply_patch`, it SHALL record the change from the file before the call to that content with the patch applied.
+
+#### Scenario: Claude Code edit
+- **WHEN** a Claude Code `Edit` response holds original content `one two three` and a patch that changes `two` to `TWO`
+- **THEN** the record changes `one two three` to `one TWO three`, whatever the file on disk holds after the call
