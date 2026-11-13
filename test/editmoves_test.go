@@ -244,3 +244,47 @@ func TestAddEditsFollowsARenameForARecordWithoutTip(t *testing.T) {
 		t.Fatalf("stage claude-a holds %v", got)
 	}
 }
+
+func TestAddEditsOfAnotherStagesNewFile(t *testing.T) {
+	r := committedRepo(t, map[string]string{"o.go": "o\n"})
+	r.write("new.go", "one\ntwo\n")
+	r.mustMS("b", "add", "new.go")
+	r.hookedEdit("a", "", "new.go", "one\nTWO\n")
+	var out struct {
+		Error struct{ Kind string } `json:"error"`
+	}
+	decode(t, r.expectCode(3, "", "--stage", "claude-a", "add", "--edits", "--json"), &out)
+	if out.Error.Kind != "edit-conflict" {
+		t.Fatalf("kind %q", out.Error.Kind)
+	}
+	if st := r.mustMS("", "--stage", "claude-a", "status").out; !strings.Contains(st, "recorded edits") || !strings.Contains(st, "new.go") {
+		t.Fatalf("the records are gone:\n%s", st)
+	}
+}
+
+func TestAddEditsOfAnUntrackedFileOnAnUnbornBranch(t *testing.T) {
+	r := &repo{t: t, dir: t.TempDir()}
+	r.git("init", "-q")
+	r.write("n.go", "one\n")
+	r.hookedEdit("a", "", "n.go", "two\n")
+	var out struct {
+		Error struct{ Kind string } `json:"error"`
+	}
+	decode(t, r.expectCode(3, "", "--stage", "claude-a", "add", "--edits", "--json"), &out)
+	if out.Error.Kind != "edit-conflict" {
+		t.Fatalf("kind %q", out.Error.Kind)
+	}
+}
+
+func TestRmForgetsTheRecordsThatFollowAMoveToTheDeletedPath(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": twenty, "w.go": "w\n"})
+	r.recordLineOne("a", "x.go")
+	r.moveAndRewrite("b", "x.go", "y.go", false)
+	r.mustMS("", "--stage", "claude-a", "rm", "-f", "y.go")
+	r.mustMS("", "--stage", "claude-a", "commit", "-m", "a deletes y")
+	r.hookedEdit("a", "", "w.go", "w\nedited\n")
+	r.mustMS("", "--stage", "claude-a", "add", "--edits")
+	if got := r.stagedStatus("claude-a"); !eq(got, []string{"M w.go"}) {
+		t.Fatalf("stage claude-a holds %v", got)
+	}
+}

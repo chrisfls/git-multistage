@@ -188,7 +188,8 @@ func (l *Stage) AddEdits(paths []string, force bool, recreate []string) ([]strin
 // stage's index no longer holds went is worked out once, from its oldest
 // record, and applies to every record of the path: a moved path is applied
 // at its new path, a path that the stage itself deleted drops its records,
-// and a path that a commit deleted fails with path-deleted. The records
+// a path that a commit deleted fails with path-deleted, and a path that no
+// commit deleted fails with edit-conflict. The records
 // of a deleted path of recreate become one record that creates the file
 // with the content of the newest of them.
 func (l *Stage) followRecords(chosen []EditRecord, recreate []string) ([]EditRecord, error) {
@@ -206,8 +207,10 @@ func (l *Stage) followRecords(chosen []EditRecord, recreate []string) ([]EditRec
 			return nil, err
 		case ok:
 			moved[rec.Path] = n
-		case deleting == "":
+		case deleting == "" && n == "":
 			dropped[rec.Path] = true
+		case deleting == "":
+			g.unheld = append(g.unheld, rec.Path+": the stage does not hold this file, and no commit on the branch deleted it")
 		case slices.Contains(recreate, rec.Path):
 			recreated[rec.Path] = true
 		default:
@@ -259,30 +262,36 @@ func (l *Stage) gonePaths(chosen []EditRecord) ([]EditRecord, error) {
 // followPath follows rec.Path through the commits that the branch reached
 // after the record, then through the stage's own moves. It returns the final
 // path when the stage's index holds it. Otherwise it returns the commit that
-// deleted the path, or "" when the stage deleted a followed path that its
-// base holds.
+// deleted the path; or "" and "" when the stage deleted a followed path that
+// its base holds; or the path and "" when no commit removed the path.
 func (l *Stage) followPath(rec EditRecord) (string, bool, string, error) {
 	p, deleting, err := l.followCommits(rec)
 	if err != nil || deleting != "" {
 		return "", false, deleting, err
 	}
-	for _, m := range l.M.Moves {
+	p = followStageMoves(p, l.M.Moves)
+	if p == rec.Path {
+		return p, false, "", nil
+	}
+	_, held, err := l.r.lsIndex(l.IndexPath(), p)
+	if err != nil || held {
+		return p, held, "", err
+	}
+	_, onBase, err := l.r.lsTree(l.M.Base, p)
+	if err != nil || onBase {
+		return "", false, "", err
+	}
+	return p, false, "", nil
+}
+
+// followStageMoves returns the path where the stage's moves put p.
+func followStageMoves(p string, moves []Move) string {
+	for _, m := range moves {
 		if m.Old == p {
-			p = m.New
-			break
+			return m.New
 		}
 	}
-	if p != rec.Path {
-		_, held, err := l.r.lsIndex(l.IndexPath(), p)
-		if err != nil || held {
-			return p, held, "", err
-		}
-		_, onBase, err := l.r.lsTree(l.M.Base, p)
-		if err != nil || onBase {
-			return "", false, "", err
-		}
-	}
-	return "", false, "a commit on the branch", nil
+	return p
 }
 
 // followCommits follows rec.Path through the commits that the branch
@@ -290,6 +299,10 @@ func (l *Stage) followPath(rec EditRecord) (string, bool, string, error) {
 // written by an earlier version, follows the commits dated after the record.
 func (l *Stage) followCommits(rec EditRecord) (string, string, error) {
 	if rec.Tip == "" {
+		tip, err := l.r.ResolveRef(l.M.Branch)
+		if err != nil || tip == "" {
+			return rec.Path, "", err // an unborn branch has no commits
+		}
 		return l.r.followRemoval(rec.Path, "", fmt.Sprintf("--since=%d", rec.Time.Unix()-1), l.M.Branch)
 	}
 	return l.r.followRemoval(rec.Path, rec.Tip, "", l.M.Branch)
@@ -373,15 +386,22 @@ func (r *Repo) movedIn(c, p string) (string, error) {
 	return "", nil
 }
 
-// goneRecords collects the records of files that a commit deleted.
+// goneRecords collects the records of files that a commit deleted, and of
+// files that no commit deleted and the stage does not hold.
 type goneRecords struct {
 	paths, details []string
+	unheld         []string              // the details of the files that no commit deleted
 	newest         map[string]EditRecord // the newest record of each path to recreate
 }
 
-// finish fails with path-deleted when a deleted path is not recreated, and
-// otherwise adds to out one record that creates each recreated file.
+// finish fails with edit-conflict for a file that no commit deleted and the
+// stage does not hold, then with path-deleted when a deleted path is not
+// recreated, and otherwise adds to out one record that creates each
+// recreated file.
 func (g *goneRecords) finish(out []EditRecord, recreate []string) ([]EditRecord, error) {
+	if len(g.unheld) > 0 {
+		return nil, editConflict(g.unheld)
+	}
 	if len(g.paths) > 0 {
 		return nil, &Error{
 			Code: ExitConflict, Kind: "path-deleted",
@@ -431,14 +451,19 @@ func (r *Repo) applyRecords(idx string, chosen []EditRecord, force bool) (map[st
 		staged[rec.Path] = true
 	}
 	if len(failed) > 0 {
-		return nil, &Error{
-			Code: ExitConflict, Kind: "edit-conflict",
-			Message: "some recorded edits do not fit the stage; nothing was staged", Details: failed,
-			Hint: "an edit that changes lines another stage has not committed yet fits once that stage commits; " +
-				"or stage those files with `hunks` and `add --hunk`, or forget the records with `git multistage drop --edits <path>`",
-		}
+		return nil, editConflict(failed)
 	}
 	return staged, nil
+}
+
+// editConflict is the error of recorded edits that do not fit the stage.
+func editConflict(details []string) *Error {
+	return &Error{
+		Code: ExitConflict, Kind: "edit-conflict",
+		Message: "some recorded edits do not fit the stage; nothing was staged", Details: details,
+		Hint: "an edit that changes lines another stage has not committed yet fits once that stage commits; " +
+			"or stage those files with `hunks` and `add --hunk`, or forget the records with `git multistage drop --edits <path>`",
+	}
 }
 
 // purgeAppliedEdits deletes the edit records that the current index already

@@ -129,7 +129,7 @@ func (l *Stage) finishPending(i int) error {
 func (l *Stage) finishDisk(i int) error {
 	d := l.M.PendingDisk[i]
 	if d.Command == cmdRm {
-		if _, err := l.DropEdits(d.Paths); err != nil {
+		if err := l.dropEditsOf(d.Paths); err != nil {
 			return err
 		}
 	}
@@ -496,6 +496,49 @@ func dropMoves(moves []Move, paths []string) []Move {
 		}
 	}
 	return out
+}
+
+// dropEditsOf forgets the recorded edits of paths, and those of a path that
+// the stage's index does not hold and that the branch's commits and the
+// stage's moves took to one of paths.
+func (l *Stage) dropEditsOf(paths []string) error {
+	recs, err := l.records()
+	if err != nil {
+		return err
+	}
+	drop := map[string]bool{}
+	for _, rec := range recs {
+		d, seen := drop[rec.Path]
+		if !seen {
+			if d, err = l.followsTo(rec, paths); err != nil {
+				return err
+			}
+			drop[rec.Path] = d
+		}
+		if d {
+			if err := os.Remove(filepath.Join(editsDir(l.Dir), rec.file)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// followsTo reports whether rec edits one of paths, directly or through the
+// commits and the stage's moves that took its path, which the stage's index
+// does not hold, to one of them.
+func (l *Stage) followsTo(rec EditRecord, paths []string) (bool, error) {
+	if slices.Contains(paths, rec.Path) {
+		return true, nil
+	}
+	if _, held, err := l.r.lsIndex(l.IndexPath(), rec.Path); err != nil || held {
+		return false, err
+	}
+	p, deleting, err := l.followCommits(rec)
+	if err != nil || deleting != "" {
+		return false, err
+	}
+	return slices.Contains(paths, followStageMoves(p, l.M.Moves)), nil
 }
 
 // moveRecords makes the pending edit records of oldp name newp.
