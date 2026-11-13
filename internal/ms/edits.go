@@ -126,53 +126,12 @@ func (l *Stage) AddEdits(paths []string, force bool) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	want := map[string]bool{}
-	for _, p := range paths {
-		want[p] = true
-	}
-	var chosen []EditRecord
-	for _, r := range recs {
-		if len(want) == 0 || want[r.Path] {
-			chosen = append(chosen, r)
-		}
-	}
+	chosen := chooseRecords(recs, paths)
 	if len(chosen) == 0 {
 		return nil, errorf(ExitError, "no-edits", "no recorded edits to stage")
 	}
-	// The newest record of each path must still be on disk.
-	last := map[string]EditRecord{}
-	for _, r := range chosen {
-		last[r.Path] = r
-	}
-	var lost, uncertain []string
-	for p, r := range last {
-		ok, err := l.r.editOnDisk(l.IndexPath(), r)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			lost = append(lost, p)
-		}
-	}
-	for _, r := range chosen {
-		if r.Uncertain {
-			uncertain = append(uncertain, r.Path)
-		}
-	}
-	if len(lost) > 0 || len(uncertain) > 0 {
-		sort.Strings(lost)
-		e := &Error{
-			Code: ExitConflict, Kind: "edit-lost",
-			Message: "some recorded edits cannot be staged safely; nothing was staged",
-			Hint:    "redo the edit, or stage the file with `hunks` and `add --hunk`; `git multistage drop --edits <path>` forgets the records",
-		}
-		for _, p := range lost {
-			e.Details = append(e.Details, p+": the file no longer holds the edit (another writer changed those lines)")
-		}
-		for _, p := range uncertain {
-			e.Details = append(e.Details, p+": another writer may have changed the file during the edit")
-		}
-		return nil, e
+	if err := l.checkRecordsSafe(chosen); err != nil {
+		return nil, err
 	}
 
 	// Apply the records to a copy of the index that becomes current only
@@ -188,25 +147,9 @@ func (l *Stage) AddEdits(paths []string, force bool) ([]string, error) {
 			_ = os.Remove(idx)
 		}
 	}()
-	var failed []string
-	staged := map[string]bool{}
-	for _, r := range chosen {
-		if err := l.r.applyRecord(idx, r, force); err != nil {
-			var e *Error
-			if errors.As(err, &e) {
-				failed = append(failed, r.Path+": "+e.Message)
-				continue
-			}
-			return nil, err
-		}
-		staged[r.Path] = true
-	}
-	if len(failed) > 0 {
-		return nil, &Error{
-			Code: ExitConflict, Kind: "edit-conflict",
-			Message: "some recorded edits do not fit the stage; nothing was staged", Details: failed,
-			Hint: "stage those files with `hunks` and `add --hunk`, or forget the records with `git multistage drop --edits <path>`",
-		}
+	staged, err := l.r.applyRecords(idx, chosen, force)
+	if err != nil {
+		return nil, err
 	}
 	// The metadata save that adopts the index also names the applied
 	// records, so a crash before their deletion cannot apply them twice.
@@ -230,6 +173,87 @@ func (l *Stage) AddEdits(paths []string, force bool) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// chooseRecords returns the records of the given paths (all when none).
+func chooseRecords(recs []EditRecord, paths []string) []EditRecord {
+	want := map[string]bool{}
+	for _, p := range paths {
+		want[p] = true
+	}
+	var chosen []EditRecord
+	for _, r := range recs {
+		if len(want) == 0 || want[r.Path] {
+			chosen = append(chosen, r)
+		}
+	}
+	return chosen
+}
+
+// checkRecordsSafe fails with edit-lost when the newest record of a path is
+// no longer on disk, or when a record is uncertain.
+func (l *Stage) checkRecordsSafe(chosen []EditRecord) error {
+	last := map[string]EditRecord{}
+	for _, r := range chosen {
+		last[r.Path] = r
+	}
+	var lost, uncertain []string
+	for p, r := range last {
+		ok, err := l.r.editOnDisk(l.IndexPath(), r)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			lost = append(lost, p)
+		}
+	}
+	for _, r := range chosen {
+		if r.Uncertain {
+			uncertain = append(uncertain, r.Path)
+		}
+	}
+	if len(lost) == 0 && len(uncertain) == 0 {
+		return nil
+	}
+	sort.Strings(lost)
+	e := &Error{
+		Code: ExitConflict, Kind: "edit-lost",
+		Message: "some recorded edits cannot be staged safely; nothing was staged",
+		Hint:    "redo the edit, or stage the file with `hunks` and `add --hunk`; `git multistage drop --edits <path>` forgets the records",
+	}
+	for _, p := range lost {
+		e.Details = append(e.Details, p+": the file no longer holds the edit (another writer changed those lines)")
+	}
+	for _, p := range uncertain {
+		e.Details = append(e.Details, p+": another writer may have changed the file during the edit")
+	}
+	return e
+}
+
+// applyRecords applies the records to the index file idx, and returns the
+// paths it staged. It fails with edit-conflict when any record does not fit.
+func (r *Repo) applyRecords(idx string, chosen []EditRecord, force bool) (map[string]bool, error) {
+	var failed []string
+	staged := map[string]bool{}
+	for _, rec := range chosen {
+		if err := r.applyRecord(idx, rec, force); err != nil {
+			var e *Error
+			if errors.As(err, &e) {
+				failed = append(failed, rec.Path+": "+e.Message)
+				continue
+			}
+			return nil, err
+		}
+		staged[rec.Path] = true
+	}
+	if len(failed) > 0 {
+		return nil, &Error{
+			Code: ExitConflict, Kind: "edit-conflict",
+			Message: "some recorded edits do not fit the stage; nothing was staged", Details: failed,
+			Hint: "stage those files with `hunks` and `add --hunk`, or forget the records with `git multistage drop --edits <path>`",
+		}
+	}
+	return staged, nil
 }
 
 // purgeAppliedEdits deletes the edit records that the current index already
@@ -282,26 +306,9 @@ func (r *Repo) applyRecord(idx string, rec EditRecord, force bool) error {
 	}
 	switch {
 	case rec.After == "": // deletion
-		if !inIndex {
-			return nil
-		}
-		if cur.oid != rec.Before {
-			return errorf(ExitConflict, "edit-conflict", "the deleted file differs in the stage from what was deleted")
-		}
-		_, err := r.Run(gitx.Opt{Index: idx}, "update-index", "--force-remove", "--", rec.Path)
-		return err
+		return r.applyDeletion(idx, rec, cur, inIndex)
 	case !inIndex && rec.Before == "": // a new file
-		if !force {
-			// Like `git add`, an ignored file needs --force.
-			_, err := r.Run(gitx.Opt{Index: idx, Env: []string{"GIT_LITERAL_PATHSPECS=0"}}, "check-ignore", "-q", "--", rec.Path)
-			if err == nil {
-				return errorf(ExitConflict, "edit-conflict", "the file is ignored by .gitignore; pass -f to stage it")
-			}
-			if gitx.ExitCode(err) != 1 {
-				return err
-			}
-		}
-		return r.setIndexBlob(idx, rec.Path, rec.Mode, rec.After)
+		return r.applyNewFile(idx, rec, force)
 	case !inIndex:
 		return errorf(ExitConflict, "edit-conflict", "the file is not in the stage; it was created by another writer")
 	}
@@ -311,35 +318,72 @@ func (r *Repo) applyRecord(idx string, rec EditRecord, force bool) error {
 	if cur.oid == rec.Before {
 		return r.setIndexBlob(idx, rec.Path, cur.mode, rec.After)
 	}
-	before := rec.Before
-	if before == "" {
-		before = r.EmptyBlob
-	}
-	mine, err := r.diffBlobs(rec.Path, before, rec.After)
-	if err != nil {
-		return errorf(ExitConflict, "edit-conflict", "binary content cannot be replayed")
-	}
-	theirs, err := r.diffBlobs(rec.Path, before, cur.oid)
-	if err != nil {
-		return errorf(ExitConflict, "edit-conflict", "binary content cannot be replayed")
-	}
-	beforeContent, err := r.blobContent(rec.Before)
+	out, err := r.replayRecord(rec, cur.oid)
 	if err != nil {
 		return err
-	}
-	curContent, err := r.catBlob(cur.oid)
-	if err != nil {
-		return err
-	}
-	out, ok := replayLines(beforeContent, curContent, mine, theirs)
-	if !ok {
-		return errorf(ExitConflict, "edit-conflict", "the edit overlaps lines that differ between the stage and the file")
 	}
 	oid, err := r.Line(gitx.Opt{Stdin: strings.NewReader(string(out))}, "hash-object", "-w", "--stdin")
 	if err != nil {
 		return err
 	}
 	return r.setIndexBlob(idx, rec.Path, cur.mode, oid)
+}
+
+// applyDeletion applies a recorded deletion to the index entry cur.
+func (r *Repo) applyDeletion(idx string, rec EditRecord, cur indexEntry, inIndex bool) error {
+	if !inIndex {
+		return nil
+	}
+	if cur.oid != rec.Before {
+		return errorf(ExitConflict, "edit-conflict", "the deleted file differs in the stage from what was deleted")
+	}
+	_, err := r.Run(gitx.Opt{Index: idx}, "update-index", "--force-remove", "--", rec.Path)
+	return err
+}
+
+// applyNewFile stages a file that the recorded edit created.
+func (r *Repo) applyNewFile(idx string, rec EditRecord, force bool) error {
+	if !force {
+		// Like `git add`, an ignored file needs --force.
+		_, err := r.Run(gitx.Opt{Index: idx, Env: []string{"GIT_LITERAL_PATHSPECS=0"}}, "check-ignore", "-q", "--", rec.Path)
+		if err == nil {
+			return errorf(ExitConflict, "edit-conflict", "the file is ignored by .gitignore; pass -f to stage it")
+		}
+		if gitx.ExitCode(err) != 1 {
+			return err
+		}
+	}
+	return r.setIndexBlob(idx, rec.Path, rec.Mode, rec.After)
+}
+
+// replayRecord places the lines of the recorded edit into the stage's
+// blob cur, which differs from the record's before-content.
+func (r *Repo) replayRecord(rec EditRecord, cur string) ([]byte, error) {
+	before := rec.Before
+	if before == "" {
+		before = r.EmptyBlob
+	}
+	mine, err := r.diffBlobs(rec.Path, before, rec.After)
+	if err != nil {
+		return nil, errorf(ExitConflict, "edit-conflict", "binary content cannot be replayed")
+	}
+	theirs, err := r.diffBlobs(rec.Path, before, cur)
+	if err != nil {
+		return nil, errorf(ExitConflict, "edit-conflict", "binary content cannot be replayed")
+	}
+	beforeContent, err := r.blobContent(rec.Before)
+	if err != nil {
+		return nil, err
+	}
+	curContent, err := r.catBlob(cur)
+	if err != nil {
+		return nil, err
+	}
+	out, ok := replayLines(beforeContent, curContent, mine, theirs)
+	if !ok {
+		return nil, errorf(ExitConflict, "edit-conflict", "the edit overlaps lines that differ between the stage and the file")
+	}
+	return out, nil
 }
 
 // addsBack reports whether later adds any line that the deletion removed.
@@ -391,36 +435,37 @@ func (r *Repo) editOnDisk(idx string, rec EditRecord) (bool, error) {
 	if err != nil {
 		return false, nil //nolint:nilerr // hunks that cannot be compared, such as binary content, cannot show that the edit survived
 	}
-	// mine's added lines occupy [NewStart-1, NewStart-1+NewLines) of After;
-	// a later change that removes any of them, or inserts inside them,
-	// overwrote the edit. A deletion adds no lines: it sits between lines
-	// NewStart and NewStart+1 of After. A later change there puts the
-	// deletion back when it adds any of the deleted lines: an insertion after
-	// line NewStart, or a replacement whose old lines include line NewStart
-	// or NewStart+1. A change of a neighbouring line alone adds none of them.
 	for _, h := range mine {
-		lo, hi := h.NewStart-1, h.NewStart-1+h.NewLines
 		for _, d := range later {
-			if h.NewLines == 0 {
-				if d.NewLines == 0 {
-					continue
-				}
-				atPoint := d.OldLines == 0 && d.OldStart == h.NewStart ||
-					d.OldLines > 0 && d.OldStart <= h.NewStart+1 && h.NewStart <= d.OldStart+d.OldLines-1
-				if atPoint && addsBack(d, h) {
-					return false, nil
-				}
-				continue
-			}
-			if d.OldLines > 0 {
-				dlo, dhi := d.OldStart-1, d.OldStart-1+d.OldLines
-				if dlo < hi && lo < dhi {
-					return false, nil
-				}
-			} else if lo < d.OldStart && d.OldStart < hi {
+			if overwrites(d, h) {
 				return false, nil
 			}
 		}
 	}
 	return true, nil
+}
+
+// overwrites reports whether the later change d undid the recorded hunk h.
+// h's added lines occupy [NewStart-1, NewStart-1+NewLines) of After; a later
+// change that removes any of them, or inserts inside them, overwrote the
+// edit. A deletion adds no lines: it sits between lines NewStart and
+// NewStart+1 of After. A later change there puts the deletion back when it
+// adds any of the deleted lines: an insertion after line NewStart, or a
+// replacement whose old lines include line NewStart or NewStart+1. A change
+// of a neighbouring line alone adds none of them.
+func overwrites(d, h hunks.Hunk) bool {
+	if h.NewLines == 0 {
+		if d.NewLines == 0 {
+			return false
+		}
+		atPoint := d.OldLines == 0 && d.OldStart == h.NewStart ||
+			d.OldLines > 0 && d.OldStart <= h.NewStart+1 && h.NewStart <= d.OldStart+d.OldLines-1
+		return atPoint && addsBack(d, h)
+	}
+	lo, hi := h.NewStart-1, h.NewStart-1+h.NewLines
+	if d.OldLines > 0 {
+		dlo, dhi := d.OldStart-1, d.OldStart-1+d.OldLines
+		return dlo < hi && lo < dhi
+	}
+	return lo < d.OldStart && d.OldStart < hi
 }

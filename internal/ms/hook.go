@@ -111,9 +111,18 @@ func runEditHook(kind string, stdin io.Reader, stdout, stderr io.Writer, stageFl
 	if len(files) == 0 {
 		return 0
 	}
-	// --stage in the hook command wins. A subagent always records into its
-	// own stage; GIT_MULTISTAGE_ID, inherited by every subagent, names only
-	// the main session's stage, so it can never merge subagents into one.
+	id := hookStageID(kind, in, stageFlag)
+	if id == "" {
+		return 0
+	}
+	return runEvent(in.Event, newEditHooks(in, id, files, stderr), stdout, stderr)
+}
+
+// hookStageID returns the stage that the edit is recorded in, or "". --stage
+// in the hook command wins. A subagent always records into its own stage;
+// GIT_MULTISTAGE_ID, inherited by every subagent, names only the main
+// session's stage, so it can never merge subagents into one.
+func hookStageID(kind string, in hookInput, stageFlag string) string {
 	id := stageFlag
 	if id == "" && in.AgentID != "" {
 		id = sanitizeID(kind + "-" + in.AgentID)
@@ -124,9 +133,13 @@ func runEditHook(kind string, stdin io.Reader, stdout, stderr io.Writer, stageFl
 	if id == "" && in.SessionID != "" {
 		id = sanitizeID(kind + "-" + in.SessionID)
 	}
-	if id == "" {
-		return 0
-	}
+	return id
+}
+
+// newEditHooks returns one hook for each edited file in a Git worktree,
+// sorted by lease file, so that two multi-file edits never wait for each
+// other's leases in a cycle.
+func newEditHooks(in hookInput, id string, files []string, stderr io.Writer) []*editHook {
 	var hooks []*editHook
 	seen := map[string]bool{}
 	for _, f := range files {
@@ -140,10 +153,14 @@ func runEditHook(kind string, stdin io.Reader, stdout, stderr io.Writer, stageFl
 			hooks = append(hooks, h)
 		}
 	}
-	// Lease files in one order, so that two multi-file edits never wait for
-	// each other's leases in a cycle.
 	sort.Slice(hooks, func(i, j int) bool { return hooks[i].leasePath() < hooks[j].leasePath() })
-	switch in.Event {
+	return hooks
+}
+
+// runEvent runs the hooks for a PreToolUse, PostToolUse, or
+// PostToolUseFailure event, and returns the exit code.
+func runEvent(event string, hooks []*editHook, stdout, stderr io.Writer) int {
+	switch event {
 	case "PreToolUse":
 		for i, h := range hooks {
 			if code := h.before(stderr); code != 0 {
@@ -356,11 +373,7 @@ func (h *editHook) after(stdout, stderr io.Writer, succeeded bool) {
 	}
 	rec := EditRecord{Path: h.path, Before: p.Before, After: after, Tool: h.in.Tool, Uncertain: !held || p.TookOver, Time: time.Now().UTC()}
 	if after != "" {
-		rec.Mode = "100644"
-		if info, err := os.Stat(filepath.Join(h.r.Top, filepath.FromSlash(h.path))); err == nil &&
-			info.Mode()&0o111 != 0 && h.r.configBool("core.fileMode", true) {
-			rec.Mode = "100755"
-		}
+		rec.Mode = h.fileMode()
 	}
 	if err := writeRecord(h.stageDir, rec); err != nil {
 		fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
@@ -370,7 +383,20 @@ func (h *editHook) after(stdout, stderr io.Writer, succeeded bool) {
 	if st, err := h.r.openStage(h.stage, false, 10*time.Second); err == nil {
 		st.Close()
 	}
-	// Tell the agent its stage ID once.
+	h.announceStage(stdout)
+}
+
+// fileMode returns the index mode of the edited file on disk.
+func (h *editHook) fileMode() string {
+	if info, err := os.Stat(filepath.Join(h.r.Top, filepath.FromSlash(h.path))); err == nil &&
+		info.Mode()&0o111 != 0 && h.r.configBool("core.fileMode", true) {
+		return "100755"
+	}
+	return "100644"
+}
+
+// announceStage tells the agent its stage ID, once per stage.
+func (h *editHook) announceStage(stdout io.Writer) {
 	marker := filepath.Join(h.stageDir, "announced")
 	if _, err := os.Stat(marker); err == nil {
 		return
