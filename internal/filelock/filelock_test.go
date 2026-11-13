@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -30,6 +31,9 @@ func TestExclusive(t *testing.T) {
 // end up holding the file at the lock path, not the renamed file, so that a
 // later process that locks the path waits for it.
 func TestLockFollowsThePath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows cannot rename an open file, so a lock file never moves while a waiter holds it open")
+	}
 	dir := t.TempDir()
 	p := filepath.Join(dir, "lock")
 	a, err := Acquire(p, time.Second)
