@@ -11,8 +11,8 @@
 
 ## 3. Check the baseline against the code
 
-- [ ] 3.1 Check each requirement and scenario of the nine spec deltas against `internal/`, `cmd/`, and `test/`, and verify that every mismatch is fixed in the spec to match the code, or listed for the user as an open question
-- [ ] 3.2 Run `openspec validate adopt-openspec --strict` after the fixes and verify that it passes
+- [x] 3.1 Check each requirement and scenario of the nine spec deltas against `internal/`, `cmd/`, and `test/`, and verify that every mismatch is fixed in the spec to match the code, or listed for the user as an open question
+- [x] 3.2 Run `openspec validate adopt-openspec --strict` after the fixes and verify that it passes
 
 ## 4. Replace the docs
 

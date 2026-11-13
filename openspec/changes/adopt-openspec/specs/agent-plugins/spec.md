@@ -14,11 +14,15 @@ The repository SHALL provide a Claude Code plugin and marketplace (`.claude-plug
 - **THEN** Claude Code installs the hooks and the `git-multistage` skill
 
 ### Requirement: Plugin hooks
-The plugin's hooks file SHALL run `git multistage hook` before and after `Edit`, `MultiEdit`, `Write`, and `apply_patch`.
+The plugin's hooks file SHALL run `git multistage hook` at `SessionStart`, and before and after `Edit`, `MultiEdit`, `Write`, and `apply_patch`.
 
 #### Scenario: Edit in a plugin session
 - **WHEN** an agent with the plugin installed edits a file with `Edit`
 - **THEN** the edit is recorded in the agent's stage
+
+#### Scenario: Session start in a plugin session
+- **WHEN** a session with the plugin installed starts in a Git worktree
+- **THEN** the agent receives the shared-checkout notice
 
 ### Requirement: Agent guide skill
 The plugin SHALL provide a `git-multistage` skill, with `name` and `description` in its front matter, that teaches an agent its stage ID, the staging and commit commands, and what to do when a command fails.

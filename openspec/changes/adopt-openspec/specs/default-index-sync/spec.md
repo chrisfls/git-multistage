@@ -28,12 +28,24 @@ A default-index entry that equals neither the parent's nor the commit's version 
 - **THEN** the default index is unchanged and the reflog entry says `index not synced`
 
 ### Requirement: Sync command
-`sync` SHALL bring the default index up to the branch tip and keep entries staged by hand. It SHALL work out the commit that the index matches when it can tell. Otherwise it SHALL need `--from <commit>`.
+`sync` SHALL move the default index from a start commit to the branch tip and keep entries that match neither version. Without `--from`, the start SHALL be the commit of the last sync if the index is unchanged since, else the newest of the last 200 first-parent commits whose tree equals the index, and only if each branch update since left the index alone (`update-ref` without `-m`, or a stage commit with sync off). Otherwise `sync` SHALL exit with code 1 and hint at `--from`.
 
 #### Scenario: Index left behind by update-ref
-- **WHEN** a plain `git update-ref` moved the branch and the index exactly matches the old commit
+- **WHEN** `git update-ref` without `-m` moved the branch and the index exactly matches the old commit
 - **THEN** `sync` brings the index up to the tip without `--from`
 
-#### Scenario: Unknown starting point
-- **WHEN** the index matches no known commit
-- **THEN** `sync` fails and asks for `--from <commit>`
+#### Scenario: Entry staged by hand since the last sync
+- **WHEN** a person ran `git add` after the last sync, so the index matches no commit
+- **THEN** `sync` exits with code 1 and its hint names `--from <commit>`
+
+#### Scenario: Branch moved by a logged update
+- **WHEN** the index exactly matches an older commit, and an update with a reflog message moved the branch since
+- **THEN** `sync` exits with code 1 and its hint names `--from <commit>`
+
+#### Scenario: Explicit start commit
+- **WHEN** a person ran `git add x.go` and the user runs `sync --from <commit>` with the commit that the rest of the index matches
+- **THEN** `sync` exits with code 0, brings the other entries to the tip, and keeps the entry of `x.go`
+
+#### Scenario: Start commit outside the history
+- **WHEN** `sync --from <commit>` names a commit that is not an ancestor of the tip
+- **THEN** `sync` exits with code 0, leaves the index unchanged, and prints a warning

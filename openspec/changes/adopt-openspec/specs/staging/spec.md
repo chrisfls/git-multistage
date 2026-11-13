@@ -7,7 +7,7 @@ Staging puts chosen changes from the shared working tree into one stage's index,
 ## ADDED Requirements
 
 ### Requirement: Stage whole files
-`add <path>...` SHALL stage whole files as `git add` does, with ignore rules, attributes, filters, deletions, renames (both paths given), and binary files. Ignored files SHALL need `-f`. Only the stage's own index SHALL change.
+`add <path>...` SHALL stage whole files as `git add` does, with ignore rules, attributes, filters, deletions, renames (both paths given), and binary files, but SHALL take each path literally, without pathspec globs or magic. An ignored file SHALL need `-f`; without it the command SHALL exit with code 1 and stage nothing. Only the stage's own index SHALL change.
 
 #### Scenario: Stage a modified file
 - **WHEN** the user runs `git multistage --stage a add src/login.ts`
@@ -15,7 +15,11 @@ Staging puts chosen changes from the shared working tree into one stage's index,
 
 #### Scenario: Ignored file
 - **WHEN** the user runs `add` on a file that `.gitignore` ignores, without `-f`
-- **THEN** the file is not staged
+- **THEN** the command exits with code 1 and the file is not staged
+
+#### Scenario: Glob is literal
+- **WHEN** the user runs `git multistage --stage a add '*.ts'` and no file is named `*.ts`
+- **THEN** the command exits with code 1 and stages nothing
 
 ### Requirement: Refuse whole files that another stage staged
 `add <path>` SHALL refuse with exit code 5, and stage nothing, when another stage of the worktree has staged changes in that file. `--allow-shared` SHALL override the check.
@@ -29,10 +33,10 @@ Staging puts chosen changes from the shared working tree into one stage's index,
 - **THEN** the whole file is staged in stage `a`
 
 ### Requirement: List hunks with stable IDs
-`hunks [--cached] [<path>...]` SHALL list zero-context hunks, each with a 12-hex-digit ID derived from the path and the changed lines. An ID SHALL stay the same while other hunks are staged or committed, and SHALL change when the hunk's content changes. `staged-by` SHALL name other stages that staged the same hunk.
+`hunks [--cached] [<path>...]` SHALL list zero-context hunks, each with a 12-hex-digit ID. Without paths it SHALL list the changed tracked files. The ID of a hunk that has no identical copy in its file SHALL derive from the path and the changed lines only: it SHALL stay the same while other hunks are staged or committed, and SHALL change when the hunk's content changes. In an unstaged listing, `staged-by` SHALL name other stages whose staged hunk has the same ID.
 
 #### Scenario: IDs survive other staging
-- **WHEN** a file has hunks `h1` and `h2`, and `h1` is staged
+- **WHEN** a file has hunks `h1` and `h2` that make different changes, and `h1` is staged
 - **THEN** a new `hunks` listing still shows `h2` with the same ID
 
 #### Scenario: Hunk staged by another stage
@@ -86,7 +90,7 @@ Files with a `filter` attribute, symbolic links, submodules, binary files, and d
 - **THEN** only `h2` stays staged
 
 ### Requirement: Inspect a stage
-`status` SHALL show the stage's staged, unstaged, and untracked files, its recorded edits, and the files that other stages also staged. `diff [--cached]` SHALL run `git diff` against the stage; `--cached` compares the staged changes with the base. `log` SHALL show the commits that the stage made.
+`status` SHALL show the stage's staged, unstaged, and untracked files, its recorded edits, and which of its staged files other stages have also staged. `diff [--cached]` SHALL run `git diff` against the stage; `--cached` compares the staged changes with the base. `log` SHALL show the commits that the stage made.
 
 #### Scenario: Another stage's file
 - **WHEN** stage `fix-login` staged `src/login.ts` and stage `validation` runs `status`
@@ -95,3 +99,7 @@ Files with a `filter` attribute, symbolic links, submodules, binary files, and d
 #### Scenario: Untracked files are shared
 - **WHEN** the working tree holds an untracked file
 - **THEN** the `status` of every stage lists it
+
+#### Scenario: File staged in two stages
+- **WHEN** stages `a` and `b` have both staged `shared.ts` and stage `a` runs `status`
+- **THEN** `shared.ts` is listed as also staged in stage `b`
