@@ -21,6 +21,7 @@ func (r *repo) hook(name, script string) {
 }
 
 func TestHooksRunAgainstTheCommittedTree(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.hook("pre-commit", `if git diff --cached --name-only | grep -q forbidden; then echo "forbidden file" >&2; exit 1; fi
 `)
@@ -57,6 +58,7 @@ func TestHooksRunAgainstTheCommittedTree(t *testing.T) {
 }
 
 func TestPreCommitHookCannotAddUnstagedPaths(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.hook("pre-commit", `echo sneaky > sneaky.txt && git add sneaky.txt
 `)
@@ -72,6 +74,7 @@ func TestPreCommitHookCannotAddUnstagedPaths(t *testing.T) {
 }
 
 func TestSignedCommits(t *testing.T) {
+	t.Parallel()
 	keygen, err := exec.LookPath("ssh-keygen")
 	if err != nil {
 		t.Skip("ssh-keygen not available")
@@ -93,6 +96,7 @@ func TestSignedCommits(t *testing.T) {
 }
 
 func TestLineEndingNormalization(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write(".gitattributes", "*.txt text eol=crlf\n")
 	r.write("f.txt", "a\r\nb\r\nc\r\nd\r\ne\r\n")
@@ -110,6 +114,7 @@ func TestLineEndingNormalization(t *testing.T) {
 }
 
 func TestFilteredFilesStageWhole(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write(".gitattributes", "*.big filter=lfs diff=lfs merge=lfs -text\n")
 	r.write("data.big", "one\ntwo\n")
@@ -128,6 +133,7 @@ func TestFilteredFilesStageWhole(t *testing.T) {
 }
 
 func TestDoctorAndManualSync(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.git("config", "multistage.syncIndex", "false")
 	r.write("a.txt", "a\n")

@@ -11,6 +11,7 @@ import (
 // manifest parses, the shared hooks file runs the bare `hook` command, and
 // the plugin's skill names itself and has a description.
 func TestPluginFiles(t *testing.T) {
+	t.Parallel()
 	for _, f := range []string{
 		"../.claude-plugin/plugin.json", "../.claude-plugin/marketplace.json",
 		"../.codex-plugin/plugin.json", "../.agents/plugins/marketplace.json", "../hooks/hooks.json",

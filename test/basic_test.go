@@ -15,6 +15,7 @@ import (
 )
 
 func TestStageIDIsRequired(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	res := r.expectCode(2, "", "status")
 	if !strings.Contains(res.err, "GIT_MULTISTAGE_ID") {
@@ -29,6 +30,7 @@ func TestStageIDIsRequired(t *testing.T) {
 }
 
 func TestInitClaimsUniqueStage(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	var out struct{ Stage string }
 	decode(t, r.mustMS("", "init", "--json"), &out)
@@ -54,6 +56,7 @@ func TestInitClaimsUniqueStage(t *testing.T) {
 }
 
 func TestAddCommitLog(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("src/a.txt", "a\n")
 	r.mustMS("agent-a", "add", "src/a.txt")
@@ -83,6 +86,7 @@ func TestAddCommitLog(t *testing.T) {
 }
 
 func TestStagesAreIsolated(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("a.txt", "a\n")
 	r.write("b.txt", "b\n")
@@ -106,6 +110,7 @@ func TestStagesAreIsolated(t *testing.T) {
 }
 
 func TestDeleteRenameAndNewFiles(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("old.txt", lines(20, func(_ int) string { return "line" }))
 	r.write("gone.txt", "gone\n")
@@ -126,6 +131,7 @@ func TestDeleteRenameAndNewFiles(t *testing.T) {
 }
 
 func TestBinaryFilesStageWhole(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("img.bin", "\x00\x01\x02")
 	r.git("add", "img.bin")
@@ -145,6 +151,7 @@ func TestBinaryFilesStageWhole(t *testing.T) {
 }
 
 func TestHunkIDsAreStableAndStaleIDsAreRejected(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", lines(30, func(i int) string { return "l" + itoa(i) }))
 	r.git("add", "f.txt")
@@ -174,6 +181,7 @@ func TestHunkIDsAreStableAndStaleIDsAreRejected(t *testing.T) {
 }
 
 func TestPartialNewFileAndUnstageHunk(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	// A new file is one hunk: every line is an addition to an empty file.
 	r.write("new.txt", "one\ntwo\n")
@@ -209,6 +217,7 @@ func TestPartialNewFileAndUnstageHunk(t *testing.T) {
 }
 
 func TestApplyPatch(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	patch := "diff --git a/README b/README\n--- a/README\n+++ b/README\n@@ -1 +1 @@\n-readme\n+patched\n"
 	p := filepath.Join(t.TempDir(), "p.diff")
@@ -228,6 +237,7 @@ func TestApplyPatch(t *testing.T) {
 }
 
 func TestSubdirectoryAndUnusualPaths(t *testing.T) {
+	t.Parallel()
 	base := filepath.Join(t.TempDir(), "dir with spaces", "ünïcödé")
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		t.Fatal(err)
@@ -271,6 +281,7 @@ func TestSubdirectoryAndUnusualPaths(t *testing.T) {
 }
 
 func TestRefusesBranchSwitch(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("a.txt", "a\n")
 	r.mustMS("agent-a", "add", "a.txt")
@@ -289,6 +300,7 @@ func TestRefusesBranchSwitch(t *testing.T) {
 }
 
 func TestUnbornBranch(t *testing.T) {
+	t.Parallel()
 	r := &repo{t: t, dir: t.TempDir()}
 	r.git("init", "-q", "-b", "main")
 	r.write("a.txt", "a\n")
@@ -304,6 +316,7 @@ func TestUnbornBranch(t *testing.T) {
 }
 
 func TestIgnoredFilesNeedForce(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write(".gitignore", "*.log\n")
 	r.write("x.log", "x\n")
@@ -315,6 +328,7 @@ func TestIgnoredFilesNeedForce(t *testing.T) {
 }
 
 func TestDropAndList(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("a.txt", "a\n")
 	r.mustMS("agent-a", "add", "a.txt")
@@ -343,6 +357,7 @@ func itoa(i int) string { return strconv.Itoa(i) }
 // TestAgenticFlag checks that --agentic takes the stage ID from the calling
 // agent's environment, and that nothing does so without the flag.
 func TestAgenticFlag(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("a.txt", "a\n")
 	// Claude Code is an ancestor process, whatever runs the test.
@@ -388,6 +403,7 @@ func TestAgenticFlag(t *testing.T) {
 // TestAgenticPicksTheInnermostTool runs git-multistage under fake "codex"
 // and "claude" processes, as nested agents would.
 func TestAgenticPicksTheInnermostTool(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	dir := t.TempDir()
 	// A launcher that runs its arguments as a child process and waits, so it

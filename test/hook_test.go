@@ -39,6 +39,7 @@ func (r *repo) hookedEdit(session, agentID, path, content string) {
 // TestHookSeparatesAdjacentEdits has a session and a subagent edit adjacent
 // lines of one file; each stages only its own recorded edit.
 func TestHookSeparatesAdjacentEdits(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", "1\n2\n3\n4\n5\n")
 	r.git("add", "f.txt")
@@ -81,6 +82,7 @@ func TestHookSeparatesAdjacentEdits(t *testing.T) {
 }
 
 func TestHookRecordsNewAndDeletedFiles(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	file := r.path("src/new.txt")
 	r.hookCall("PreToolUse", "Write", "s", "", file)
@@ -128,6 +130,7 @@ func TestHookEditsOfOneFileDoNotWait(t *testing.T) {
 // TestAddEditsStagesAnErasedEdit erases a recorded edit on disk; the stage
 // still stages it, and the disk keeps the later write.
 func TestAddEditsStagesAnErasedEdit(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", "1\n2\n3\n")
 	r.git("add", "f.txt")
@@ -147,6 +150,7 @@ func TestAddEditsStagesAnErasedEdit(t *testing.T) {
 // TestAddEditsStagesAnEditOfADeletedFile deletes the file after the edit; the
 // stage still stages the edit.
 func TestAddEditsStagesAnEditOfADeletedFile(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("x.txt", "1\n")
 	r.git("add", "x.txt")
@@ -165,6 +169,7 @@ func TestAddEditsStagesAnEditOfADeletedFile(t *testing.T) {
 // TestAddEditsStagesAnOldUncertainRecord stages a record that an earlier
 // version marked as uncertain.
 func TestAddEditsStagesAnOldUncertainRecord(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", "1\n")
 	r.git("add", "f.txt")
@@ -191,6 +196,7 @@ func TestAddEditsStagesAnOldUncertainRecord(t *testing.T) {
 // TestAddEditsOfAnotherStagesUncommittedLines edits a line that another stage
 // added and has not committed: the edit does not fit until that stage commits.
 func TestAddEditsOfAnotherStagesUncommittedLines(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", "1\n2\n")
 	r.git("add", "f.txt")
@@ -231,6 +237,7 @@ func (r *repo) claudeEditCall(event, session, file, orig, old, repl string) resu
 // TestHookRecordsOnlyTheToolsChange changes another line of the file while a
 // Claude Code Edit runs; the record holds only the Edit's change.
 func TestHookRecordsOnlyTheToolsChange(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", "1\n2\n3\n4\n5\n6\n7\n8\n9\n")
 	r.git("add", "f.txt")
@@ -254,6 +261,7 @@ func TestHookRecordsOnlyTheToolsChange(t *testing.T) {
 // runs; the record holds only the patch's change. A patch that does not
 // match the file falls back to the file after the call.
 func TestCodexHookRecordsOnlyThePatch(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ name, patch, want string }{
 		{"patch applies", "*** Begin Patch\n*** Update File: f.txt\n@@\n 1\n-2\n+TWO\n 3\n*** End Patch", "1\nTWO\n3\n4\n5\n6\n7\n8\n9\n"},
 		{"patch does not match", "*** Begin Patch\n*** Update File: f.txt\n@@\n-zz\n+TWO\n*** End Patch", "1\nTWO\n3\n4\n5\n6\n7\n8\nNINE\n"},
@@ -278,6 +286,7 @@ func TestCodexHookRecordsOnlyThePatch(t *testing.T) {
 // TestHookKeepsCRLFOfAnEditFromTheResponse records a Claude Code Edit of a
 // committed CRLF file from its tool response.
 func TestHookKeepsCRLFOfAnEditFromTheResponse(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("crlf.txt", "one\r\ntwo\r\nthree\r\n")
 	r.git("add", "crlf.txt")
@@ -295,6 +304,7 @@ func TestHookKeepsCRLFOfAnEditFromTheResponse(t *testing.T) {
 }
 
 func TestHookIgnoresOtherToolsAndPaths(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	if res := r.hookCall("PreToolUse", "Bash", "a", "", r.path("README")); res.code != 0 || res.out != "" {
 		t.Fatalf("Bash:\n%s", res)
@@ -334,6 +344,7 @@ func (r *repo) codexEdit(session, agentID, id, patch string, fn func()) {
 }
 
 func TestCodexHookSeparatesSessionAndSubagent(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("notes.txt", "one\ntwo\nthree\nfour\n")
 	r.git("add", "notes.txt")
@@ -357,6 +368,7 @@ func TestCodexHookSeparatesSessionAndSubagent(t *testing.T) {
 }
 
 func TestCodexHookMultiFilePatch(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("old.txt", "old\n")
 	r.write("gone.txt", "gone\n")
@@ -392,6 +404,7 @@ func TestCodexHookMultiFilePatch(t *testing.T) {
 // a person who exported it before starting Claude Code would. The main
 // session records into that stage; a subagent still records into its own.
 func TestHookKeepsSubagentsApartUnderAnExportedStage(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", "1\n2\n3\n4\n")
 	r.git("add", "f.txt")
@@ -417,6 +430,7 @@ func TestHookKeepsSubagentsApartUnderAnExportedStage(t *testing.T) {
 // TestHookDetectsTheEditor runs the bare `hook` command, as the plugin's
 // shared hooks file does, with Claude Code and Codex inputs.
 func TestHookDetectsTheEditor(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("a.txt", "a\n")
 	r.write("b.txt", "b\n")
@@ -457,6 +471,7 @@ func TestHookDetectsTheEditor(t *testing.T) {
 // TestHookAnnouncesTheSharedCheckout runs the SessionStart hook inside and
 // outside a Git worktree.
 func TestHookAnnouncesTheSharedCheckout(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	start := func(cwd string) result {
 		data, _ := json.Marshal(map[string]any{"hook_event_name": "SessionStart", "session_id": "s", "cwd": cwd})

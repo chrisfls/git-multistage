@@ -10,6 +10,7 @@ import (
 // These tests reproduce defects found in the second adversarial review.
 
 func TestEditsOfIgnoredNewFileNeedForce(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write(".gitignore", ".env\n")
 	r.git("add", ".gitignore")
@@ -25,6 +26,7 @@ func TestEditsOfIgnoredNewFileNeedForce(t *testing.T) {
 }
 
 func TestEditThroughSymlinkChangesTheTarget(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("symbolic links need privileges on Windows")
 	}
@@ -50,6 +52,7 @@ func TestEditThroughSymlinkChangesTheTarget(t *testing.T) {
 }
 
 func TestSparseCommitDeletingAndAddingOutsideTheCone(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.sparseSetup(false)
 	patch := "diff --git a/d2/y.txt b/d2/y.txt\ndeleted file mode 100644\n--- a/d2/y.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-y\n" +
@@ -74,6 +77,7 @@ func TestSparseCommitDeletingAndAddingOutsideTheCone(t *testing.T) {
 }
 
 func TestDetachedStageRefusesAnUnrelatedHead(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.git("switch", "-q", "--orphan", "other")
 	r.write("o.txt", "o\n")
@@ -87,6 +91,7 @@ func TestDetachedStageRefusesAnUnrelatedHead(t *testing.T) {
 }
 
 func TestDetachedStageRefusesAfterSwitchDuringCommit(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.hook("pre-commit", "unset GIT_INDEX_FILE; git switch -q main\n")
 	r.git("switch", "-q", "--detach", "main")
@@ -103,6 +108,7 @@ func TestDetachedStageRefusesAfterSwitchDuringCommit(t *testing.T) {
 }
 
 func TestSyncDoesNotUndoANativeUnstage(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("s.txt", "s\n")
 	r.git("add", "s.txt")
@@ -118,6 +124,7 @@ func TestSyncDoesNotUndoANativeUnstage(t *testing.T) {
 }
 
 func TestHookRecordIgnoresCase(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	if !caseInsensitiveFS(t, r.dir) {
 		t.Skip("case-sensitive file system")
@@ -134,6 +141,7 @@ func TestHookRecordIgnoresCase(t *testing.T) {
 }
 
 func TestRecordedEditsSurviveGarbageCollection(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	// The first edit's result exists only in its record once the second
 	// edit replaces it on disk.
@@ -145,6 +153,7 @@ func TestRecordedEditsSurviveGarbageCollection(t *testing.T) {
 }
 
 func TestCherryPickSequenceIsRefused(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("c.txt", "a\n")
 	r.git("add", "c.txt")

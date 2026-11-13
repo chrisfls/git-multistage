@@ -21,6 +21,7 @@ import (
 // These tests reproduce defects found in the fourth review.
 
 func TestJSONOutputKeepsStageWarnings(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	var out struct {
 		Warnings []string `json:"warnings"`
@@ -37,6 +38,7 @@ func TestJSONOutputKeepsStageWarnings(t *testing.T) {
 }
 
 func TestLogFiltersByThePathspec(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("a.txt", "a\n")
 	r.mustMS("agent-a", "add", "a.txt")
@@ -60,6 +62,7 @@ func TestLogFiltersByThePathspec(t *testing.T) {
 }
 
 func TestHookAfterGlobalOptions(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	file := r.path("README")
 	call := func(event string, args ...string) {
@@ -80,6 +83,7 @@ func TestHookAfterGlobalOptions(t *testing.T) {
 }
 
 func TestWriteThroughADanglingSymlinkIsRecorded(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("symbolic links need privileges on Windows")
 	}
@@ -100,6 +104,7 @@ func TestWriteThroughADanglingSymlinkIsRecorded(t *testing.T) {
 }
 
 func TestHookAcceptsAPathInAnotherCase(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	if !caseInsensitiveFS(t, r.dir) {
 		t.Skip("the file system is case-sensitive")
@@ -123,6 +128,7 @@ func TestHookAcceptsAPathInAnotherCase(t *testing.T) {
 }
 
 func TestHookKeepsCRLFOfACommittedFile(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("crlf.txt", "one\r\ntwo\r\nthree\r\n")
 	r.git("add", "crlf.txt")
@@ -139,6 +145,7 @@ func TestHookKeepsCRLFOfACommittedFile(t *testing.T) {
 // TestAgenticTrustsAToolOnlyAsAnAncestor fakes the process chain, so the
 // result does not depend on the processes that run the test.
 func TestAgenticTrustsAToolOnlyAsAnAncestor(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	for _, c := range []struct {
 		ancestors string
@@ -195,6 +202,7 @@ func (r *repo) stageGen(stage string) int {
 // failing on the lock, keep the staged changes, and leave the orphan's lock
 // file alone.
 func TestOrphanedLockOfTheCurrentIndexIsBypassed(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", "f\n")
 	r.write("g.txt", "g\n")
@@ -242,6 +250,7 @@ func TestOrphanedLockOfTheCurrentIndexIsBypassed(t *testing.T) {
 // valid, also when only one copy is left and the copy staged changed the
 // line count.
 func TestCopyIDSurvivesStagingAnotherCopy(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ name, updated, want string }{
 		{"three copies", "a\ny\nb\ny\nc\ny\nd\n", "a\ny\nb\ny\nc\nx\nd\n"},
 		{"two copies of a longer change", "a\ny\nY\nb\ny\nY\nc\nx\nd\n", "a\ny\nY\nb\ny\nY\nc\nx\nd\n"},
@@ -270,6 +279,7 @@ func TestCopyIDSurvivesStagingAnotherCopy(t *testing.T) {
 // so each copy now has the position and the neighbors that the next copy
 // had. The listed ID of the first copy must not stage another copy.
 func TestCopyIDIsStaleAfterAPeriodicShift(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	block, yblock := "h\nx\nt\n", "h\ny\nt\n"
 	r.write("f.txt", "A\nB\nC\n"+block+block+block)
@@ -292,6 +302,7 @@ func TestCopyIDIsStaleAfterAPeriodicShift(t *testing.T) {
 // Later commands warn instead of failing, and never apply the record again;
 // once the record can be deleted, the next command deletes it.
 func TestUndeletableEditRecordsWarn(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("a read-only directory on Windows does not stop deletion")
 	}
@@ -431,6 +442,7 @@ func TestWaiterRecreatesADroppedStage(t *testing.T) {
 // copy by its listed ID. Restoring a copy does not change the stage's base,
 // so the other listed IDs stay valid.
 func TestStagedCopyIDSurvivesRestoringAnotherCopy(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", "a\nx\nb\nx\nc\nx\nd\n")
 	r.git("add", "f.txt")
@@ -455,6 +467,7 @@ func TestStagedCopyIDSurvivesRestoringAnotherCopy(t *testing.T) {
 // stage then commits a change to the same file, so the stage moves to a new
 // base. The listed copy IDs must be unknown now.
 func TestStagedCopyIDIsStaleAfterANewBase(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", "a\nx\nb\nx\nc\n")
 	r.git("add", "f.txt")
@@ -476,6 +489,7 @@ func TestStagedCopyIDIsStaleAfterANewBase(t *testing.T) {
 // index, as a Git child of a killed git-multistage leaves it. doctor must
 // warn with the stage and the path, and leave the file in place.
 func TestDoctorReportsAnOrphanedStageIndexLock(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", "f\n")
 	r.mustMS("a", "add", "f.txt")
@@ -525,6 +539,7 @@ func TestAgenticBoundsAHangingProcessTableRead(t *testing.T) {
 // agent then changes the line below or above them. The deletion is still on
 // disk, so add --edits must stage it.
 func TestDeletionNextToANeighbourEdit(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ name, after, other string }{
 		{"line below changed", "a\nb\ne\n", "a\nb\nE\n"},
 		{"line above changed", "a\nb\ne\n", "a\nB\ne\n"},
@@ -551,6 +566,7 @@ func TestDeletionNextToANeighbourEdit(t *testing.T) {
 // stage a's listing must mark both with staged-by, although copy IDs hash
 // versions that differ between the two listings.
 func TestStagedByMarksIdenticalCopies(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", "a\nx\nb\nx\nc\nq\n")
 	r.git("add", "f.txt")

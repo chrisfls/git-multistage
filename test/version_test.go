@@ -12,6 +12,7 @@ import (
 // TestVersionStamp builds the command the way a release does and checks that
 // `version` reports the stamped value, and that a plain build reports dev.
 func TestVersionStamp(t *testing.T) {
+	t.Parallel()
 	exe := ""
 	if runtime.GOOS == "windows" {
 		exe = ".exe"

@@ -45,6 +45,7 @@ func (r *repo) moveAndRewrite(agent, oldp, newp string, rewrite bool) {
 }
 
 func TestCommitAMove(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": "x\n"})
 	r.mustMS("a", "mv", "x.go", "y.go")
 	r.mustMS("a", "commit", "-m", "Move x\n\nBody.")
@@ -65,6 +66,7 @@ func TestCommitAMove(t *testing.T) {
 }
 
 func TestCommitFollowsAnotherStagesMove(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty})
 	r.stageLineOne("a", "x.go")
 	r.moveAndRewrite("b", "x.go", "y.go", true)
@@ -83,6 +85,7 @@ func TestCommitFollowsAnotherStagesMove(t *testing.T) {
 // TestCommitWithoutTrailerMissesAHeavyMove checks that the heavy edit of the
 // tests above defeats Git's rename detection, so that they test the trailers.
 func TestCommitWithoutTrailerMissesAHeavyMove(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty})
 	r.stageLineOne("a", "x.go")
 	r.externalCommit("move x without a trailer", func(idx string) {
@@ -112,6 +115,7 @@ func (r *repo) hashObject(content string) string {
 }
 
 func TestCommitFollowsAChainOfMoves(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty})
 	r.stageLineOne("a", "x.go")
 	r.moveAndRewrite("b", "x.go", "y.go", true)
@@ -134,6 +138,7 @@ func (r *repo) deleteAndCommit(p string) string {
 }
 
 func TestCommitOfAFileThatAnotherStageDeleted(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty, "other.go": "o\n"})
 	mine := r.stageLineOne("a", "x.go")
 	deleting := r.deleteAndCommit("x.go")
@@ -169,6 +174,7 @@ func TestCommitOfAFileThatAnotherStageDeleted(t *testing.T) {
 }
 
 func TestRefreshFollowsAMove(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty})
 	r.stageLineOne("a", "x.go")
 	r.moveAndRewrite("b", "x.go", "y.go", true)
@@ -185,6 +191,7 @@ func TestRefreshFollowsAMove(t *testing.T) {
 }
 
 func TestRefreshMeetsADeletion(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty})
 	r.stageLineOne("a", "x.go")
 	deleting := r.deleteAndCommit("x.go")
@@ -198,6 +205,7 @@ func TestRefreshMeetsADeletion(t *testing.T) {
 }
 
 func TestCommitFollowsSeveralMovesInOneCommit(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"a.go": twenty, "c.go": strings.ReplaceAll(twenty, "line", "cc")})
 	mine := r.stageLineOne("b", "a.go")
 	r.mustMS("a", "mv", "a.go", "b.go")
@@ -218,6 +226,7 @@ func TestCommitFollowsSeveralMovesInOneCommit(t *testing.T) {
 }
 
 func TestCommitAMoveOfAPathWithAnArrow(t *testing.T) {
+	t.Parallel()
 	const odd = "p -> q.go"
 	r := committedRepo(t, map[string]string{odd: twenty})
 	r.stageLineOne("b", odd)
@@ -233,6 +242,7 @@ func TestCommitAMoveOfAPathWithAnArrow(t *testing.T) {
 }
 
 func TestCommitKeepsANewFileAtAMovedPath(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"other.go": "o\n"})
 	r.write("x.go", "mine\n")
 	r.mustMS("a", "add", "x.go")
@@ -265,6 +275,7 @@ func TestCommitKeepsANewFileAtAMovedPath(t *testing.T) {
 }
 
 func TestCommitOfAMoveThatAnotherStageMovedElsewhere(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty})
 	r.mustMS("a", "mv", "x.go", "y.go")
 	r.write("z.go", twenty)
@@ -290,6 +301,7 @@ func TestCommitOfAMoveThatAnotherStageMovedElsewhere(t *testing.T) {
 }
 
 func TestCommitOfAMoveOfAFileThatAnotherStageDeleted(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty})
 	r.mustMS("a", "mv", "x.go", "y.go")
 	r.write("x.go", twenty)
@@ -308,6 +320,7 @@ func TestCommitOfAMoveOfAFileThatAnotherStageDeleted(t *testing.T) {
 }
 
 func TestCommitOfARecreatedMoveWritesNoTrailer(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty})
 	r.stageLineOne("c", "x.go")
 	r.mustMS("a", "mv", "x.go", "y.go")
@@ -327,6 +340,7 @@ func TestCommitOfARecreatedMoveWritesNoTrailer(t *testing.T) {
 }
 
 func TestCommitAMoveOfPathsWithSurroundingSpaces(t *testing.T) {
+	t.Parallel()
 	const oldp, newp = " p.go", "r.go "
 	r := committedRepo(t, map[string]string{oldp: twenty})
 	r.stageLineOne("b", oldp)
@@ -374,6 +388,7 @@ func TestRefreshChecksOnlyTheRenamesOfStagedPaths(t *testing.T) {
 }
 
 func TestCommitFollowsAMoveAfterADeleteAndReAdd(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty})
 	r.stageLineOne("a", "x.go")
 	r.git("rm", "-q", "x.go")
@@ -393,6 +408,7 @@ func TestCommitFollowsAMoveAfterADeleteAndReAdd(t *testing.T) {
 }
 
 func TestPathDeletedNamesTheRemovingCommit(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty})
 	r.stageLineOne("a", "x.go")
 	r.git("mv", "x.go", "y.go")
@@ -406,6 +422,7 @@ func TestPathDeletedNamesTheRemovingCommit(t *testing.T) {
 }
 
 func TestCommitFollowsARenameThatALaterCommitRewrote(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty})
 	r.stageLineOne("a", "x.go")
 	r.git("mv", "x.go", "y.go")
@@ -419,6 +436,7 @@ func TestCommitFollowsARenameThatALaterCommitRewrote(t *testing.T) {
 }
 
 func TestCommitOfADeletionFollowsARenameWithoutTrailer(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"p.go": twenty, "o.go": "o\n"})
 	r.mustMS("a", "rm", "p.go")
 	r.write("p.go", twenty) // the branch still holds p.go
@@ -434,6 +452,7 @@ func TestCommitOfADeletionFollowsARenameWithoutTrailer(t *testing.T) {
 }
 
 func TestCommitOfADeletionOfARenamedAndRewrittenFileConflicts(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"p.go": twenty, "o.go": "o\n"})
 	r.mustMS("a", "rm", "p.go")
 	r.write("p.go", twenty) // the branch still holds p.go

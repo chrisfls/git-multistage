@@ -10,6 +10,7 @@ import (
 // These tests reproduce defects found in an adversarial review.
 
 func TestSyncAfterNativeCommitKeepsAgentChange(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("p.txt", lines(10, func(i int) string { return "l" + itoa(i) }))
 	r.git("add", "p.txt")
@@ -27,6 +28,7 @@ func TestSyncAfterNativeCommitKeepsAgentChange(t *testing.T) {
 }
 
 func TestSyncKeepsNativeUnstagedRemoval(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.mustMS("agent-a", "status")
 	r.write("secret.txt", "secret\n")
@@ -42,6 +44,7 @@ func TestSyncKeepsNativeUnstagedRemoval(t *testing.T) {
 }
 
 func TestPreCommitHookCannotPullInUnstagedEdits(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", lines(10, func(i int) string { return "l" + itoa(i) }))
 	r.git("add", "f.txt")
@@ -64,6 +67,7 @@ func TestPreCommitHookCannotPullInUnstagedEdits(t *testing.T) {
 }
 
 func TestHooksSeeOrdinaryPathspecs(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.hook("pre-commit", "if git diff --cached --name-only -- '*.js' | grep -q .; then echo lint failed >&2; exit 1; fi\n")
 	r.write("bad.js", "x\n")
@@ -78,6 +82,7 @@ func TestHooksSeeOrdinaryPathspecs(t *testing.T) {
 }
 
 func TestGarbageCollectionKeepsStagedObjects(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("new.txt", "unique staged content 7f3a\n")
 	r.mustMS("agent-a", "add", "new.txt")
@@ -116,6 +121,7 @@ func caseInsensitiveFS(tb testing.TB, dir string) bool {
 }
 
 func TestHunkPathWithOtherCase(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	if !caseInsensitiveFS(t, r.dir) {
 		t.Skip("case-sensitive file system")
@@ -137,6 +143,7 @@ func TestHunkPathWithOtherCase(t *testing.T) {
 }
 
 func TestMissingStageIndexIsRefused(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("a.txt", "a\n")
 	r.mustMS("agent-a", "add", "a.txt")
@@ -161,6 +168,7 @@ func TestMissingStageIndexIsRefused(t *testing.T) {
 }
 
 func TestInterHunkContextConfig(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.git("config", "diff.interHunkContext", "5")
 	r.write("f.txt", "1\n2\n3\n4\n5\n")
@@ -174,6 +182,7 @@ func TestInterHunkContextConfig(t *testing.T) {
 }
 
 func TestHunkStagingRespectsIgnoreRules(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write(".gitignore", ".env\n")
 	r.write(".env", "TOKEN=x\n")
@@ -190,6 +199,7 @@ func TestHunkStagingRespectsIgnoreRules(t *testing.T) {
 }
 
 func TestDuplicateHunksCannotShift(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", "a\nx\nb\nc\nd\nx\ne\n")
 	r.git("add", "f.txt")

@@ -63,6 +63,7 @@ func (r *repo) stageMoves(id string) []string {
 }
 
 func TestAddRefusesAMissingFile(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"old.go": "old\n"})
 	if err := os.Remove(r.path("old.go")); err != nil {
 		t.Fatal(err)
@@ -87,6 +88,7 @@ func TestAddRefusesAMissingFile(t *testing.T) {
 }
 
 func TestRmDeletesAFile(t *testing.T) {
+	t.Parallel()
 	for _, asJSON := range []bool{false, true} {
 		r := committedRepo(t, map[string]string{"old.go": "old\n", "keep.go": "keep\n"})
 		r.write("keep.go", "unstaged\n")
@@ -121,6 +123,7 @@ func TestRmDeletesAFile(t *testing.T) {
 }
 
 func TestRmOfAFileAlreadyDeletedOnDisk(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"old.go": "old\n"})
 	if err := os.Remove(r.path("old.go")); err != nil {
 		t.Fatal(err)
@@ -137,6 +140,7 @@ func TestRmOfAFileAlreadyDeletedOnDisk(t *testing.T) {
 }
 
 func TestRmNeedsForceForAnUnstagedChange(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"old.go": "old\n"})
 	r.write("old.go", "other agent\n")
 	for _, args := range [][]string{{"rm", "old.go"}, {"rm", "old.go", "--json"}} {
@@ -159,6 +163,7 @@ func TestRmNeedsForceForAnUnstagedChange(t *testing.T) {
 }
 
 func TestRmFinishesAfterACrash(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"old.go": "old\n"})
 	if res := run(r.dir, "a", []string{"GIT_MULTISTAGE_FAULT=before-disk-write"}, "rm", "old.go"); res.code != 86 {
 		t.Fatalf("fault did not fire:\n%s", res)
@@ -176,6 +181,7 @@ func TestRmFinishesAfterACrash(t *testing.T) {
 }
 
 func TestMvMovesAFile(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": "x\n"})
 	var out struct {
 		Moved struct{ Old, New string } `json:"moved"`
@@ -199,6 +205,7 @@ func TestMvMovesAFile(t *testing.T) {
 }
 
 func TestMvOfAMoveAlreadyMadeOnDisk(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": "x\n"})
 	if err := os.Rename(r.path("x.go"), r.path("y.go")); err != nil {
 		t.Fatal(err)
@@ -217,6 +224,7 @@ func TestMvOfAMoveAlreadyMadeOnDisk(t *testing.T) {
 }
 
 func TestMvRefusals(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": "x\n", "y.go": "y\n"})
 	r.expectCode(5, "a", "mv", "x.go", "y.go")
 	r.expectCode(1, "a", "mv", "never.go", "z.go")
@@ -226,6 +234,7 @@ func TestMvRefusals(t *testing.T) {
 }
 
 func TestMvRecordedEditsFollow(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": "1\n2\n"})
 	r.hookedEdit("s", "", "x.go", "1\nTWO\n")
 	r.mustMS("", "--stage", "claude-s", "mv", "x.go", "y.go")
@@ -241,6 +250,7 @@ func TestMvRecordedEditsFollow(t *testing.T) {
 }
 
 func TestMvWritesOnlyItsPaths(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": "x\n", "other.go": "o\n", "dir/f.go": "f\n"})
 	r.write("other.go", "o\nunstaged\n")
 	r.write("dir/f.go", "f\nunstaged\n")
@@ -261,6 +271,7 @@ func TestMvWritesOnlyItsPaths(t *testing.T) {
 }
 
 func TestMvFinishesAfterACrash(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": "x\n"})
 	if res := run(r.dir, "a", []string{"GIT_MULTISTAGE_FAULT=before-disk-write"}, "mv", "x.go", "y.go"); res.code != 86 {
 		t.Fatalf("fault did not fire:\n%s", res)
@@ -275,6 +286,7 @@ func TestMvFinishesAfterACrash(t *testing.T) {
 }
 
 func TestRestoreForgetsTheMove(t *testing.T) {
+	t.Parallel()
 	for _, p := range []string{"x.go", "y.go"} {
 		r := committedRepo(t, map[string]string{"x.go": "x\n"})
 		r.mustMS("a", "mv", "x.go", "y.go")
@@ -297,6 +309,7 @@ func TestRestoreForgetsTheMove(t *testing.T) {
 }
 
 func TestRmOfAPathTheStageDoesNotHold(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": "x\n"})
 	r.mustMS("a", "mv", "x.go", "y.go")
 	r.write("x.go", "another agent's new file\n")
@@ -307,6 +320,7 @@ func TestRmOfAPathTheStageDoesNotHold(t *testing.T) {
 }
 
 func TestRmForgetsTheRecordedEdits(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty, "other.go": "o\n"})
 	r.hookedEdit("a", "", "x.go", "FIRST\n"+twenty)
 	r.hookedEdit("a", "", "other.go", "o\nedited\n")
@@ -321,6 +335,7 @@ func TestRmForgetsTheRecordedEdits(t *testing.T) {
 }
 
 func TestMvFinishesAChainedMoveAfterACrash(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": "x\n"})
 	r.mustMS("a", "mv", "x.go", "y.go")
 	if res := run(r.dir, "a", []string{"GIT_MULTISTAGE_FAULT=before-disk-write"}, "mv", "y.go", "z.go"); res.code != 86 {
@@ -336,6 +351,7 @@ func TestMvFinishesAChainedMoveAfterACrash(t *testing.T) {
 }
 
 func TestRmFinishesAfterACrashOfAStagedFile(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ name, path string }{{"new file", "n.go"}, {"edited file", "x.go"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := committedRepo(t, map[string]string{"x.go": "x\n"})
@@ -353,6 +369,7 @@ func TestRmFinishesAfterACrashOfAStagedFile(t *testing.T) {
 }
 
 func TestRmRerunKeepsAFileThatAnotherWriterChanged(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": "x\n"})
 	if res := run(r.dir, "a", []string{"GIT_MULTISTAGE_FAULT=before-disk-write"}, "rm", "x.go"); res.code != 86 {
 		t.Fatalf("fault did not fire:\n%s", res)
@@ -365,6 +382,7 @@ func TestRmRerunKeepsAFileThatAnotherWriterChanged(t *testing.T) {
 }
 
 func TestMvRefusesATargetOnDisk(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": "x\n"})
 	r.write("y.go", "untracked\n")
 	var out struct {
@@ -389,6 +407,7 @@ func TestMvRefusesATargetOnDisk(t *testing.T) {
 }
 
 func TestMvCaseOnlyRename(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"Readme.md": "doc\n"})
 	if _, err := os.Stat(r.path("README.md")); err != nil {
 		t.Skip("the file system is case-sensitive")
@@ -416,6 +435,7 @@ func TestMvCaseOnlyRename(t *testing.T) {
 }
 
 func TestRmAndMvOfAFileWithCRLFLineEndings(t *testing.T) {
+	t.Parallel()
 	const crlf = "one\r\ntwo\r\n"
 	for _, conv := range []string{"core.autocrlf", "text=auto"} {
 		for _, cmd := range []string{"rm", "mv"} {
@@ -451,6 +471,7 @@ func TestRmAndMvOfAFileWithCRLFLineEndings(t *testing.T) {
 }
 
 func TestRmAndMvRunAsNewAfterARestore(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name    string
 		args    []string
@@ -483,6 +504,7 @@ func TestRmAndMvRunAsNewAfterARestore(t *testing.T) {
 }
 
 func TestRmFinishesACrashAfterAnotherRm(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"a.go": "a\n", "b.go": "b\n"})
 	if res := run(r.dir, "a", []string{"GIT_MULTISTAGE_FAULT=before-disk-write"}, "rm", "a.go"); res.code != 86 {
 		t.Fatalf("fault did not fire:\n%s", res)
@@ -501,6 +523,7 @@ func TestRmFinishesACrashAfterAnotherRm(t *testing.T) {
 }
 
 func TestMvChangesNothingWhenTheTargetAppearsAfterTheCheck(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": "x\n"})
 	r.mustMS("a", "status")
 	pauses := t.TempDir()
@@ -533,6 +556,7 @@ func TestMvChangesNothingWhenTheTargetAppearsAfterTheCheck(t *testing.T) {
 }
 
 func TestMvFinishesACaseOnlyRenameAfterAStopBetweenTheRenames(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"Readme.md": "doc\n"})
 	if _, err := os.Stat(r.path("README.md")); err != nil {
 		t.Skip("the file system is case-sensitive")
@@ -558,6 +582,7 @@ func TestMvFinishesACaseOnlyRenameAfterAStopBetweenTheRenames(t *testing.T) {
 }
 
 func TestRmFinishesAfterACrashWithThePathInAnotherCase(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"README.md": "doc\n"})
 	if !caseInsensitiveFS(t, r.dir) {
 		t.Skip("the file system is case-sensitive")
@@ -575,6 +600,7 @@ func TestRmFinishesAfterACrashWithThePathInAnotherCase(t *testing.T) {
 }
 
 func TestRmOfAnUnchangedSymbolicLink(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("symbolic links need privileges on Windows")
 	}
@@ -611,6 +637,7 @@ func caseNames(t *testing.T, dir string) []string {
 }
 
 func TestMvCaseOnlyRenameRunsAsNewAfterAStopAndARestore(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"Readme.md": "doc\n"})
 	if !caseInsensitiveFS(t, r.dir) {
 		t.Skip("the file system is case-sensitive")

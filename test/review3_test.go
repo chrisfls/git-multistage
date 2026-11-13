@@ -19,6 +19,7 @@ import (
 // has CRLF line endings under core.autocrlf: Git keeps CRLF for such a file,
 // so the hunks are the changed lines only, and staging one leaves the other.
 func TestHunksKeepCommittedCRLF(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", "a\r\nb\r\nc\r\nd\r\ne\r\n")
 	r.git("add", "f.txt")
@@ -40,6 +41,7 @@ func TestHunksKeepCommittedCRLF(t *testing.T) {
 // TestHunksIgnoreGitDiffOpts lists hunks with GIT_DIFF_OPTS in the caller's
 // environment, which would otherwise override -U0.
 func TestHunksIgnoreGitDiffOpts(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", lines(10, func(i int) string { return fmt.Sprintf("line%d", i) }))
 	r.git("add", "f.txt")
@@ -87,6 +89,7 @@ func TestAddEditsKeepsRacyEntriesRacy(t *testing.T) {
 // another writer then puts the lines back, alone or with a change to a line
 // next to them. The stage still stages the deletion.
 func TestAddEditsStagesARestoredDeletion(t *testing.T) {
+	t.Parallel()
 	const before = "a\nb\nc\nd\ne\n"
 	for _, tc := range []struct{ name, after, disk string }{
 		{"middle", "a\nb\ne\n", before},
@@ -114,6 +117,7 @@ func TestAddEditsStagesARestoredDeletion(t *testing.T) {
 // TestAddEditsKeepsADeletionNextToAnotherInsertion deletes lines; another
 // writer inserts a line elsewhere. The deletion survives and is staged.
 func TestAddEditsKeepsADeletionNextToAnotherInsertion(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", "a\nb\nc\nd\ne\n")
 	r.git("add", "f.txt")
@@ -130,6 +134,7 @@ func TestAddEditsKeepsADeletionNextToAnotherInsertion(t *testing.T) {
 // TestAddHunksIsAllOrNothing selects hunks of a tracked file and of an
 // ignored new file. The ignored file is refused, so nothing is staged.
 func TestAddHunksIsAllOrNothing(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write(".gitignore", "ign.txt\n")
 	r.write("a.txt", "a\n")
@@ -147,6 +152,7 @@ func TestAddHunksIsAllOrNothing(t *testing.T) {
 // TestRestoreHunksOfSeveralFiles unstages hunks of two files in one call:
 // all of one file and one of two hunks of the other.
 func TestRestoreHunksOfSeveralFiles(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("a.txt", "a\n")
 	r.write("b.txt", "1\n2\n3\n4\n5\n")
@@ -179,6 +185,7 @@ func TestRestoreHunksOfSeveralFiles(t *testing.T) {
 // commits a deletion that moves the second copy to where the first was.
 // The first copy's ID must be unknown now, not name the second copy.
 func TestShiftedCopyIDIsStale(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	base := "p1\np2\nx\np4\np5\nx\np7\np8\nx\np10\n"
 	r.write("f", base)
@@ -204,6 +211,7 @@ func TestShiftedCopyIDIsStale(t *testing.T) {
 // `add --edits` dies after it adopted the index and before it deleted the
 // records; the next `add --edits` must not apply them again.
 func TestAddEditsAfterACrashSkipsAppliedRecords(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", "a\nb\nc\n")
 	r.write("g.txt", "g\n")
@@ -228,6 +236,7 @@ func TestAddEditsAfterACrashSkipsAppliedRecords(t *testing.T) {
 // command must neither delete it nor reuse its generation, so the orphan
 // cannot later rename a lock file of the new command.
 func TestOrphanedIndexLockIsKept(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.mustMS("a", "status")
 	dir := r.path(".git/multistage/stages/a")
@@ -261,6 +270,7 @@ func TestOrphanedIndexLockIsKept(t *testing.T) {
 // stage has staged changes in: exit 5 with kind shared-path, and nothing
 // staged, unless --allow-shared is passed.
 func TestWholeFileAddOfASharedFileIsRefused(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", "1\n2\n3\n4\n5\n")
 	r.git("add", "f.txt")
@@ -305,6 +315,7 @@ func TestBusyStageExits6(t *testing.T) {
 // content. The test pins the file and the stage index to one past second, so
 // the outcome does not depend on how fast the commands run.
 func TestAddHunkKeepsRacyEntriesRacy(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	// The test sets modification times but cannot set change times.
 	r.git("config", "core.trustctime", "false")

@@ -20,6 +20,7 @@ func (r *repo) recordLineOne(session, p string) string {
 }
 
 func TestAddEditsFollowsAnotherStagesMove(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty})
 	r.recordLineOne("a", "x.go")
 	r.moveAndRewrite("b", "x.go", "y.go", true)
@@ -40,6 +41,7 @@ func TestAddEditsFollowsAnotherStagesMove(t *testing.T) {
 }
 
 func TestAddEditsMeetsAnotherStagesDeletion(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty})
 	edited := r.recordLineOne("a", "x.go")
 	deleting := r.deleteAndCommit("x.go")
@@ -71,6 +73,7 @@ func TestAddEditsMeetsAnotherStagesDeletion(t *testing.T) {
 }
 
 func TestCodexMovesAFile(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"f.txt": "one\ntwo\nthree\n"})
 	const stage = "codex-019a7c2e-4f1b-7d30-9a8e-5c6b7d8e9f01"
 	file := r.path("f.txt")
@@ -116,6 +119,7 @@ func (r *repo) recordTwoEdits(session, p string) string {
 }
 
 func TestAddEditsFollowsAMoveWithSeveralRecords(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty})
 	r.recordTwoEdits("a", "x.go")
 	r.moveAndRewrite("b", "x.go", "y.go", true)
@@ -130,6 +134,7 @@ func TestAddEditsFollowsAMoveWithSeveralRecords(t *testing.T) {
 }
 
 func TestAddEditsRecreatesFromSeveralRecords(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty})
 	both := r.recordTwoEdits("a", "x.go")
 	r.deleteAndCommit("x.go")
@@ -148,6 +153,7 @@ func TestAddEditsRecreatesFromSeveralRecords(t *testing.T) {
 }
 
 func TestAddEditsFollowsAPlainGitRename(t *testing.T) {
+	t.Parallel()
 	for _, staged := range []bool{false, true} {
 		r := committedRepo(t, map[string]string{"x.go": twenty})
 		if staged {
@@ -169,6 +175,7 @@ func TestAddEditsFollowsAPlainGitRename(t *testing.T) {
 }
 
 func TestAddEditsFollowsAMoveCommitWithAnOlderDate(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty})
 	r.recordLineOne("a", "x.go")
 	r.mustMS("b", "mv", "x.go", "y.go")
@@ -184,6 +191,7 @@ func TestAddEditsFollowsAMoveCommitWithAnOlderDate(t *testing.T) {
 }
 
 func TestAddEditsFollowsTheStagesOwnMoveAfterAFollowedMove(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty})
 	r.recordLineOne("a", "x.go")
 	r.moveAndRewrite("b", "x.go", "y.go", true)
@@ -201,6 +209,7 @@ func TestAddEditsFollowsTheStagesOwnMoveAfterAFollowedMove(t *testing.T) {
 }
 
 func TestAddEditsDropsTheRecordsOfAFollowedPathThatTheStageDeleted(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty, "o.go": "o\n"})
 	r.recordLineOne("a", "x.go")
 	r.hookedEdit("a", "", "o.go", "o\nedited\n")
@@ -216,6 +225,7 @@ func TestAddEditsDropsTheRecordsOfAFollowedPathThatTheStageDeleted(t *testing.T)
 }
 
 func TestAddEditsFollowsARenameForARecordWithoutTip(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty})
 	r.recordLineOne("a", "x.go")
 	files, err := filepath.Glob(r.path(".git/multistage/stages/claude-a/edits/*.json"))
@@ -246,6 +256,7 @@ func TestAddEditsFollowsARenameForARecordWithoutTip(t *testing.T) {
 }
 
 func TestAddEditsOfAnotherStagesNewFile(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"o.go": "o\n"})
 	r.write("new.go", "one\ntwo\n")
 	r.mustMS("b", "add", "new.go")
@@ -263,6 +274,7 @@ func TestAddEditsOfAnotherStagesNewFile(t *testing.T) {
 }
 
 func TestAddEditsOfAnUntrackedFileOnAnUnbornBranch(t *testing.T) {
+	t.Parallel()
 	r := &repo{t: t, dir: t.TempDir()}
 	r.git("init", "-q")
 	r.write("n.go", "one\n")
@@ -277,6 +289,7 @@ func TestAddEditsOfAnUntrackedFileOnAnUnbornBranch(t *testing.T) {
 }
 
 func TestRmForgetsTheRecordsThatFollowAMoveToTheDeletedPath(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty, "w.go": "w\n"})
 	r.recordLineOne("a", "x.go")
 	r.moveAndRewrite("b", "x.go", "y.go", false)
@@ -290,6 +303,7 @@ func TestRmForgetsTheRecordsThatFollowAMoveToTheDeletedPath(t *testing.T) {
 }
 
 func TestRmForgetsTheRecordsThatFollowAFollowedMoveAndTheStagesOwnMove(t *testing.T) {
+	t.Parallel()
 	r := committedRepo(t, map[string]string{"x.go": twenty, "w.go": "w\n"})
 	r.recordLineOne("a", "x.go")
 	r.moveAndRewrite("b", "x.go", "y.go", false)

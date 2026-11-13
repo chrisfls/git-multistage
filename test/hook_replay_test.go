@@ -33,6 +33,7 @@ func (r *repo) replayHook(name, file string) result {
 // hooks/hooks.json runs, around a real edit. The stage named by the input
 // must record the edit, and add --edits must commit exactly it.
 func TestHookReplay(t *testing.T) {
+	t.Parallel()
 	hooks, err := os.ReadFile("../hooks/hooks.json")
 	if err != nil {
 		t.Fatal(err)

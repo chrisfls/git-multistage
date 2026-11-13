@@ -7,6 +7,7 @@ import (
 )
 
 func TestDetachedHead(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.git("switch", "-q", "--detach")
 	main := r.git("rev-parse", "main")
@@ -72,6 +73,7 @@ func TestSparseCheckout(t *testing.T) { testSparse(t, false) }
 func TestSparseIndex(t *testing.T)    { testSparse(t, true) }
 
 func TestSplitIndex(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.git("config", "core.splitIndex", "true")
 	r.write("n.txt", "n\n")
@@ -89,6 +91,7 @@ func TestSplitIndex(t *testing.T) {
 }
 
 func TestMergeInProgress(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("o.txt", "base\n")
 	r.git("add", "o.txt")
@@ -127,6 +130,7 @@ func TestMergeInProgress(t *testing.T) {
 }
 
 func TestRebaseInProgressIsRefused(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.git("switch", "-q", "-c", "feature")
 	r.write("README", "feature\n")
@@ -146,6 +150,7 @@ func TestRebaseInProgressIsRefused(t *testing.T) {
 // TestIndexLagIsCaughtUp moves the branch behind the default index's back,
 // then checks that the next stage commit brings the index forward.
 func TestIndexLagIsCaughtUp(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.mustMS("agent-a", "status")
 	blob := strings.TrimSpace(r.git("rev-parse", "main:README"))
@@ -164,6 +169,7 @@ func TestIndexLagIsCaughtUp(t *testing.T) {
 }
 
 func TestManualSyncFindsTheMatchingCommit(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.git("config", "multistage.syncIndex", "false")
 	r.write("a.txt", "a\n")
@@ -183,6 +189,7 @@ func TestManualSyncFindsTheMatchingCommit(t *testing.T) {
 // TestAdjacentLineEditsBothCommit has two stages change neighbouring lines of
 // one file. Git's merge would conflict; the line replay places both.
 func TestAdjacentLineEditsBothCommit(t *testing.T) {
+	t.Parallel()
 	r := newRepo(t)
 	r.write("f.txt", "1\n2\n3\n4\n5\n6\n")
 	r.git("add", "f.txt")

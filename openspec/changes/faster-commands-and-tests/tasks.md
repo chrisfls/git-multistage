@@ -22,7 +22,7 @@
 
 ## 3. Parallel tests
 
-- [ ] 3.1 Call `t.Parallel()` in every end-to-end test that does not change the process environment or measure time. Verify: `go test -count=1 -race ./test/` passes three times in a row, and `mise run ci:stress` passes.
+- [x] 3.1 Call `t.Parallel()` in every end-to-end test that does not change the process environment or measure time. Verify: `go test -count=1 -race ./test/` passes three times in a row, and `mise run ci:stress` passes.
 
 ## 4. Results
 
