@@ -189,9 +189,16 @@ No stage ID yet? `git multistage init` creates a stage with a random ID and prin
 
 ## Coding agents
 
-Give each agent a stage ID, such as its agent ID, and [the agent guide](skills/git-multistage/SKILL.md).
+Give each agent its own stage ID, such as its agent ID, and point it to [the agent guide](skills/git-multistage/SKILL.md).
 
-For Claude Code and Codex, install the plugin. It records each edit an agent makes in that agent's stage and teaches the agent the commands. The plugin calls the `git-multistage` binary, so [install it](#install) first: the hooks print an error while the binary is not on your `PATH`.
+For Claude Code and Codex, install the plugin. The plugin records each edit that an agent makes with its file tools in that agent's stage, and teaches the agent the commands. The agent then stages its recorded edits and commits them:
+
+```bash
+git multistage --stage <id> add --edits
+git multistage --stage <id> commit -m "Add input validation"
+```
+
+The plugin calls the `git-multistage` binary, so [install it](#install) first: the hooks print an error while the binary is not on your `PATH`.
 
 Claude Code:
 
@@ -207,20 +214,13 @@ codex plugin marketplace add chrisfls/git-multistage
 codex plugin add git-multistage@git-multistage
 ```
 
-Codex asks you to trust the plugin's hooks the next time it starts. Its default sandbox (`workspace-write`) makes `.git` read-only, so `git multistage` fails there, as `git commit` does. A rule lets Codex run it outside the sandbox without asking. Add it to `.codex/rules/multistage.rules` in the project, or to a file in `~/.codex/rules/`:
+Codex asks you to trust the plugin's hooks the next time it starts. Its default sandbox makes `.git` read-only, so `git multistage` fails there, as `git commit` does. A rule lets Codex run it outside the sandbox. Add it to `.codex/rules/multistage.rules` in a trusted project, or to a file in `~/.codex/rules/`:
 
 ```python
 prefix_rule(pattern = ["git", "multistage"], decision = "allow")
 ```
 
-Project rules load only when the project is trusted. The rule also covers commands that the agent should not run on its own, such as `drop --force`. To allow single commands instead, use `pattern = ["git", "multistage", "add"]` and similar lines.
-
-An agent then commits its own edits with:
-
-```bash
-git multistage --stage <id> add --edits
-git multistage --stage <id> commit -m "Add input validation"
-```
+This rule also lets the agent run commands that discard work, such as `drop --force`, without asking. To allow single commands instead, use `pattern = ["git", "multistage", "add"]` and similar lines.
 
 ## Specs
 
