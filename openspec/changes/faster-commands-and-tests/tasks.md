@@ -26,4 +26,19 @@
 
 ## 4. Results
 
-- [ ] 4.1 Measure the same numbers as 1.1, the same way, and record them next to the baseline. Run `mise run ci`. Verify: CI exits with code 0, and both sets of numbers are in this task.
+- [x] 4.1 Measure the same numbers as 1.1, the same way, and record them next to the baseline. Run `mise run ci`. Verify: CI exits with code 0, and both sets of numbers are in this task.
+
+  After, 2026-11-13, master `510a0ad`, macOS, 12 cores, idle machine, measured the same way:
+  - `go test -count=1 ./...`, default `-parallel` (12), 153 of 177 tests parallel: 156.5 s wall; `test` package 156.3 s; CPU 169.0 s user + 331.7 s system. The 24 serial tests (concurrency, crash, timing, `t.Setenv`) take about 76 s of it when run alone.
+  - One command in flight, small repository of 5 files, two runs (`/tmp/fc/count.sh`):
+
+    | Command | git processes (before) | git processes (after) | Run 1 | Run 2 |
+    | --- | --- | --- | --- | --- |
+    | `status` | 23 | 20 | 1100 ms | 746 ms |
+    | `add f1.txt` | 19 | 16 | 355 ms | 330 ms |
+    | `commit -m x` | 46 | 43 | 906 ms | 900 ms |
+    | `add --edits` | 17 | 14 | 307 ms | 303 ms |
+
+  - 20 changed files, one command in flight: `add` of 20 paths 35 to 16 git processes; `add --edits` of 20 records 71 to 33; `status` 12 and `commit` 43 have no per-path calls.
+  - `status` is the first command of `count.sh` and creates the stage (about 10 more processes than a later `status`, 13). Its time also holds the first run of the counting wrapper script, which macOS scans: with the wrapper run once before the timing, the first command drops from 956 ms to 530 ms.
+  - `mise run ci`: exit code 0, 170 s.
