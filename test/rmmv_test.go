@@ -292,3 +292,71 @@ func TestRestoreForgetsTheMove(t *testing.T) {
 		t.Fatalf("moves %v", got)
 	}
 }
+
+func TestRmOfAPathTheStageDoesNotHold(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": "x\n"})
+	r.mustMS("a", "mv", "x.go", "y.go")
+	r.write("x.go", "another agent's new file\n")
+	r.expectCode(1, "a", "rm", "-f", "x.go")
+	if r.read("x.go") != "another agent's new file\n" {
+		t.Fatal("rm deleted the new x.go")
+	}
+}
+
+func TestRmForgetsTheRecordedEdits(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": twenty, "other.go": "o\n"})
+	r.hookedEdit("a", "", "x.go", "FIRST\n"+twenty)
+	r.hookedEdit("a", "", "other.go", "o\nedited\n")
+	r.mustMS("", "--stage", "claude-a", "rm", "-f", "x.go")
+	res := r.mustMS("", "--stage", "claude-a", "add", "--edits")
+	if strings.Contains(res.out+res.err, "x.go") {
+		t.Fatalf("add --edits:\n%s", res)
+	}
+	if got := r.stagedStatus("claude-a"); !eq(got, []string{"M other.go", "D x.go"}) {
+		t.Fatalf("stage claude-a holds %v", got)
+	}
+}
+
+func TestMvFinishesAChainedMoveAfterACrash(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": "x\n"})
+	r.mustMS("a", "mv", "x.go", "y.go")
+	if res := run(r.dir, "a", []string{"GIT_MULTISTAGE_FAULT=before-disk-write"}, "mv", "y.go", "z.go"); res.code != 86 {
+		t.Fatalf("fault did not fire:\n%s", res)
+	}
+	r.mustMS("a", "mv", "y.go", "z.go")
+	if !gone(t, r.path("y.go")) || r.read("z.go") != "x\n" {
+		t.Fatal("the second run did not move the file")
+	}
+	if got := r.stageMoves("a"); !eq(got, []string{"x.go -> z.go"}) {
+		t.Fatalf("moves %v", got)
+	}
+}
+
+func TestRmFinishesAfterACrashOfAStagedFile(t *testing.T) {
+	for _, tc := range []struct{ name, path string }{{"new file", "n.go"}, {"edited file", "x.go"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := committedRepo(t, map[string]string{"x.go": "x\n"})
+			r.write(tc.path, "staged\n")
+			r.mustMS("a", "add", tc.path)
+			if res := run(r.dir, "a", []string{"GIT_MULTISTAGE_FAULT=before-disk-write"}, "rm", tc.path); res.code != 86 {
+				t.Fatalf("fault did not fire:\n%s", res)
+			}
+			r.mustMS("a", "rm", tc.path)
+			if !gone(t, r.path(tc.path)) {
+				t.Fatal("the second run left the file")
+			}
+		})
+	}
+}
+
+func TestRmRerunKeepsAFileThatAnotherWriterChanged(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": "x\n"})
+	if res := run(r.dir, "a", []string{"GIT_MULTISTAGE_FAULT=before-disk-write"}, "rm", "x.go"); res.code != 86 {
+		t.Fatalf("fault did not fire:\n%s", res)
+	}
+	r.write("x.go", "another writer\n")
+	r.ms("a", "rm", "x.go")
+	if r.read("x.go") != "another writer\n" {
+		t.Fatal("the rerun deleted another writer's file")
+	}
+}
