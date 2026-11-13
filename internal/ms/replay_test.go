@@ -22,7 +22,7 @@ func diff(t *testing.T, a, b string) []hunks.Hunk {
 	}
 	out, _ := exec.CommandContext(context.Background(), "git", "diff", "--no-index", "--no-color", "-U0", "--inter-hunk-context=0",
 		"--diff-algorithm=myers", pa, pb).Output()
-	hs, err := hunks.Parse("f", out, "")
+	hs, err := hunks.Parse("f", out, "", hunks.NewSide)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -40,7 +40,7 @@ func gitDiff(t *testing.T, old, updated string) []byte {
 // change in these tests.
 func mustParse(t *testing.T, path, old, updated string) []Hunk {
 	t.Helper()
-	hs, err := Parse(path, gitDiff(t, old, updated), updated)
+	hs, err := Parse(path, gitDiff(t, old, updated), updated, NewSide)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func mustParse(t *testing.T, path, old, updated string) []Hunk {
 func TestParseAndApply(t *testing.T) {
 	old := "one\ntwo\nthree\nfour\nfive\nsix\n"
 	updated := "one\nTWO\nthree\nfour\nfive\nsix\nseven"
-	hs, err := Parse("f", gitDiff(t, old, updated), updated)
+	hs, err := Parse("f", gitDiff(t, old, updated), updated, NewSide)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestDuplicateHunksGetDistinctIDs(t *testing.T) {
 }
 
 func TestBinary(t *testing.T) {
-	if _, err := Parse("f", gitDiff(t, "a\x00b", "a\x00c"), ""); !errors.Is(err, ErrBinary) {
+	if _, err := Parse("f", gitDiff(t, "a\x00b", "a\x00c"), "", NewSide); !errors.Is(err, ErrBinary) {
 		t.Fatalf("err = %v, want ErrBinary", err)
 	}
 }
@@ -118,7 +118,7 @@ func TestRandomSubsets(t *testing.T) {
 		if old == updated {
 			continue
 		}
-		hs, err := Parse("f", gitDiff(t, old, updated), updated)
+		hs, err := Parse("f", gitDiff(t, old, updated), updated, NewSide)
 		if err != nil {
 			t.Fatalf("parse: %v", err)
 		}
@@ -137,7 +137,7 @@ func TestRandomSubsets(t *testing.T) {
 			t.Fatalf("apply subset: %v", err)
 		}
 		// The rest of the hunks, applied on top of part, must reach updated.
-		rest, err := Parse("f", gitDiff(t, string(part), updated), updated)
+		rest, err := Parse("f", gitDiff(t, string(part), updated), updated, NewSide)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -154,7 +154,7 @@ func TestRandomSubsets(t *testing.T) {
 func TestShiftedCopiesGetNewIDs(t *testing.T) {
 	ids := func(old string) map[string]bool {
 		updated := strings.ReplaceAll(old, "x\n", "y\n")
-		hs, err := Parse("f", gitDiff(t, old, updated), updated)
+		hs, err := Parse("f", gitDiff(t, old, updated), updated, NewSide)
 		if err != nil {
 			t.Fatal(err)
 		}

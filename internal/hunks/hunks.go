@@ -52,15 +52,25 @@ func (h Hunk) Lines() []string {
 
 var headerRE = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@`)
 
+// Side names the side of a diff whose start lines place identical copies.
+type Side int
+
+const (
+	// NewSide places a copy by its start line in the new content.
+	NewSide Side = iota
+	// OldSide places a copy by its start line in the old content.
+	OldSide
+)
+
 // ErrBinary means that Git reported the content as binary.
 var ErrBinary = errors.New("binary content has no hunks")
 
 // Parse parses the output of `git diff -U0` for one file and assigns each
 // hunk an identifier derived from path and the hunk's changed lines. When
 // several hunks have the same lines, their identifiers also depend on their
-// places in the new content and on versions, which must change whenever the
-// diffed content can change other than by applying hunks of this diff.
-func Parse(path string, diff []byte, versions string) ([]Hunk, error) {
+// start lines on the given side and on versions, which must change whenever
+// that side can change other than by applying hunks of this diff.
+func Parse(path string, diff []byte, versions string, side Side) ([]Hunk, error) {
 	var hs []Hunk
 	var cur *Hunk
 	lines := strings.SplitAfter(string(diff), "\n")
@@ -111,21 +121,21 @@ func Parse(path string, diff []byte, versions string) ([]Hunk, error) {
 			return nil, fmt.Errorf("hunk %s has %d/%d lines", h.Header(), len(h.Removed), len(h.Added))
 		}
 	}
-	assignIDs(path, hs, versions)
+	assignIDs(path, hs, versions, side)
 	return hs, nil
 }
 
 // assignIDs gives each hunk a 12-hex-digit hash of its path and changed
 // lines, so the ID survives line shifts. Several hunks of one file can have
-// the same lines; each such copy hashes, in addition, its line in the new
-// content and versions, which names the versions of the diffed content. Any
+// the same lines; each such copy hashes, in addition, its start line on side
+// and versions, which names the versions of the diffed content. Any
 // change to those versions makes the IDs of copies unknown, so a selection
 // cannot silently move to another copy. The ID of a copy does not depend on
 // the other copies, so staging one copy keeps the IDs of the others.
 //
 // CopyID is the ID that a hunk has as a copy. A hunk whose last other copy
 // was staged keeps it, so that selections can still name it by that ID.
-func assignIDs(path string, hs []Hunk, versions string) {
+func assignIDs(path string, hs []Hunk, versions string, side Side) {
 	hash := func(h Hunk, place string) string {
 		sum := sha256.New()
 		sum.Write([]byte(path))
@@ -145,9 +155,13 @@ func assignIDs(path string, hs []Hunk, versions string) {
 		count[hs[i].ID]++
 	}
 	for i := range hs {
-		// Hunks of one diff are apart by unchanged lines, so no two of them
-		// start at the same new line.
-		hs[i].CopyID = hash(hs[i], fmt.Sprintf("@%d\x00%s", hs[i].NewStart, versions))
+		// Hunks of one diff are apart by unchanged lines, so no two copies
+		// start at the same line on either side.
+		start := hs[i].NewStart
+		if side == OldSide {
+			start = hs[i].OldStart
+		}
+		hs[i].CopyID = hash(hs[i], fmt.Sprintf("@%d\x00%s", start, versions))
 		if count[hs[i].ID] > 1 {
 			hs[i].ID = hs[i].CopyID
 		}

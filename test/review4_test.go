@@ -474,3 +474,49 @@ func TestWaiterRecreatesADroppedStage(t *testing.T) {
 	}
 	r.mustMS("a", "status")
 }
+
+// TestStagedCopyIDSurvivesRestoringAnotherCopy stages identical hunks,
+// lists them with `hunks --cached`, restores one copy, then restores another
+// copy by its listed ID. Restoring a copy does not change the stage's base,
+// so the other listed IDs stay valid.
+func TestStagedCopyIDSurvivesRestoringAnotherCopy(t *testing.T) {
+	r := newRepo(t)
+	r.write("f.txt", "a\nx\nb\nx\nc\nx\nd\n")
+	r.git("add", "f.txt")
+	r.git("commit", "-q", "-m", "f")
+	r.write("f.txt", "a\ny\nb\ny\nc\ny\nd\n")
+	r.mustMS("s", "add", "f.txt")
+	var fj filesJSON
+	decode(t, r.mustMS("s", "hunks", "--cached", "--json", "f.txt"), &fj)
+	h := fj.Files[0].Hunks
+	if len(h) != 3 {
+		t.Fatalf("want 3 staged hunks:\n%+v", fj)
+	}
+	r.mustMS("s", "restore", "--staged", "f.txt", "--hunk", h[0].ID)
+	r.mustMS("s", "restore", "--staged", "f.txt", "--hunk", h[1].ID)
+	r.mustMS("s", "commit", "-m", "third copy")
+	if got, want := r.git("show", "main:f.txt"), "a\nx\nb\nx\nc\ny\nd\n"; got != want {
+		t.Fatalf("committed %q, want %q", got, want)
+	}
+}
+
+// TestStagedCopyIDIsStaleAfterANewBase lists staged identical hunks; another
+// stage then commits a change to the same file, so the stage moves to a new
+// base. The listed copy IDs must be unknown now.
+func TestStagedCopyIDIsStaleAfterANewBase(t *testing.T) {
+	r := newRepo(t)
+	r.write("f.txt", "a\nx\nb\nx\nc\n")
+	r.git("add", "f.txt")
+	r.git("commit", "-q", "-m", "f")
+	r.write("f.txt", "a\ny\nb\ny\nc\n")
+	r.mustMS("a", "add", "f.txt")
+	var fj filesJSON
+	decode(t, r.mustMS("a", "hunks", "--cached", "--json", "f.txt"), &fj)
+	first := fj.Files[0].Hunks[0].ID
+	patch := "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -1,2 +1,2 @@\n-a\n+A\n x\n"
+	if res := runStdin(r.dir, "b", nil, patch, "apply", "-"); res.code != 0 {
+		t.Fatalf("apply:\n%s", res)
+	}
+	r.mustMS("b", "commit", "-m", "A")
+	r.expectCode(4, "a", "restore", "--staged", "f.txt", "--hunk", first)
+}

@@ -305,26 +305,29 @@ func (r *Repo) lsTree(commit, p string) (indexEntry, bool, error) {
 // diffBlobs returns the hunks between two blobs of p. Their IDs are for
 // internal use: identical copies get IDs that hash no versions.
 func (r *Repo) diffBlobs(p, oldBlob, newBlob string) ([]hunks.Hunk, error) {
-	return r.diffBlobsWithIDs(p, oldBlob, newBlob, "")
+	return r.diffBlobsWithIDs(p, oldBlob, newBlob, "", hunks.NewSide)
 }
 
 // diffBlobsWithIDs returns the hunks between two blobs of p. The IDs of
-// identical copies hash versions; see hunks.Parse.
-func (r *Repo) diffBlobsWithIDs(p, oldBlob, newBlob, versions string) ([]hunks.Hunk, error) {
+// identical copies hash versions and their start lines on side; see
+// hunks.Parse.
+func (r *Repo) diffBlobsWithIDs(p, oldBlob, newBlob, versions string, side hunks.Side) ([]hunks.Hunk, error) {
 	out, err := r.Run(gitx.Opt{}, "diff", "--no-color", "--no-ext-diff", "--no-textconv",
 		"-U0", "--inter-hunk-context=0", "--diff-algorithm=myers", oldBlob, newBlob)
 	if err != nil && gitx.ExitCode(err) != 1 {
 		return nil, err
 	}
-	return hunks.Parse(p, out, versions)
+	return hunks.Parse(p, out, versions, side)
 }
 
 // copyVersions names the versions that the IDs of identical hunks depend on:
-// the stage's base commit and the blob of the listed side. Staging a hunk
-// changes neither, so the other copies keep their IDs; any other change to
-// the file, or a new base, makes them stale.
-func (l *Stage) copyVersions(newBlob string) string {
-	return l.M.Base + "\x00" + newBlob
+// the stage's base commit and the blob whose lines place the copies. An
+// unstaged listing places copies in the working-tree snapshot, which staging
+// a hunk leaves alone. A staged listing places them in the base blob, which
+// restoring a hunk leaves alone. So the other copies keep their IDs; any
+// other change to the placing blob, or a new base, makes them stale.
+func (l *Stage) copyVersions(blob string) string {
+	return l.M.Base + "\x00" + blob
 }
 
 func (r *Repo) catBlob(oid string) ([]byte, error) {
@@ -410,7 +413,7 @@ func (l *Stage) unstagedHunks(p string) (FileHunks, error) {
 	if err != nil {
 		return fh, err
 	}
-	hs, err := l.r.diffBlobsWithIDs(p, fh.oldBlob, newBlob, l.copyVersions(newBlob))
+	hs, err := l.r.diffBlobsWithIDs(p, fh.oldBlob, newBlob, l.copyVersions(newBlob), hunks.NewSide)
 	if errors.Is(err, hunks.ErrBinary) {
 		fh.Binary, fh.Note = true, "binary file; stage it whole with `git multistage add "+p+"`"
 		return fh, nil
@@ -449,7 +452,7 @@ func (l *Stage) stagedHunks(p string) (FileHunks, error) {
 		fh.Note = "mode or type change; unstage it whole with `git multistage restore --staged " + p + "`"
 		return fh, nil
 	}
-	hs, err := l.r.diffBlobsWithIDs(p, base.oid, cur.oid, l.copyVersions(cur.oid))
+	hs, err := l.r.diffBlobsWithIDs(p, base.oid, cur.oid, l.copyVersions(base.oid), hunks.OldSide)
 	if errors.Is(err, hunks.ErrBinary) {
 		fh.Binary, fh.Note = true, "binary file; unstage it whole with `git multistage restore --staged "+p+"`"
 		return fh, nil
