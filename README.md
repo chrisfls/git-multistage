@@ -10,12 +10,11 @@ It runs as `git multistage` and writes normal Git history.
 
 ## What it keeps apart
 
-Stages share one working tree, so every agent edits the same files. git-multistage keeps their staging and their commits apart:
+Stages share a working tree, so agents can edit the same files. git-multistage keeps their staged changes and their commits apart.
 
-- With the [agent plugin](#coding-agents), an agent holds a short lease on a file while it edits it, so two agents' edits of one file run one after the other.
-- `add --edits` stages only the lines that the agent itself changed, even when another agent changed the next line.
-- If another writer overwrote those lines, `add --edits` stages nothing and fails with `edit-lost`.
-- Edits made through shell commands, such as a formatter, are not recorded. Stage them with `add` or `add --hunk`.
+With the [agent plugin](#coding-agents), edits that agents make to one file through their file tools wait for each other. The plugin also records which lines each agent changed, so each agent can stage its own edits in a file that others edit too.
+
+Edits made through shell commands, such as a formatter, are not recorded. Stage them separately, with `add` or `add --hunk`.
 
 ## The problem
 
@@ -197,6 +196,8 @@ For Claude Code and Codex, install the plugin. The plugin records each edit that
 git multistage --stage <id> add --edits
 git multistage --stage <id> commit -m "Add input validation"
 ```
+
+`add --edits` stages only the lines that the agent itself changed, even when another agent changed the next line. If another writer overwrote those lines, it stages nothing and fails with `edit-lost`.
 
 The plugin calls the `git-multistage` binary, so [install it](#install) first: the hooks print an error while the binary is not on your `PATH`.
 
