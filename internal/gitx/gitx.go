@@ -229,6 +229,11 @@ func (r *Repo) run(o Opt, args ...string) ([]byte, error) {
 	if o.User {
 		cmd.Env = userEnv()
 	}
+	if !o.User && o.Stdout == nil && o.Stderr == nil {
+		// git-multistage reads this output, such as an error that Run
+		// matches, so Git must not translate it.
+		cmd.Env = append(cmd.Env, "LC_ALL=C")
+	}
 	if o.Index != "" {
 		cmd.Env = append(cmd.Env, "GIT_INDEX_FILE="+o.Index)
 	}

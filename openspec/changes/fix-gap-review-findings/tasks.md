@@ -10,7 +10,7 @@
 
 ## 3. Untranslated internal Git output
 
-- [ ] 3.1 Run internal Git calls that capture their output with `LC_ALL=C`; add a test that runs `hunks` and a failing command under `LC_ALL=de_DE.UTF-8` and `LANGUAGE=de`, and verify that `go test -count=1 ./...` passes
+- [x] 3.1 Run internal Git calls that capture their output with `LC_ALL=C`; add a `gitx` test with a fake `git` on `PATH` that prints its `LC_ALL`, under `LC_ALL=de_DE.UTF-8`, and check `C` for a captured call and the caller's value for `User` and streamed calls; verify that `go test -count=1 ./...` passes
 
 ## 4. Rerun loop tests
 
