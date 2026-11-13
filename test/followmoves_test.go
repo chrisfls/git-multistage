@@ -194,3 +194,70 @@ func TestRefreshMeetsADeletion(t *testing.T) {
 		t.Fatalf("stage a holds %v", got)
 	}
 }
+
+func TestCommitFollowsSeveralMovesInOneCommit(t *testing.T) {
+	r := committedRepo(t, map[string]string{"a.go": twenty, "c.go": strings.ReplaceAll(twenty, "line", "cc")})
+	mine := r.stageLineOne("b", "a.go")
+	r.mustMS("a", "mv", "a.go", "b.go")
+	r.mustMS("a", "mv", "c.go", "d.go")
+	r.mustMS("a", "mv", "b.go", "c.go")
+	r.mustMS("a", "commit", "-m", "shuffle")
+	msg := r.git("log", "-1", "--format=%B")
+	if !strings.Contains(msg, "Multistage-Moved: a.go -> c.go") || !strings.Contains(msg, "Multistage-Moved: c.go -> d.go") {
+		t.Fatalf("message:\n%s", msg)
+	}
+	r.mustMS("b", "commit", "-m", "first line of a")
+	if !eq(r.changedPaths("main"), []string{"c.go"}) {
+		t.Fatalf("the commit changed %v", r.changedPaths("main"))
+	}
+	if got := r.git("show", "main:c.go"); got != mine {
+		t.Fatalf("c.go = %q, want %q", got, mine)
+	}
+}
+
+func TestCommitAMoveOfAPathWithAnArrow(t *testing.T) {
+	const odd = "p -> q.go"
+	r := committedRepo(t, map[string]string{odd: twenty})
+	r.stageLineOne("b", odd)
+	r.moveAndRewrite("a", odd, "r.go", true)
+	msg := strings.TrimSpace(r.git("log", "-1", "--format=%B"))
+	if !strings.HasSuffix(msg, `Multistage-Moved: "p -> q.go" -> r.go`) {
+		t.Fatalf("message:\n%s", msg)
+	}
+	r.mustMS("b", "commit", "-m", "first line")
+	if !eq(r.changedPaths("main"), []string{"r.go"}) {
+		t.Fatalf("the commit changed %v", r.changedPaths("main"))
+	}
+}
+
+func TestCommitKeepsANewFileAtAMovedPath(t *testing.T) {
+	r := committedRepo(t, map[string]string{"other.go": "o\n"})
+	r.write("x.go", "mine\n")
+	r.mustMS("a", "add", "x.go")
+	r.externalCommit("add x", func(idx string) {
+		env := append(os.Environ(), "GIT_INDEX_FILE="+idx)
+		blob := r.hashObject("theirs\n")
+		if out, err := gitCmd(r.dir, env, "update-index", "--add", "--cacheinfo", "100644,"+blob+",x.go").CombinedOutput(); err != nil {
+			t.Fatalf("%v\n%s", err, out)
+		}
+	})
+	r.externalCommit("move x\n\nMultistage-Moved: x.go -> y.go", func(idx string) {
+		env := append(os.Environ(), "GIT_INDEX_FILE="+idx)
+		blob := r.hashObject("theirs\n")
+		for _, args := range [][]string{
+			{"update-index", "--force-remove", "x.go"},
+			{"update-index", "--add", "--cacheinfo", "100644," + blob + ",y.go"},
+		} {
+			if out, err := gitCmd(r.dir, env, args...).CombinedOutput(); err != nil {
+				t.Fatalf("git %v: %v\n%s", args, err, out)
+			}
+		}
+	})
+	r.mustMS("a", "commit", "-m", "add x")
+	if got := r.git("show", "main:x.go"); got != "mine\n" {
+		t.Fatalf("x.go = %q", got)
+	}
+	if got := r.git("show", "main:y.go"); got != "theirs\n" {
+		t.Fatalf("y.go = %q", got)
+	}
+}

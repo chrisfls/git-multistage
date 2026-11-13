@@ -149,7 +149,7 @@ func (l *Stage) addMoveTrailers(msg string) (string, error) {
 	}
 	args := []string{"interpret-trailers", "--where=end", "--if-exists=addIfDifferent"}
 	for _, m := range l.M.Moves {
-		args = append(args, "--trailer", trailerMoved+": "+m.Old+" -> "+m.New)
+		args = append(args, "--trailer", trailerMoved+": "+moveTrailer(m))
 	}
 	return stringOut(l.r.Run(gitx.Opt{Stdin: strings.NewReader(msg)}, args...))
 }

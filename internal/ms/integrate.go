@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/chrisfls/git-multistage/internal/gitx"
@@ -59,7 +60,8 @@ func (r *Repo) integrate(base, baseTree, staged, tip string, recreate []string) 
 
 // followBranch moves the entries of baseTree and staged that the
 // Multistage-Moved trailers of base..tip moved, then checks for paths that
-// base..tip deleted, and returns the two trees.
+// base..tip deleted, and returns the two trees. Only entries that baseTree
+// holds move, so a file that the stage added stays where the stage put it.
 func (r *Repo) followBranch(base, tip, baseTree, staged, tipTree string, recreate []string) (string, string, error) {
 	if base == "" || tip == "" {
 		return baseTree, staged, nil
@@ -67,6 +69,14 @@ func (r *Repo) followBranch(base, tip, baseTree, staged, tipTree string, recreat
 	moves, err := r.trailerMoves(base + ".." + tip)
 	if err != nil {
 		return "", "", err
+	}
+	for oldp := range moves {
+		if _, ok, err := r.lsTree(baseTree, oldp); err != nil || !ok {
+			if err != nil {
+				return "", "", err
+			}
+			delete(moves, oldp)
+		}
 	}
 	if baseTree, err = r.moveEntries(baseTree, moves); err != nil {
 		return "", "", err
@@ -80,28 +90,129 @@ func (r *Repo) followBranch(base, tip, baseTree, staged, tipTree string, recreat
 
 // trailerMoves returns the moves that the Multistage-Moved trailers of the
 // commits of revs name, as a map from each moved path to the path where the
-// last of them put it.
+// last of them put it. The trailers of one commit move their paths at the
+// same time, and each commit's moves apply to the result of the earlier ones.
 func (r *Repo) trailerMoves(revs ...string) (map[string]string, error) {
-	out, err := r.Run(gitx.Opt{}, append([]string{cmdLog, "--reverse", "--format=%(trailers:key=" + trailerMoved + ",valueonly)"}, revs...)...)
+	out, err := r.Run(gitx.Opt{}, append([]string{cmdLog, "--reverse", "--format=%x1e%(trailers:key=" + trailerMoved + ",valueonly)"}, revs...)...)
 	if err != nil {
 		return nil, err
 	}
 	moves := map[string]string{}
-	for _, line := range strings.Split(string(out), "\n") {
-		oldp, newp, ok := strings.Cut(strings.TrimSpace(line), " -> ")
-		if !ok || oldp == "" || newp == "" {
-			continue
-		}
-		for k, v := range moves {
-			if v == oldp {
-				moves[k] = newp
+	for _, commit := range strings.Split(string(out), "\x1e") {
+		step := map[string]string{}
+		for _, line := range strings.Split(commit, "\n") {
+			oldp, newp, ok := parseMoveTrailer(strings.TrimSpace(line))
+			if _, seen := step[oldp]; ok && !seen {
+				step[oldp] = newp
 			}
 		}
-		if _, ok := moves[oldp]; !ok {
-			moves[oldp] = newp
+		reached := map[string]bool{}
+		for k, v := range moves {
+			reached[v] = true
+			if n, ok := step[v]; ok {
+				moves[k] = n
+			}
+		}
+		for oldp, newp := range step {
+			if _, moved := moves[oldp]; !moved && !reached[oldp] {
+				moves[oldp] = newp
+			}
 		}
 	}
 	return moves, nil
+}
+
+// moveTrailer returns the value of the Multistage-Moved trailer of m.
+func moveTrailer(m Move) string { return quotePath(m.Old) + " -> " + quotePath(m.New) }
+
+// parseMoveTrailer splits the value of a Multistage-Moved trailer into its
+// old and new paths.
+func parseMoveTrailer(v string) (string, string, bool) {
+	var oldp, rest string
+	var ok bool
+	if strings.HasPrefix(v, `"`) {
+		if oldp, rest, ok = cutQuoted(v); ok {
+			rest, ok = strings.CutPrefix(rest, " -> ")
+		}
+	} else {
+		oldp, rest, ok = strings.Cut(v, " -> ")
+	}
+	if !ok {
+		return "", "", false
+	}
+	newp := rest
+	if strings.HasPrefix(rest, `"`) {
+		var tail string
+		if newp, tail, ok = cutQuoted(rest); !ok || tail != "" {
+			return "", "", false
+		}
+	}
+	return oldp, newp, oldp != "" && newp != ""
+}
+
+// quotePath returns p in double quotes with C-style escapes, as `git diff`
+// writes paths, when p holds " -> ", a double quote, a backslash, or a
+// control character; otherwise p.
+func quotePath(p string) string {
+	plain := !strings.Contains(p, " -> ") && !strings.ContainsAny(p, `"\`) &&
+		!strings.ContainsFunc(p, func(c rune) bool { return c < 0x20 || c == 0x7f })
+	if plain {
+		return p
+	}
+	var b strings.Builder
+	b.WriteByte('"')
+	for i := range len(p) {
+		c := p[i]
+		if j := strings.IndexByte(cEscapes, c); j >= 0 && c != 0 {
+			b.WriteByte('\\')
+			b.WriteByte(cEscapeNames[j])
+		} else if c < 0x20 || c == 0x7f {
+			fmt.Fprintf(&b, "\\%03o", c)
+		} else {
+			b.WriteByte(c)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
+// The bytes that a C-style quoted path escapes by name, and their names.
+const (
+	cEscapes     = "\a\b\f\n\r\t\v\"\\"
+	cEscapeNames = "abfnrtv\"\\"
+)
+
+// cutQuoted reads the C-style quoted string at the start of s, and returns
+// it unquoted with the rest of s.
+func cutQuoted(s string) (string, string, bool) {
+	var b strings.Builder
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == '"':
+			return b.String(), s[i+1:], true
+		case c != '\\':
+			b.WriteByte(c)
+			continue
+		case i+1 >= len(s):
+			return "", "", false
+		}
+		i++
+		if j := strings.IndexByte(cEscapeNames, s[i]); j >= 0 {
+			b.WriteByte(cEscapes[j])
+			continue
+		}
+		if i+3 > len(s) {
+			return "", "", false
+		}
+		n, err := strconv.ParseUint(s[i:i+3], 8, 8)
+		if err != nil {
+			return "", "", false
+		}
+		b.WriteByte(byte(n))
+		i += 2
+	}
+	return "", "", false
 }
 
 // followMoves returns paths, with the path where moves put each moved one.
@@ -116,37 +227,68 @@ func followMoves(paths []string, moves map[string]string) []string {
 }
 
 // moveEntries returns tree with each entry that moves names at its new path.
-// An entry whose new path tree already holds stays.
+// All the moves happen at once, so one entry may take the path that another
+// leaves. An entry whose new path tree holds otherwise stays.
 func (r *Repo) moveEntries(tree string, moves map[string]string) (string, error) {
 	if len(moves) == 0 {
 		return tree, nil
 	}
 	return r.editTree(tree, func(idx string) (bool, error) {
-		changed := false
-		for oldp, newp := range moves {
-			e, ok, err := r.lsIndex(idx, oldp)
-			if err != nil || !ok || oldp == newp {
-				if err != nil {
-					return false, err
-				}
-				continue
-			}
-			if _, taken, err := r.lsIndex(idx, newp); err != nil || taken {
-				if err != nil {
-					return false, err
-				}
-				continue
-			}
-			if _, err := r.Run(gitx.Opt{Index: idx}, "update-index", "--force-remove", "--", oldp); err != nil {
-				return false, err
-			}
-			if err := r.setIndexBlob(idx, newp, e.mode, e.oid); err != nil {
-				return false, err
-			}
-			changed = true
+		entries, err := r.freeMoves(idx, moves)
+		if err != nil {
+			return false, err
 		}
-		return changed, nil
+		if len(entries) == 0 {
+			return false, nil
+		}
+		olds := make([]string, 0, len(entries))
+		for oldp := range entries {
+			olds = append(olds, oldp)
+		}
+		slices.Sort(olds)
+		if _, err := r.Run(gitx.Opt{Index: idx}, append([]string{"update-index", "--force-remove", "--"}, olds...)...); err != nil {
+			return false, err
+		}
+		for _, oldp := range olds {
+			if err := r.setIndexBlob(idx, moves[oldp], entries[oldp].mode, entries[oldp].oid); err != nil {
+				return false, err
+			}
+		}
+		return true, nil
 	})
+}
+
+// freeMoves returns the entries of the index file idx that moves can move:
+// each entry whose new path is free, or is left by another entry that moves.
+func (r *Repo) freeMoves(idx string, moves map[string]string) (map[string]indexEntry, error) {
+	entries := map[string]indexEntry{}
+	taken := map[string]bool{}
+	for oldp, newp := range moves {
+		e, ok, err := r.lsIndex(idx, oldp)
+		if err != nil {
+			return nil, err
+		}
+		if ok && oldp != newp {
+			entries[oldp] = e
+		}
+		if _, ok, err = r.lsIndex(idx, newp); err != nil {
+			return nil, err
+		}
+		taken[newp] = ok
+	}
+	// Drop each move whose new path an entry that stays holds, until every
+	// left move has a free path.
+	for changed := true; changed; {
+		changed = false
+		for oldp := range entries {
+			newp := moves[oldp]
+			if _, leaves := entries[newp]; taken[newp] && !leaves {
+				delete(entries, oldp)
+				changed = true
+			}
+		}
+	}
+	return entries, nil
 }
 
 // editTree returns tree after edit changed it in a temporary index. edit
