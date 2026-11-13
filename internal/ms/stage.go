@@ -827,7 +827,7 @@ func (l *Stage) RestorePaths(paths []string) error {
 	if err := l.restorePaths(l.IndexPath(), paths); err != nil {
 		return err
 	}
-	if moves := dropMoves(l.M.Moves, paths); len(moves) != len(l.M.Moves) {
+	if moves, dropped := dropMoves(l.M.Moves, paths); len(dropped) > 0 {
 		l.M.Moves = moves
 		return l.save()
 	}

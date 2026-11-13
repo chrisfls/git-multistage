@@ -121,10 +121,11 @@ type Meta struct {
 
 // DiskChange is the working-tree change of one rm or mv.
 type DiskChange struct {
-	Command string   `json:"command"`        // "rm" or "mv"
-	Paths   []string `json:"paths"`          // rm: the paths to delete; mv: the old and the new path
-	Blobs   []string `json:"blobs"`          // the raw blob (hash-object --no-filters) expected on disk at each path; "" for none
-	Temp    string   `json:"temp,omitempty"` // mv: the temporary name of a case-only move between its two renames
+	Command string   `json:"command"`         // "rm" or "mv"
+	Paths   []string `json:"paths"`           // rm: the paths to delete; mv: the old and the new path
+	Blobs   []string `json:"blobs"`           // the raw blob (hash-object --no-filters) expected on disk at each path; "" for none
+	Temp    string   `json:"temp,omitempty"`  // mv: the temporary name of a case-only move between its two renames
+	Moves   []Move   `json:"moves,omitempty"` // rm: the stage's moves that the rm dropped, which the records it forgets follow
 }
 
 // Move is one staged move of a file.

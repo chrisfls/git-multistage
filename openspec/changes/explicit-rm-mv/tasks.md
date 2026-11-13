@@ -53,5 +53,5 @@
 ## 8. Last review fixes
 
 - [x] 8.1 Make a staged deletion or move follow a rename without a trailer, as "Follow moves onto the tip" requires. Verify: a staged `rm p.go`, then a branch commit `git mv p.go n.go` and a later rewrite of `n.go`, gives a modify/delete conflict instead of an empty stage; without the rewrite, the deletion of `n.go` is committed.
-- [ ] 8.2 Make `rm` forget records that follow another stage's move and then the stage's own `mv` to the deleted path. Verify: record `x.go`, another stage commits `mv x.go y.go`, the stage runs `mv y.go z.go`, `rm -f z.go`, and commits; a later `add --edits` stages the other records.
+- [x] 8.2 Make `rm` forget records that follow another stage's move and then the stage's own `mv` to the deleted path. Verify: record `x.go`, another stage commits `mv x.go y.go`, the stage runs `mv y.go z.go`, `rm -f z.go`, and commits; a later `add --edits` stages the other records.
 - [ ] 8.3 Run `mise run ci` once. Verify: exit code 0.

@@ -288,3 +288,17 @@ func TestRmForgetsTheRecordsThatFollowAMoveToTheDeletedPath(t *testing.T) {
 		t.Fatalf("stage claude-a holds %v", got)
 	}
 }
+
+func TestRmForgetsTheRecordsThatFollowAFollowedMoveAndTheStagesOwnMove(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": twenty, "w.go": "w\n"})
+	r.recordLineOne("a", "x.go")
+	r.moveAndRewrite("b", "x.go", "y.go", false)
+	r.mustMS("", "--stage", "claude-a", "mv", "y.go", "z.go")
+	r.mustMS("", "--stage", "claude-a", "rm", "-f", "z.go")
+	r.mustMS("", "--stage", "claude-a", "commit", "-m", "a deletes y")
+	r.hookedEdit("a", "", "w.go", "w\nedited\n")
+	r.mustMS("", "--stage", "claude-a", "add", "--edits")
+	if got := r.stagedStatus("claude-a"); !eq(got, []string{"M w.go"}) {
+		t.Fatalf("stage claude-a holds %v", got)
+	}
+}

@@ -50,8 +50,9 @@ func (l *Stage) RemovePaths(paths []string, force bool) error {
 		return err
 	}
 	moves, pending := l.M.Moves, l.M.PendingDisk
-	l.M.Moves = dropMoves(moves, paths)
-	l.M.PendingDisk = append(slices.Clone(pending), DiskChange{Command: cmdRm, Paths: paths, Blobs: blobs})
+	var dropped []Move
+	l.M.Moves, dropped = dropMoves(moves, paths)
+	l.M.PendingDisk = append(slices.Clone(pending), DiskChange{Command: cmdRm, Paths: paths, Blobs: blobs, Moves: dropped})
 	err = l.withNewIndex(func(idx string) error {
 		_, err := l.r.Run(gitx.Opt{Index: idx}, append([]string{"update-index", "--force-remove", "--"}, paths...)...)
 		return err
@@ -162,7 +163,7 @@ func (l *Stage) finishPending(i int) error {
 func (l *Stage) finishDisk(i int) error {
 	d := l.M.PendingDisk[i]
 	if d.Command == cmdRm {
-		if err := l.dropEditsOf(d.Paths); err != nil {
+		if err := l.dropEditsOf(d.Paths, d.Moves); err != nil {
 			return err
 		}
 	}
@@ -526,21 +527,22 @@ func addMove(moves []Move, oldp, newp string) []Move {
 	return append(out, Move{oldp, newp})
 }
 
-// dropMoves returns the moves that name none of paths.
-func dropMoves(moves []Move, paths []string) []Move {
-	var out []Move
+// dropMoves returns the moves that name none of paths, and the others.
+func dropMoves(moves []Move, paths []string) (kept, dropped []Move) {
 	for _, m := range moves {
 		if !slices.Contains(paths, m.Old) && !slices.Contains(paths, m.New) {
-			out = append(out, m)
+			kept = append(kept, m)
+		} else {
+			dropped = append(dropped, m)
 		}
 	}
-	return out
+	return kept, dropped
 }
 
 // dropEditsOf forgets the recorded edits of paths, and those of a path that
 // the stage's index does not hold and that the branch's commits and the
-// stage's moves took to one of paths.
-func (l *Stage) dropEditsOf(paths []string) error {
+// moves in dropped, which the rm dropped from the stage, took to one of paths.
+func (l *Stage) dropEditsOf(paths []string, dropped []Move) error {
 	recs, err := l.records()
 	if err != nil {
 		return err
@@ -549,7 +551,7 @@ func (l *Stage) dropEditsOf(paths []string) error {
 	for _, rec := range recs {
 		d, seen := drop[rec.Path]
 		if !seen {
-			if d, err = l.followsTo(rec, paths); err != nil {
+			if d, err = l.followsTo(rec, paths, dropped); err != nil {
 				return err
 			}
 			drop[rec.Path] = d
@@ -565,8 +567,8 @@ func (l *Stage) dropEditsOf(paths []string) error {
 
 // followsTo reports whether rec edits one of paths, directly or through the
 // commits and the stage's moves that took its path, which the stage's index
-// does not hold, to one of them.
-func (l *Stage) followsTo(rec EditRecord, paths []string) (bool, error) {
+// does not hold, to one of them. moves holds the stage's moves to paths.
+func (l *Stage) followsTo(rec EditRecord, paths []string, moves []Move) (bool, error) {
 	if slices.Contains(paths, rec.Path) {
 		return true, nil
 	}
@@ -577,7 +579,7 @@ func (l *Stage) followsTo(rec EditRecord, paths []string) (bool, error) {
 	if err != nil || deleting != "" {
 		return false, err
 	}
-	return slices.Contains(paths, followStageMoves(p, l.M.Moves)), nil
+	return slices.Contains(paths, followStageMoves(p, moves)), nil
 }
 
 // moveRecords makes the pending edit records of oldp name newp.
