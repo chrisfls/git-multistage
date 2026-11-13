@@ -18,4 +18,4 @@
 
 ## 4. Checks
 
-- [ ] 4.1 Run the checks of the `git-multistage-development` skill and `mise run ci`. Verify: both pass, and `openspec validate stage-holds-edits` passes.
+- [x] 4.1 Run the checks of the `git-multistage-development` skill and `mise run ci`. Verify: both pass, and `openspec validate stage-holds-edits` passes.
