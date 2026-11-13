@@ -2,7 +2,7 @@
 
 ## 1. Add the targets
 
-- [ ] 1.1 Add `antigravity-cli`, `opencode`, `cursor`, `devin`, and `grokcli` to `targets` in `rulesync.jsonc`, each with `["skills"]`, and update the comment on why only `codexcli` takes rules. Run `rulesync install && rulesync generate`, and verify that `.cursor/skills/`, `.devin/skills/`, `.grok/skills/`, and `.opencode/skills/` hold the same skills as `.claude/skills/`
+- [x] 1.1 Add `antigravity-cli`, `opencode`, `cursor`, `devin`, and `grokcli` to `targets` in `rulesync.jsonc`, each with `["skills"]`, and update the comment on why only `codexcli` takes rules. Run `rulesync install && rulesync generate`, and verify that `.cursor/skills/`, `.devin/skills/`, `.grok/skills/`, and `.opencode/skills/` hold the same skills as `.claude/skills/`
 
 ## 2. Ignore the generated files
 

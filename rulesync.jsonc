@@ -1,9 +1,16 @@
 {
   "$schema": "https://github.com/dyoshikawa/rulesync/releases/latest/download/config-schema.json",
-  // Claude Code reads AGENTS.md itself, so only Codex takes the generated rules.
+  // The codexcli rules write AGENTS.md. RuleSync uses AGENTS.md as the root
+  // rule file of Antigravity, OpenCode, Devin, and Grok, and Claude Code and
+  // Cursor read it too, so only codexcli takes the rules.
   "targets": {
     "codexcli": ["rules", "skills"],
-    "claudecode": ["skills"]
+    "claudecode": ["skills"],
+    "antigravity-cli": ["skills"],
+    "opencode": ["skills"],
+    "cursor": ["skills"],
+    "devin": ["skills"],
+    "grokcli": ["skills"]
   },
   "delete": true,
   "global": false,
