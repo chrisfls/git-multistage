@@ -8,6 +8,18 @@ import (
 	"github.com/chrisfls/git-multistage/internal/gitx"
 )
 
+// entryIfIndex returns the entry of path in indexFile, when indexFile is
+// set and exists.
+func (r *Repo) entryIfIndex(indexFile, path string) (indexEntry, bool, error) {
+	if indexFile == "" {
+		return indexEntry{}, false, nil
+	}
+	if _, err := os.Stat(indexFile); err != nil {
+		return indexEntry{}, false, nil //nolint:nilerr // a missing index cleans the file as a new file
+	}
+	return r.lsIndex(indexFile, path)
+}
+
 // snapshotBlob stores the working-tree file at path as a blob and returns its
 // ID. It cleans the file as `git add` does against indexFile: when the entry
 // of path in indexFile holds CRLF line endings, core.autocrlf and text=auto
@@ -22,14 +34,9 @@ func (r *Repo) snapshotBlob(indexFile, path string) (string, error) {
 		// An index stores a symbolic link as its target name; keep the content.
 		return r.Line(gitx.Opt{}, "hash-object", "-w", "--path="+path, "--", path)
 	}
-	var entry indexEntry
-	var ok bool
-	if indexFile != "" {
-		if _, err := os.Stat(indexFile); err == nil {
-			if entry, ok, err = r.lsIndex(indexFile, path); err != nil {
-				return "", err
-			}
-		}
+	entry, ok, err := r.entryIfIndex(indexFile, path)
+	if err != nil {
+		return "", err
 	}
 	tmpDir := filepath.Join(r.Dir, "tmp")
 	if err := os.MkdirAll(tmpDir, 0o777); err != nil {

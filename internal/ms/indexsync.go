@@ -200,22 +200,31 @@ func (r *Repo) syncAfterCommit(parent string) (SyncResult, error) {
 	}
 	from, keep := parent, rec == parent
 	if !keep {
-		current, err := r.indexTree(r.IndexPath)
-		if err != nil {
+		if from, keep, err = r.indexBase(head, parent); err != nil {
 			return SyncResult{}, err
-		}
-		parentTree, err := r.TreeOf(parent)
-		if err != nil {
-			return SyncResult{}, err
-		}
-		keep = current == parentTree
-		if current != "" && current != parentTree {
-			if c, _ := r.ancestorWithTree(parent, current); c != "" && r.lagOnly(head, parent, c) {
-				from, keep = c, true
-			}
 		}
 	}
 	return r.syncIndexLocked(head, from, keep, false)
+}
+
+// indexBase returns the commit that the default index matches, when no
+// sync record names parent: parent, or an older commit that the index
+// provably lags at. keep reports whether the index matches that commit.
+func (r *Repo) indexBase(head, parent string) (from string, keep bool, err error) {
+	current, err := r.indexTree(r.IndexPath)
+	if err != nil {
+		return "", false, err
+	}
+	parentTree, err := r.TreeOf(parent)
+	if err != nil {
+		return "", false, err
+	}
+	if current != "" && current != parentTree {
+		if c, _ := r.ancestorWithTree(parent, current); c != "" && r.lagOnly(head, parent, c) {
+			return c, true, nil
+		}
+	}
+	return parent, current == parentTree, nil
 }
 
 // provenLag returns the commit that the default index provably matches:
@@ -465,31 +474,10 @@ func (r *Repo) planIndexChanges(index string, changes []gitx.Entry, res *SyncRes
 	for i, c := range changes {
 		paths[i] = c.Path
 	}
-	current := map[string]stagedEntry{}
-	conflicted := map[string]bool{}
-	for start := 0; start < len(paths); start += 200 {
-		end := min(start+200, len(paths))
-		out, err := r.Run(gitx.Opt{Index: index}, append([]string{"ls-files", "-s", "-z", "--"}, paths[start:end]...)...)
-		if err != nil {
-			return "", err
-		}
-		for _, rec := range strings.Split(string(out), "\x00") {
-			meta, path, ok := strings.Cut(rec, "\t")
-			if !ok {
-				continue
-			}
-			f := strings.Fields(meta)
-			if len(f) != 3 {
-				continue
-			}
-			if f[2] != "0" {
-				conflicted[path] = true
-				continue
-			}
-			current[path] = stagedEntry{f[0], f[1]}
-		}
+	current, conflicted, err := r.readIndexEntries(index, paths)
+	if err != nil {
+		return "", err
 	}
-
 	var input strings.Builder
 	for _, c := range changes {
 		cur, present := current[c.Path]
@@ -517,6 +505,36 @@ func (r *Repo) planIndexChanges(index string, changes []gitx.Entry, res *SyncRes
 			short(res.To), strings.Join(res.Kept, ", ")))
 	}
 	return input.String(), nil
+}
+
+// readIndexEntries reads the stage-0 entries of paths in index, and the
+// paths that have conflict stages.
+func (r *Repo) readIndexEntries(index string, paths []string) (map[string]stagedEntry, map[string]bool, error) {
+	current := map[string]stagedEntry{}
+	conflicted := map[string]bool{}
+	for start := 0; start < len(paths); start += 200 {
+		end := min(start+200, len(paths))
+		out, err := r.Run(gitx.Opt{Index: index}, append([]string{"ls-files", "-s", "-z", "--"}, paths[start:end]...)...)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, rec := range strings.Split(string(out), "\x00") {
+			meta, path, ok := strings.Cut(rec, "\t")
+			if !ok {
+				continue
+			}
+			f := strings.Fields(meta)
+			if len(f) != 3 {
+				continue
+			}
+			if f[2] != "0" {
+				conflicted[path] = true
+				continue
+			}
+			current[path] = stagedEntry{f[0], f[1]}
+		}
+	}
+	return current, conflicted, nil
 }
 
 // copyFile copies an index file. The copy keeps the original's modification

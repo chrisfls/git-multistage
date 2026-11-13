@@ -152,56 +152,19 @@ func (r *Repo) openStage(id string, exclusive bool, timeout time.Duration) (*Sta
 		return nil, err
 	}
 	dir := filepath.Join(r.stagesDir(), id)
-	if err := os.MkdirAll(r.stagesDir(), 0o777); err != nil {
-		return nil, err
-	}
-	if exclusive {
-		if err := os.Mkdir(dir, 0o777); err != nil {
-			if errors.Is(err, fs.ErrExist) {
-				return nil, &Error{
-					Code: ExitRefused, Kind: "stage-exists",
-					Message: fmt.Sprintf("stage %q already exists", id),
-					Hint:    "if this stage is yours, keep using it; otherwise choose another ID",
-				}
-			}
-			return nil, err
-		}
-	} else if err := os.MkdirAll(dir, 0o777); err != nil {
+	if err := r.makeStageDir(dir, id, exclusive); err != nil {
 		return nil, err
 	}
 	testPause("before-stage-lock")
-	lk, err := filelock.Acquire(filepath.Join(dir, "lock"), timeout)
-	// A drop that renamed the stage directory away while this process waited
-	// leaves no lock file to lock; the stage is then created again.
-	for i := 0; i < 5 && errors.Is(err, fs.ErrNotExist); i++ {
-		testPause("recreate-dropped-stage")
-		if err = os.MkdirAll(dir, 0o777); err == nil {
-			lk, err = filelock.Acquire(filepath.Join(dir, "lock"), timeout)
-		}
-	}
+	lk, err := lockStageDir(dir, id, timeout)
 	if err != nil {
-		if errors.Is(err, filelock.ErrBusy) {
-			return nil, errorf(ExitBusy, "busy", "stage %q is busy: another git-multistage process is using it", id)
-		}
 		return nil, err
 	}
 	testPause("after-stage-lock")
 	l := &Stage{r: r, ID: id, Dir: dir, lock: lk}
-	data, err := os.ReadFile(filepath.Join(dir, "meta.json"))
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		if err := l.create(); err != nil {
-			lk.Release()
-			return nil, err
-		}
-	case err != nil:
+	if err := l.loadMeta(); err != nil {
 		lk.Release()
 		return nil, err
-	default:
-		if err := json.Unmarshal(data, &l.M); err != nil {
-			lk.Release()
-			return nil, fmt.Errorf("stage %q has unreadable metadata %s: %w", id, filepath.Join(dir, "meta.json"), err)
-		}
 	}
 	l.removeLeftovers()
 	if err := l.purgeAppliedEdits(); err != nil {
@@ -222,6 +185,58 @@ func (r *Repo) openStage(id string, exclusive bool, timeout time.Duration) (*Sta
 		return nil, err
 	}
 	return l, nil
+}
+
+// makeStageDir creates the directory of stage id. When exclusive, the stage
+// must not exist yet.
+func (r *Repo) makeStageDir(dir, id string, exclusive bool) error {
+	if err := os.MkdirAll(r.stagesDir(), 0o777); err != nil {
+		return err
+	}
+	if !exclusive {
+		return os.MkdirAll(dir, 0o777)
+	}
+	err := os.Mkdir(dir, 0o777)
+	if errors.Is(err, fs.ErrExist) {
+		return &Error{
+			Code: ExitRefused, Kind: "stage-exists",
+			Message: fmt.Sprintf("stage %q already exists", id),
+			Hint:    "if this stage is yours, keep using it; otherwise choose another ID",
+		}
+	}
+	return err
+}
+
+// lockStageDir takes the lock of the stage directory dir.
+func lockStageDir(dir, id string, timeout time.Duration) (*filelock.Lock, error) {
+	lk, err := filelock.Acquire(filepath.Join(dir, "lock"), timeout)
+	// A drop that renamed the stage directory away while this process waited
+	// leaves no lock file to lock; the stage is then created again.
+	for i := 0; i < 5 && errors.Is(err, fs.ErrNotExist); i++ {
+		testPause("recreate-dropped-stage")
+		if err = os.MkdirAll(dir, 0o777); err == nil {
+			lk, err = filelock.Acquire(filepath.Join(dir, "lock"), timeout)
+		}
+	}
+	if errors.Is(err, filelock.ErrBusy) {
+		return nil, errorf(ExitBusy, "busy", "stage %q is busy: another git-multistage process is using it", id)
+	}
+	return lk, err
+}
+
+// loadMeta reads the stage's metadata, or creates the stage when it has none.
+func (l *Stage) loadMeta() error {
+	data, err := os.ReadFile(filepath.Join(l.Dir, "meta.json"))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return l.create()
+	case err != nil:
+		return err
+	}
+	if err := json.Unmarshal(data, &l.M); err != nil {
+		return fmt.Errorf("stage %q has unreadable metadata %s: %w", l.ID, filepath.Join(l.Dir, "meta.json"), err)
+	}
+	return nil
 }
 
 // Close protects the staged objects from garbage collection and releases
@@ -397,28 +412,67 @@ func (r *Repo) copySkipWorktree(index string, only []string, keepFormat bool) er
 			unknown = append(unknown, p)
 		}
 	}
-	if len(unknown) > 0 {
-		out, err := r.Run(gitx.Opt{Stdin: strings.NewReader(strings.Join(unknown, "\x00") + "\x00")},
-			"sparse-checkout", "check-rules", "-z")
-		if err != nil {
-			return err
-		}
-		inside := map[string]bool{}
-		for _, p := range strings.Split(string(out), "\x00") {
-			inside[p] = true
-		}
-		for _, p := range unknown {
-			if !inside[p] {
-				paths = append(paths, p)
-			}
-		}
+	outside, err := r.outsideSparse(unknown)
+	if err != nil {
+		return err
 	}
+	paths = append(paths, outside...)
 	if len(paths) == 0 {
 		return nil
 	}
 	_, err = r.Run(gitx.Opt{Index: index, KeepFormat: keepFormat, Stdin: strings.NewReader(strings.Join(paths, "\x00") + "\x00")},
 		"update-index", "--skip-worktree", "-z", "--stdin")
 	return err
+}
+
+// outsideSparse returns the paths that the sparse-checkout rules exclude.
+func (r *Repo) outsideSparse(paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	out, err := r.Run(gitx.Opt{Stdin: strings.NewReader(strings.Join(paths, "\x00") + "\x00")},
+		"sparse-checkout", "check-rules", "-z")
+	if err != nil {
+		return nil, err
+	}
+	inside := map[string]bool{}
+	for _, p := range strings.Split(string(out), "\x00") {
+		inside[p] = true
+	}
+	var outside []string
+	for _, p := range paths {
+		if !inside[p] {
+			outside = append(outside, p)
+		}
+	}
+	return outside, nil
+}
+
+// editBlobsTree returns the mktree input that names the blobs of recs.
+func editBlobsTree(recs []EditRecord) string {
+	var edits strings.Builder
+	for i, rec := range recs {
+		for _, b := range []struct{ name, oid string }{{"before", rec.Before}, {"after", rec.After}} {
+			if b.oid != "" {
+				fmt.Fprintf(&edits, "100644 blob %s\t%d-%s\n", b.oid, i, b.name)
+			}
+		}
+	}
+	return edits.String()
+}
+
+// keepTree writes the tree that the keep ref holds: the staged tree, and the
+// tree of the edit blobs when edits names any.
+func (r *Repo) keepTree(staged, edits string) (string, error) {
+	entries := fmt.Sprintf("040000 tree %s\tstaged\n", staged)
+	if edits != "" {
+		editsTree, err := r.Line(gitx.Opt{Stdin: strings.NewReader(edits)}, "mktree")
+		if err != nil {
+			return "", err
+		}
+		entries += fmt.Sprintf("040000 tree %s\tedits\n", editsTree)
+	}
+	return r.Line(gitx.Opt{Stdin: strings.NewReader(entries)}, "mktree")
 }
 
 func (l *Stage) protect() error {
@@ -438,30 +492,15 @@ func (l *Stage) protect() error {
 	if err != nil {
 		return err
 	}
-	var edits strings.Builder
-	for i, rec := range recs {
-		for _, b := range []struct{ name, oid string }{{"before", rec.Before}, {"after", rec.After}} {
-			if b.oid != "" {
-				fmt.Fprintf(&edits, "100644 blob %s\t%d-%s\n", b.oid, i, b.name)
-			}
-		}
-	}
+	edits := editBlobsTree(recs)
 	cur, _ := l.r.Line(gitx.Opt{}, "show", "-s", "--format=%T %P", l.keepRef(), "--")
-	if tree == base && edits.Len() == 0 {
+	if tree == base && edits == "" {
 		if cur != "" {
 			_, err = l.r.Run(gitx.Opt{}, "update-ref", "-d", l.keepRef())
 		}
 		return err
 	}
-	entries := fmt.Sprintf("040000 tree %s\tstaged\n", tree)
-	if edits.Len() > 0 {
-		editsTree, err := l.r.Line(gitx.Opt{Stdin: strings.NewReader(edits.String())}, "mktree")
-		if err != nil {
-			return err
-		}
-		entries += fmt.Sprintf("040000 tree %s\tedits\n", editsTree)
-	}
-	keepTree, err := l.r.Line(gitx.Opt{Stdin: strings.NewReader(entries)}, "mktree")
+	keepTree, err := l.r.keepTree(tree, edits)
 	if err != nil {
 		return err
 	}
@@ -469,8 +508,7 @@ func (l *Stage) protect() error {
 	if cur == want {
 		return nil
 	}
-	tree = keepTree
-	args := []string{"commit-tree", tree, "-m", "git-multistage stage " + l.ID}
+	args := []string{"commit-tree", keepTree, "-m", "git-multistage stage " + l.ID}
 	if l.M.Base != "" {
 		args = append(args, "-p", l.M.Base)
 	}
