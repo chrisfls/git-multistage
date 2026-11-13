@@ -68,6 +68,26 @@ func (r *Repo) verifyIntegration(baseTree, staged, tipTree, result string) error
 	if err != nil {
 		return err
 	}
+	if outside := pathsOutside(mine, theirs, out); len(outside) > 0 {
+		return &Error{
+			Code: ExitConflict, Kind: "outside-paths",
+			Message: "the merged result changes paths that are not staged; refusing to commit it",
+			Paths:   outside,
+		}
+	}
+	if missing := missingContent(mine, theirsPlain, out); len(missing) > 0 {
+		return &Error{
+			Code: ExitConflict, Kind: "missing-content",
+			Message: "the merged result does not contain the staged content; refusing to commit it",
+			Paths:   missing,
+		}
+	}
+	return nil
+}
+
+// pathsOutside lists the paths that out changes although mine does not
+// stage them, also through a rename in theirs.
+func pathsOutside(mine, theirs, out []gitx.Entry) []string {
 	allowed := map[string]bool{}
 	for _, e := range mine {
 		allowed[e.Path] = true
@@ -77,23 +97,24 @@ func (r *Repo) verifyIntegration(baseTree, staged, tipTree, result string) error
 			allowed[e.Path] = true
 		}
 	}
-	got := map[string]gitx.Entry{}
 	var outside []string
 	for _, e := range out {
-		got[e.Path] = e
 		if !allowed[e.Path] {
 			outside = append(outside, e.Path)
 		}
 	}
-	if len(outside) > 0 {
-		return &Error{
-			Code: ExitConflict, Kind: "outside-paths",
-			Message: "the merged result changes paths that are not staged; refusing to commit it",
-			Paths:   outside,
-		}
+	return outside
+}
+
+// missingContent lists the staged paths of mine that theirs did not touch
+// and whose staged content out does not hold.
+func missingContent(mine, theirs, out []gitx.Entry) []string {
+	got := map[string]gitx.Entry{}
+	for _, e := range out {
+		got[e.Path] = e
 	}
 	touched := map[string]bool{}
-	for _, e := range theirsPlain {
+	for _, e := range theirs {
 		touched[e.Path] = true
 	}
 	var missing []string
@@ -106,14 +127,7 @@ func (r *Repo) verifyIntegration(baseTree, staged, tipTree, result string) error
 			missing = append(missing, e.Path)
 		}
 	}
-	if len(missing) > 0 {
-		return &Error{
-			Code: ExitConflict, Kind: "missing-content",
-			Message: "the merged result does not contain the staged content; refusing to commit it",
-			Paths:   missing,
-		}
-	}
-	return nil
+	return missing
 }
 
 // Freshness describes how a stage's base relates to its branch.
@@ -150,18 +164,30 @@ func (l *Stage) refresh() (Freshness, error) {
 	if tip == l.M.Base {
 		return f, nil
 	}
+	if reason := l.cannotMoveTo(tip); reason != "" {
+		f.Stale, f.Reason = true, reason
+		return f, nil
+	}
+	return l.moveBase(f, tip)
+}
+
+// cannotMoveTo returns why the stage's base cannot move to tip, or "".
+func (l *Stage) cannotMoveTo(tip string) string {
 	if l.M.Branch == "HEAD" && l.M.Base != "" {
+		// A base that git cannot check, such as a pruned commit, is reported as stale.
 		if ok, err := l.r.IsAncestor(l.M.Base, tip); err != nil || !ok {
-			f.Stale = true
-			f.Reason = "the detached HEAD moved to a commit that does not contain this stage's base"
-			return f, nil //nolint:nilerr // a base that git cannot check, such as a pruned commit, is reported as stale
+			return "the detached HEAD moved to a commit that does not contain this stage's base"
 		}
 	}
 	if tip == "" {
-		f.Stale = true
-		f.Reason = fmt.Sprintf("branch %s no longer exists", l.M.Branch)
-		return f, nil
+		return fmt.Sprintf("branch %s no longer exists", l.M.Branch)
 	}
+	return ""
+}
+
+// moveBase replays the staged changes onto tip and makes tip the base. When
+// the replay is not safe, f reports the stage as stale.
+func (l *Stage) moveBase(f Freshness, tip string) (Freshness, error) {
 	staged, err := l.r.WriteTree(l.IndexPath())
 	if err != nil {
 		return f, err

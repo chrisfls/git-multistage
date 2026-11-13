@@ -173,8 +173,36 @@ func (l *Stage) runPreCommit(tree string) (string, error) {
 // branch. Other stages or tools may move the branch at any time: the staged change is
 // replayed onto the newest tip and the branch moves only by compare-and-swap.
 func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
-	r := l.r
 	res := &CommitResult{Branch: l.M.Branch}
+	st, err := l.prepareCommit(res, rawMsg, noVerify)
+	if err != nil {
+		return nil, err
+	}
+	for attempt := 1; attempt <= maxCommitAttempts; attempt++ {
+		res.Attempts = attempt
+		done, err := l.commitAttempt(res, st, attempt)
+		if err != nil {
+			return nil, err
+		}
+		if done {
+			return res, nil
+		}
+	}
+	return nil, errorf(ExitBusy, "too-many-retries",
+		"the branch kept moving; gave up after %d attempts. The staged changes are kept; run the commit again", maxCommitAttempts)
+}
+
+// commitState holds what each attempt of a commit needs.
+type commitState struct {
+	staged, baseTree, msg string
+	noVerify, sign, sync  bool
+	verified              []gitx.Entry // changes that the pre-commit hook accepted
+}
+
+// prepareCommit checks that the stage can commit, and reads its staged
+// tree, its changes, and the message.
+func (l *Stage) prepareCommit(res *CommitResult, rawMsg string, noVerify bool) (*commitState, error) {
+	r := l.r
 	tip0, err := r.ResolveRef(l.M.Branch)
 	if err != nil {
 		return nil, err
@@ -185,160 +213,199 @@ func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
 	if op, blocking := r.inProgress(); blocking {
 		return nil, errorf(ExitRefused, "operation-in-progress", "%s is in progress in this worktree; finish or abort it before committing", op)
 	}
-	staged, err := r.WriteTree(l.IndexPath())
-	if err != nil {
+	st := &commitState{noVerify: noVerify}
+	if st.staged, err = r.WriteTree(l.IndexPath()); err != nil {
 		return nil, err
 	}
-	baseTree, err := r.TreeOf(l.M.Base)
-	if err != nil {
+	if st.baseTree, err = r.TreeOf(l.M.Base); err != nil {
 		return nil, err
 	}
-	if staged == baseTree {
+	if st.staged == st.baseTree {
 		return nil, &Error{Code: ExitError, Kind: "nothing-staged", Message: "nothing is staged for " + l.ID}
 	}
 	if res.Files, err = l.stagedChanges(); err != nil {
 		return nil, err
 	}
-	msg, err := l.prepareMessage(rawMsg, noVerify)
-	if err != nil {
+	if st.msg, err = l.prepareMessage(rawMsg, noVerify); err != nil {
 		return nil, err
 	}
-	res.Subject, _, _ = strings.Cut(msg, "\n")
-	sign := r.configBool("commit.gpgSign", false)
-	sync := r.syncEnabled()
-	var verified []gitx.Entry // changes that the pre-commit hook accepted
+	res.Subject, _, _ = strings.Cut(st.msg, "\n")
+	st.sign = r.configBool("commit.gpgSign", false)
+	st.sync = r.syncEnabled()
+	return st, nil
+}
 
-	for attempt := 1; attempt <= maxCommitAttempts; attempt++ {
-		res.Attempts = attempt
-		tip, err := r.ResolveRef(l.M.Branch)
-		if err != nil {
-			return nil, err
+// commitAttempt replays the staged changes onto the branch's current tip
+// and tries to move the branch to the new commit. It reports false when
+// another process moved the branch first, so the commit must be tried again.
+func (l *Stage) commitAttempt(res *CommitResult, st *commitState, attempt int) (bool, error) {
+	r := l.r
+	tip, err := r.ResolveRef(l.M.Branch)
+	if err != nil {
+		return false, err
+	}
+	if tip == "" && l.M.Base != "" {
+		return false, errorf(ExitRefused, "branch-missing", "branch %s no longer exists; nothing was committed", l.M.Branch)
+	}
+	tree, err := r.integrate(st.baseTree, st.staged, tip)
+	if err != nil {
+		return false, err
+	}
+	tipTree, err := r.TreeOf(tip)
+	if err != nil {
+		return false, err
+	}
+	if tree == tipTree {
+		// Every staged change is already on the branch.
+		if err := l.setIndex(tip); err != nil {
+			return false, err
 		}
-		if tip == "" && l.M.Base != "" {
-			return nil, errorf(ExitRefused, "branch-missing", "branch %s no longer exists; nothing was committed", l.M.Branch)
+		res.Result, res.Parent = "already-applied", tip
+		return true, nil
+	}
+	if !st.noVerify {
+		if err := l.verifyTree(st, tipTree, tree); err != nil {
+			return false, err
 		}
-		tree, err := r.integrate(baseTree, staged, tip)
-		if err != nil {
-			return nil, err
-		}
-		tipTree, err := r.TreeOf(tip)
-		if err != nil {
-			return nil, err
-		}
-		if tree == tipTree {
-			// Every staged change is already on the branch.
-			if err := l.setIndex(tip); err != nil {
-				return nil, err
-			}
-			res.Result, res.Parent = "already-applied", tip
-			return res, nil
-		}
-		if !noVerify {
-			// A retry that introduces exactly the changes that the hook
-			// already accepted does not run the hook again, so a slow hook
-			// cannot starve the commit while other stages commit.
-			introduced, err := r.DiffTrees(tipTree, tree, false)
-			if err != nil {
-				return nil, err
-			}
-			if !sameEntries(introduced, verified) {
-				hooked, err := l.runPreCommit(tree)
-				if err != nil {
-					return nil, err
-				}
-				if hooked != tree {
-					// The hook took content from the shared working tree,
-					// which may hold other stages' unstaged edits.
-					return nil, &Error{
-						Code: ExitError, Kind: "hook-modified",
-						Message: "the pre-commit hook changed the staged content; nothing was committed and the staged changes are kept",
-						Hint: "the files that the hook re-added may hold unstaged edits that belong to other stages; " +
-							"check the working tree, stage your changes again, and commit again",
-					}
-				}
-				verified = introduced
-			}
-		}
-		args := []string{"commit-tree", tree}
-		if tip != "" {
-			args = append(args, "-p", tip)
-		}
-		if sign {
-			args = append(args, "-S")
-		}
-		commit, err := r.Line(gitx.Opt{Stdin: strings.NewReader(msg)}, append(args, "-F", "-")...)
-		if err != nil {
-			return nil, gitErr(err, ExitError, "commit-tree-failed")
-		}
-		testDelay()
-		fault("before-journal")
-		l.M.Pending = &Pending{Commit: commit, Parent: tip}
-		if err := l.save(); err != nil {
-			return nil, err
-		}
-		fault("before-update-ref")
-		testRace(r, l.M.Branch)
+	}
+	commit, err := r.commitTree(tree, tip, st.msg, st.sign)
+	if err != nil {
+		return false, err
+	}
+	return l.land(res, st, commit, tip, attempt)
+}
 
-		var lk *indexLock
-		if sync {
-			if lk, err = r.lockIndex(syncTimeoutCommit); err != nil {
-				l.M.Pending = nil
-				_ = l.save()
-				return nil, err
-			}
+// verifyTree runs the pre-commit hook on tree. A retry that introduces
+// exactly the changes that the hook already accepted does not run the hook
+// again, so a slow hook cannot starve the commit while other stages commit.
+func (l *Stage) verifyTree(st *commitState, tipTree, tree string) error {
+	introduced, err := l.r.DiffTrees(tipTree, tree, false)
+	if err != nil {
+		return err
+	}
+	if sameEntries(introduced, st.verified) {
+		return nil
+	}
+	hooked, err := l.runPreCommit(tree)
+	if err != nil {
+		return err
+	}
+	if hooked != tree {
+		// The hook took content from the shared working tree,
+		// which may hold other stages' unstaged edits.
+		return &Error{
+			Code: ExitError, Kind: "hook-modified",
+			Message: "the pre-commit hook changed the staged content; nothing was committed and the staged changes are kept",
+			Hint: "the files that the hook re-added may hold unstaged edits that belong to other stages; " +
+				"check the working tree, stage your changes again, and commit again",
 		}
-		// HEAD may have moved, or a native merge or rebase may have started,
-		// since the first check.
-		if err := firstErr(l.checkTarget(tip), r.checkOperation(tip, commit, sync)); err != nil {
-			lk.release()
+	}
+	st.verified = introduced
+	return nil
+}
+
+// commitTree writes the commit object of tree on top of tip.
+func (r *Repo) commitTree(tree, tip, msg string, sign bool) (string, error) {
+	args := []string{"commit-tree", tree}
+	if tip != "" {
+		args = append(args, "-p", tip)
+	}
+	if sign {
+		args = append(args, "-S")
+	}
+	commit, err := r.Line(gitx.Opt{Stdin: strings.NewReader(msg)}, append(args, "-F", "-")...)
+	if err != nil {
+		return "", gitErr(err, ExitError, "commit-tree-failed")
+	}
+	return commit, nil
+}
+
+// land journals commit, moves the branch from tip to it by compare-and-swap,
+// syncs the default index, and finishes the commit. It reports false when
+// another process moved the branch first.
+func (l *Stage) land(res *CommitResult, st *commitState, commit, tip string, attempt int) (bool, error) {
+	r := l.r
+	testDelay()
+	fault("before-journal")
+	l.M.Pending = &Pending{Commit: commit, Parent: tip}
+	if err := l.save(); err != nil {
+		return false, err
+	}
+	fault("before-update-ref")
+	testRace(r, l.M.Branch)
+
+	var lk *indexLock
+	if st.sync {
+		var err error
+		if lk, err = r.lockIndex(syncTimeoutCommit); err != nil {
 			l.M.Pending = nil
 			_ = l.save()
-			return nil, err
+			return false, err
 		}
-		old := tip
-		if old == "" {
-			old = r.ZeroOID
-		}
-		refArgs := []string{"update-ref", "-m", reflogMessage(l.ID, res.Subject, sync)}
-		if l.M.Branch == "HEAD" {
-			refArgs = append(refArgs, "--no-deref")
-		}
-		_, err = r.Run(gitx.Opt{}, append(refArgs, l.M.Branch, commit, old)...)
-		if err != nil {
-			lk.release()
-			l.M.Pending = nil
-			if err := l.save(); err != nil {
-				return nil, err
-			}
-			now, err2 := r.ResolveRef(l.M.Branch)
-			if err2 != nil {
-				return nil, err2
-			}
-			if now != tip {
-				// Another process moved the branch first: replay onto the new tip.
-				time.Sleep(time.Duration(rand.Intn(10*min(attempt, 10))+1) * time.Millisecond) //nolint:gosec // retry jitter needs no cryptographic randomness
-				continue
-			}
-			return nil, gitErr(err, ExitError, "update-ref-failed")
-		}
-		fault("after-update-ref")
-		if lk != nil {
-			res.Sync, err = r.syncAfterCommit(tip)
-			lk.release()
-			if err != nil {
-				res.Sync.Warnings = append(res.Sync.Warnings, fmt.Sprintf("default index not synchronized: %v; run `git multistage sync`", err))
-			}
-		}
-		if err := l.finishCommit(commit); err != nil {
-			return nil, err
-		}
-		// Like `git commit`, a failing post-commit hook does not undo the commit.
-		_ = l.withIndexCopy(func(idx string) error { return r.runHook(idx, "post-commit") })
-		res.Result, res.Commit, res.Parent = "committed", commit, tip
-		return res, nil
 	}
-	return nil, errorf(ExitBusy, "too-many-retries",
-		"the branch kept moving; gave up after %d attempts. The staged changes are kept; run the commit again", maxCommitAttempts)
+	// HEAD may have moved, or a native merge or rebase may have started,
+	// since the first check.
+	if err := firstErr(l.checkTarget(tip), r.checkOperation(tip, commit, st.sync)); err != nil {
+		lk.release()
+		l.M.Pending = nil
+		_ = l.save()
+		return false, err
+	}
+	if err := l.updateRef(res, commit, tip, st.sync); err != nil {
+		lk.release()
+		return l.afterFailedUpdate(err, tip, attempt)
+	}
+	fault("after-update-ref")
+	if lk != nil {
+		var err error
+		res.Sync, err = r.syncAfterCommit(tip)
+		lk.release()
+		if err != nil {
+			res.Sync.Warnings = append(res.Sync.Warnings, fmt.Sprintf("default index not synchronized: %v; run `git multistage sync`", err))
+		}
+	}
+	if err := l.finishCommit(commit); err != nil {
+		return false, err
+	}
+	// Like `git commit`, a failing post-commit hook does not undo the commit.
+	_ = l.withIndexCopy(func(idx string) error { return r.runHook(idx, "post-commit") })
+	res.Result, res.Commit, res.Parent = "committed", commit, tip
+	return true, nil
+}
+
+// updateRef moves the stage's branch from tip to commit, only if the branch
+// is still at tip.
+func (l *Stage) updateRef(res *CommitResult, commit, tip string, sync bool) error {
+	old := tip
+	if old == "" {
+		old = l.r.ZeroOID
+	}
+	refArgs := []string{"update-ref", "-m", reflogMessage(l.ID, res.Subject, sync)}
+	if l.M.Branch == "HEAD" {
+		refArgs = append(refArgs, "--no-deref")
+	}
+	_, err := l.r.Run(gitx.Opt{}, append(refArgs, l.M.Branch, commit, old)...)
+	return err
+}
+
+// afterFailedUpdate clears the journal of a commit whose update-ref failed.
+// It reports false, to try again, when another process moved the branch
+// from tip first; otherwise it returns the failure.
+func (l *Stage) afterFailedUpdate(updateErr error, tip string, attempt int) (bool, error) {
+	l.M.Pending = nil
+	if err := l.save(); err != nil {
+		return false, err
+	}
+	now, err := l.r.ResolveRef(l.M.Branch)
+	if err != nil {
+		return false, err
+	}
+	if now != tip {
+		// Another process moved the branch first: replay onto the new tip.
+		time.Sleep(time.Duration(rand.Intn(10*min(attempt, 10))+1) * time.Millisecond) //nolint:gosec // retry jitter needs no cryptographic randomness
+		return false, nil
+	}
+	return false, gitErr(updateErr, ExitError, "update-ref-failed")
 }
 
 func sameEntries(a, b []gitx.Entry) bool {

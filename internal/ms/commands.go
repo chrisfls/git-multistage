@@ -98,45 +98,61 @@ func (r *Repo) Stages() ([]StageInfo, error) {
 			}
 			continue
 		}
-		dir := filepath.Join(r.stagesDir(), e.Name())
-		li := StageInfo{ID: e.Name(), Staged: []string{}}
-		if lk, err := filelock.Acquire(filepath.Join(dir, "lock"), 0); err != nil {
-			li.Busy = true
-		} else {
-			lk.Release()
-		}
-		m, err := readMeta(dir)
-		if errors.Is(err, os.ErrNotExist) {
-			continue // the editor hook recorded edits; the stage is created on its first command
-		}
-		if err != nil {
-			li.Problems = append(li.Problems, "unreadable metadata: "+err.Error())
+		if li, ok := r.stageInfo(e.Name(), head); ok {
 			res = append(res, li)
-			continue
 		}
-		li.Branch, li.Base, li.Commits = m.Branch, m.Base, len(m.Commits)
-		if m.Pending != nil {
-			li.Pending = m.Pending.Commit
-			li.Problems = append(li.Problems, "an interrupted commit is pending; the next command of this stage finishes it")
-		}
-		if m.Branch != head {
-			li.Problems = append(li.Problems, fmt.Sprintf("targets %s, but HEAD is %s", m.Branch, describeTarget(head)))
-		}
-		if m.Base != "" {
-			if _, err := r.Run(gitx.Opt{}, "cat-file", "-e", m.Base+"^{commit}"); err != nil {
-				li.Problems = append(li.Problems, "base commit "+short(m.Base)+" is missing")
-			}
-		}
-		tip, _ := r.ResolveRef(m.Branch)
-		li.Behind = tip != m.Base
-		if paths, err := r.stageStagedPaths(dir); err != nil {
-			li.Problems = append(li.Problems, "cannot read the index: "+err.Error())
-		} else {
-			li.Staged = append(li.Staged, paths...)
-		}
-		res = append(res, li)
 	}
 	return res, nil
+}
+
+// stageInfo describes stage id. It reports false for a stage that the
+// editor hook created and no command opened yet.
+func (r *Repo) stageInfo(id, head string) (StageInfo, bool) {
+	dir := filepath.Join(r.stagesDir(), id)
+	li := StageInfo{ID: id, Staged: []string{}}
+	if lk, err := filelock.Acquire(filepath.Join(dir, "lock"), 0); err != nil {
+		li.Busy = true
+	} else {
+		lk.Release()
+	}
+	m, err := readMeta(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return li, false // the editor hook recorded edits; the stage is created on its first command
+	}
+	if err != nil {
+		li.Problems = append(li.Problems, "unreadable metadata: "+err.Error())
+		return li, true
+	}
+	li.Branch, li.Base, li.Commits = m.Branch, m.Base, len(m.Commits)
+	li.Problems = append(li.Problems, r.metaProblems(&m, head)...)
+	tip, _ := r.ResolveRef(m.Branch)
+	li.Behind = tip != m.Base
+	if m.Pending != nil {
+		li.Pending = m.Pending.Commit
+	}
+	if paths, err := r.stageStagedPaths(dir); err != nil {
+		li.Problems = append(li.Problems, "cannot read the index: "+err.Error())
+	} else {
+		li.Staged = append(li.Staged, paths...)
+	}
+	return li, true
+}
+
+// metaProblems lists the problems that a stage's metadata shows.
+func (r *Repo) metaProblems(m *Meta, head string) []string {
+	var problems []string
+	if m.Pending != nil {
+		problems = append(problems, "an interrupted commit is pending; the next command of this stage finishes it")
+	}
+	if m.Branch != head {
+		problems = append(problems, fmt.Sprintf("targets %s, but HEAD is %s", m.Branch, describeTarget(head)))
+	}
+	if m.Base != "" {
+		if _, err := r.Run(gitx.Opt{}, "cat-file", "-e", m.Base+"^{commit}"); err != nil {
+			problems = append(problems, "base commit "+short(m.Base)+" is missing")
+		}
+	}
+	return problems
 }
 
 // Check is one doctor finding.
@@ -168,9 +184,7 @@ func (r *Repo) orphanedIndexLocks(id string) []string {
 // changes nothing.
 func (r *Repo) Doctor() (*DoctorReport, error) {
 	rep := &DoctorReport{}
-	add := func(level, format string, args ...any) {
-		rep.Checks = append(rep.Checks, Check{level, fmt.Sprintf(format, args...)})
-	}
+	add := rep.add
 	v, _ := r.Line(gitx.Opt{}, "version")
 	add("ok", "%s", v)
 	head, err := r.headTarget()
@@ -196,36 +210,58 @@ func (r *Repo) Doctor() (*DoctorReport, error) {
 		add("warning", "multistage.syncIndex is false: commits leave the default index behind the branch")
 	}
 	if tip != "" {
-		from, err := r.provenLag(head)
-		if err != nil {
+		if err := r.doctorIndex(rep, head, tip); err != nil {
 			return nil, err
-		}
-		if from == "" {
-			msg := "the default index holds natively staged changes (`git status` shows them)"
-			if c, n := r.nearestAncestor(head); c != "" && c != tip {
-				msg += fmt.Sprintf("; it is closest to %s (%d path(s) differ), so it may also lag behind: `git multistage sync --from %s` brings it forward", short(c), n, short(c))
-			}
-			add("ok", "%s", msg)
-		} else {
-			res, err := r.syncIndexLocked(head, from, false, true)
-			switch {
-			case err != nil:
-				add("warning", "cannot compare the default index with %s: %v", head, err)
-			case len(res.Updated) > 0:
-				add("warning", "the default index is behind %s at %d path(s): %s; run `git multistage sync`",
-					head, len(res.Updated), strings.Join(res.Updated, ", "))
-			default:
-				add("ok", "the default index is in step with %s", head)
-			}
-			for _, w := range res.Warnings {
-				add("warning", "%s", w)
-			}
-			rep.Sync = &res
 		}
 	}
 	if rep.Stages, err = r.Stages(); err != nil {
 		return nil, err
 	}
+	r.doctorStages(rep)
+	add("ok", "%d stage(s) in this worktree", len(rep.Stages))
+	return rep, nil
+}
+
+func (rep *DoctorReport) add(level, format string, args ...any) {
+	rep.Checks = append(rep.Checks, Check{level, fmt.Sprintf(format, args...)})
+}
+
+// doctorIndex checks whether the default index lags head, whose tip is tip.
+func (r *Repo) doctorIndex(rep *DoctorReport, head, tip string) error {
+	add := rep.add
+	from, err := r.provenLag(head)
+	if err != nil {
+		return err
+	}
+	if from == "" {
+		msg := "the default index holds natively staged changes (`git status` shows them)"
+		if c, n := r.nearestAncestor(head); c != "" && c != tip {
+			msg += fmt.Sprintf("; it is closest to %s (%d path(s) differ), so it may also lag behind: `git multistage sync --from %s` brings it forward", short(c), n, short(c))
+		}
+		add("ok", "%s", msg)
+		return nil
+	}
+	res, err := r.syncIndexLocked(head, from, false, true)
+	switch {
+	case err != nil:
+		add("warning", "cannot compare the default index with %s: %v", head, err)
+	case len(res.Updated) > 0:
+		add("warning", "the default index is behind %s at %d path(s): %s; run `git multistage sync`",
+			head, len(res.Updated), strings.Join(res.Updated, ", "))
+	default:
+		add("ok", "the default index is in step with %s", head)
+	}
+	for _, w := range res.Warnings {
+		add("warning", "%s", w)
+	}
+	rep.Sync = &res
+	return nil
+}
+
+// doctorStages reports each stage's problems and orphaned index locks, and
+// the files staged in several stages.
+func (r *Repo) doctorStages(rep *DoctorReport) {
+	add := rep.add
 	staged := map[string][]string{}
 	for _, li := range rep.Stages {
 		for _, p := range li.Staged {
@@ -251,8 +287,6 @@ func (r *Repo) Doctor() (*DoctorReport, error) {
 	if len(shared) > 0 {
 		add("warning", "files staged in several stages: %s", strings.Join(shared, "; "))
 	}
-	add("ok", "%d stage(s) in this worktree", len(rep.Stages))
-	return rep, nil
 }
 
 // Drop deletes the stage. With staged changes it refuses unless force is
