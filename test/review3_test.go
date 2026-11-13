@@ -83,11 +83,10 @@ func TestAddEditsKeepsRacyEntriesRacy(t *testing.T) {
 	}
 }
 
-// TestAddEditsRefusesARestoredDeletion records an edit that deletes lines;
+// TestAddEditsStagesARestoredDeletion records an edit that deletes lines;
 // another writer then puts the lines back, alone or with a change to a line
-// next to them. The edit is lost, so `add --edits` must refuse it instead of
-// staging the deletion.
-func TestAddEditsRefusesARestoredDeletion(t *testing.T) {
+// next to them. The stage still stages the deletion.
+func TestAddEditsStagesARestoredDeletion(t *testing.T) {
 	const before = "a\nb\nc\nd\ne\n"
 	for _, tc := range []struct{ name, after, disk string }{
 		{"middle", "a\nb\ne\n", before},
@@ -103,9 +102,10 @@ func TestAddEditsRefusesARestoredDeletion(t *testing.T) {
 			r.git("commit", "-q", "-m", "f")
 			r.hookedEdit("s", "", "f.txt", tc.after)
 			r.write("f.txt", tc.disk)
-			res := r.expectCode(3, "", "--stage", "claude-s", "add", "--edits")
-			if !strings.Contains(res.out+res.err, "no longer holds the edit") {
-				t.Fatalf("want edit-lost:\n%s", res)
+			r.mustMS("", "--stage", "claude-s", "add", "--edits")
+			r.mustMS("", "--stage", "claude-s", "commit", "-m", "delete")
+			if got := r.git("show", "main:f.txt"); got != tc.after {
+				t.Fatalf("committed %q, want %q", got, tc.after)
 			}
 		})
 	}

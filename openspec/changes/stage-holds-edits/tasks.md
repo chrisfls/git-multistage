@@ -2,8 +2,8 @@
 
 ## 1. Stage records without the disk check
 
-- [ ] 1.1 Remove `checkRecordsSafe`, `editOnDisk`, `overwrites`, and `addsBack` from `internal/ms/edits.go`, ignore `Uncertain`, and change the `edit-conflict` hint to name uncommitted lines of another stage. Verify: tests for "Edit overwritten on disk", "File deleted on disk", and an old record with `uncertain: true` pass; the tests that expected `edit-lost` are rewritten to expect the staged edit.
-- [ ] 1.2 Add tests for "Edit of lines that another stage has not committed" (fails with `edit-conflict`, records kept) and "Edit of lines that another stage then committed" (stages after the other commit). Verify: both pass with `go test ./...`.
+- [x] 1.1 Remove `checkRecordsSafe`, `editOnDisk`, `overwrites`, and `addsBack` from `internal/ms/edits.go`, ignore `Uncertain`, and change the `edit-conflict` hint to name uncommitted lines of another stage. Verify: tests for "Edit overwritten on disk", "File deleted on disk", and an old record with `uncertain: true` pass; the tests that expected `edit-lost` are rewritten to expect the staged edit.
+- [x] 1.2 Add tests for "Edit of lines that another stage has not committed" (fails with `edit-conflict`, records kept) and "Edit of lines that another stage then committed" (stages after the other commit). Verify: both pass with `go test ./...`.
 
 ## 2. Record the tool call's own change without leases
 

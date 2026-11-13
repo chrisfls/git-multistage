@@ -131,19 +131,92 @@ func TestHookWaitsForTheLease(t *testing.T) {
 	}
 }
 
-func TestHookDetectsALostEdit(t *testing.T) {
+// TestAddEditsStagesAnErasedEdit erases a recorded edit on disk; the stage
+// still stages it, and the disk keeps the later write.
+func TestAddEditsStagesAnErasedEdit(t *testing.T) {
 	r := newRepo(t)
 	r.write("f.txt", "1\n2\n3\n")
 	r.git("add", "f.txt")
 	r.git("commit", "-q", "-m", "f")
 	r.hookedEdit("a", "", "f.txt", "1\nA\n3\n")
-	r.write("f.txt", "1\n2\n3\nother\n") // an unhooked writer erases the edit
-	res := r.expectCode(3, "", "--stage", "claude-a", "add", "--edits")
-	if !strings.Contains(res.err, "no longer holds the edit") {
-		t.Fatalf("error:\n%s", res)
+	r.hookedEdit("b", "", "f.txt", "1\nB\n3\n")
+	r.mustMS("", "--stage", "claude-a", "add", "--edits")
+	r.mustMS("", "--stage", "claude-a", "commit", "-m", "a")
+	if got := r.git("show", "main:f.txt"); got != "1\nA\n3\n" {
+		t.Fatalf("committed %q", got)
 	}
-	r.mustMS("", "--stage", "claude-a", "drop", "--edits")
-	r.expectCode(1, "", "--stage", "claude-a", "add", "--edits")
+	if got := r.read("f.txt"); got != "1\nB\n3\n" {
+		t.Fatalf("disk holds %q", got)
+	}
+}
+
+// TestAddEditsStagesAnEditOfADeletedFile deletes the file after the edit; the
+// stage still stages the edit.
+func TestAddEditsStagesAnEditOfADeletedFile(t *testing.T) {
+	r := newRepo(t)
+	r.write("x.txt", "1\n")
+	r.git("add", "x.txt")
+	r.git("commit", "-q", "-m", "x")
+	r.hookedEdit("a", "", "x.txt", "1\n2\n")
+	if err := os.Remove(r.path("x.txt")); err != nil {
+		t.Fatal(err)
+	}
+	r.mustMS("", "--stage", "claude-a", "add", "--edits")
+	r.mustMS("", "--stage", "claude-a", "commit", "-m", "a")
+	if got := r.git("show", "main:x.txt"); got != "1\n2\n" {
+		t.Fatalf("committed %q", got)
+	}
+}
+
+// TestAddEditsStagesAnOldUncertainRecord stages a record that an earlier
+// version marked as uncertain.
+func TestAddEditsStagesAnOldUncertainRecord(t *testing.T) {
+	r := newRepo(t)
+	r.write("f.txt", "1\n")
+	r.git("add", "f.txt")
+	r.git("commit", "-q", "-m", "f")
+	r.hookedEdit("a", "", "f.txt", "1\n2\n")
+	recs, err := filepath.Glob(r.path(".git/multistage/stages/claude-a/edits/*.json"))
+	if err != nil || len(recs) != 1 {
+		t.Fatalf("records %q: %v", recs, err)
+	}
+	data, err := os.ReadFile(recs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = []byte(strings.Replace(string(data), "{", `{"uncertain":true,`, 1))
+	if err := os.WriteFile(recs[0], data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r.mustMS("", "--stage", "claude-a", "add", "--edits")
+	if got := r.stagedPaths("claude-a"); !eq(got, []string{"f.txt"}) {
+		t.Fatalf("staged %q", got)
+	}
+}
+
+// TestAddEditsOfAnotherStagesUncommittedLines edits a line that another stage
+// added and has not committed: the edit does not fit until that stage commits.
+func TestAddEditsOfAnotherStagesUncommittedLines(t *testing.T) {
+	r := newRepo(t)
+	r.write("f.txt", "1\n2\n")
+	r.git("add", "f.txt")
+	r.git("commit", "-q", "-m", "f")
+	r.hookedEdit("b", "", "f.txt", "1\nfunc {\n  x\n}\n2\n")
+	r.hookedEdit("a", "", "f.txt", "1\nfunc {\n  y\n}\n2\n")
+	res := r.expectCode(3, "", "--stage", "claude-a", "add", "--edits", "--json")
+	if !strings.Contains(res.out, `"edit-conflict"`) {
+		t.Fatalf("want edit-conflict:\n%s", res)
+	}
+	if !strings.Contains(r.mustMS("", "--stage", "claude-a", "status").out, "recorded edits") {
+		t.Fatal("the records were not kept")
+	}
+	r.mustMS("", "--stage", "claude-b", "add", "--edits")
+	r.mustMS("", "--stage", "claude-b", "commit", "-m", "b")
+	r.mustMS("", "--stage", "claude-a", "add", "--edits")
+	r.mustMS("", "--stage", "claude-a", "commit", "-m", "a")
+	if got := r.git("show", "main:f.txt"); got != "1\nfunc {\n  y\n}\n2\n" {
+		t.Fatalf("committed %q", got)
+	}
 }
 
 func TestHookIgnoresOtherToolsAndPaths(t *testing.T) {

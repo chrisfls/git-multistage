@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/chrisfls/git-multistage/internal/gitx"
-	"github.com/chrisfls/git-multistage/internal/hunks"
 )
 
 // An edit record is one file edit that an agent's editor hook observed: the
@@ -31,7 +30,7 @@ type EditRecord struct {
 	After     string    `json:"after,omitempty"`
 	Mode      string    `json:"mode,omitempty"`
 	Tool      string    `json:"tool,omitempty"`
-	Uncertain bool      `json:"uncertain,omitempty"` // another writer may have changed the file during the edit
+	Uncertain bool      `json:"uncertain,omitempty"` // written by older versions; ignored
 	Time      time.Time `json:"time"`
 
 	file string
@@ -130,9 +129,6 @@ func (l *Stage) AddEdits(paths []string, force bool) ([]string, error) {
 	if len(chosen) == 0 {
 		return nil, errorf(ExitError, "no-edits", "no recorded edits to stage")
 	}
-	if err := l.checkRecordsSafe(chosen); err != nil {
-		return nil, err
-	}
 
 	// Apply the records to a copy of the index that becomes current only
 	// when every record applies.
@@ -190,46 +186,6 @@ func chooseRecords(recs []EditRecord, paths []string) []EditRecord {
 	return chosen
 }
 
-// checkRecordsSafe fails with edit-lost when the newest record of a path is
-// no longer on disk, or when a record is uncertain.
-func (l *Stage) checkRecordsSafe(chosen []EditRecord) error {
-	last := map[string]EditRecord{}
-	for _, r := range chosen {
-		last[r.Path] = r
-	}
-	var lost, uncertain []string
-	for p, r := range last {
-		ok, err := l.r.editOnDisk(l.IndexPath(), r)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			lost = append(lost, p)
-		}
-	}
-	for _, r := range chosen {
-		if r.Uncertain {
-			uncertain = append(uncertain, r.Path)
-		}
-	}
-	if len(lost) == 0 && len(uncertain) == 0 {
-		return nil
-	}
-	sort.Strings(lost)
-	e := &Error{
-		Code: ExitConflict, Kind: "edit-lost",
-		Message: "some recorded edits cannot be staged safely; nothing was staged",
-		Hint:    "redo the edit, or stage the file with `hunks` and `add --hunk`; `git multistage drop --edits <path>` forgets the records",
-	}
-	for _, p := range lost {
-		e.Details = append(e.Details, p+": the file no longer holds the edit (another writer changed those lines)")
-	}
-	for _, p := range uncertain {
-		e.Details = append(e.Details, p+": another writer may have changed the file during the edit")
-	}
-	return e
-}
-
 // applyRecords applies the records to the index file idx, and returns the
 // paths it staged. It fails with edit-conflict when any record does not fit.
 func (r *Repo) applyRecords(idx string, chosen []EditRecord, force bool) (map[string]bool, error) {
@@ -250,7 +206,8 @@ func (r *Repo) applyRecords(idx string, chosen []EditRecord, force bool) (map[st
 		return nil, &Error{
 			Code: ExitConflict, Kind: "edit-conflict",
 			Message: "some recorded edits do not fit the stage; nothing was staged", Details: failed,
-			Hint: "stage those files with `hunks` and `add --hunk`, or forget the records with `git multistage drop --edits <path>`",
+			Hint: "an edit that changes lines another stage has not committed yet fits once that stage commits; " +
+				"or stage those files with `hunks` and `add --hunk`, or forget the records with `git multistage drop --edits <path>`",
 		}
 	}
 	return staged, nil
@@ -386,86 +343,10 @@ func (r *Repo) replayRecord(rec EditRecord, cur string) ([]byte, error) {
 	return out, nil
 }
 
-// addsBack reports whether later adds any line that the deletion removed.
-// A line at the end of the file can lose or gain its newline in the change.
-func addsBack(later, deletion hunks.Hunk) bool {
-	removed := map[string]bool{}
-	for _, l := range deletion.Removed {
-		removed[strings.TrimSuffix(l, "\n")] = true
-	}
-	return slices.ContainsFunc(later.Added, func(l string) bool { return removed[strings.TrimSuffix(l, "\n")] })
-}
-
 func (r *Repo) setIndexBlob(idx, p, mode, oid string) error {
 	if mode == "" {
 		mode = "100644"
 	}
 	_, err := r.Run(gitx.Opt{Index: idx}, "update-index", "--add", "--cacheinfo", mode, oid, p)
 	return err
-}
-
-// editOnDisk reports whether the working tree still holds the lines that
-// rec added: no later change on disk touched them. idx is the stage index,
-// which decides how the file's line endings are cleaned.
-func (r *Repo) editOnDisk(idx string, rec EditRecord) (bool, error) {
-	full := filepath.Join(r.Top, filepath.FromSlash(rec.Path))
-	if rec.After == "" {
-		_, err := os.Lstat(full)
-		return errors.Is(err, fs.ErrNotExist), nil
-	}
-	if _, err := os.Lstat(full); err != nil {
-		return false, nil //nolint:nilerr // a path that cannot be read no longer holds the edit
-	}
-	disk, err := r.snapshotBlob(idx, rec.Path)
-	if err != nil {
-		return false, err
-	}
-	if disk == rec.After {
-		return true, nil
-	}
-	before := rec.Before
-	if before == "" {
-		before = r.EmptyBlob
-	}
-	mine, err := r.diffBlobs(rec.Path, before, rec.After)
-	if err != nil {
-		return false, nil //nolint:nilerr // hunks that cannot be compared, such as binary content, cannot show that the edit survived
-	}
-	later, err := r.diffBlobs(rec.Path, rec.After, disk)
-	if err != nil {
-		return false, nil //nolint:nilerr // hunks that cannot be compared, such as binary content, cannot show that the edit survived
-	}
-	for _, h := range mine {
-		for _, d := range later {
-			if overwrites(d, h) {
-				return false, nil
-			}
-		}
-	}
-	return true, nil
-}
-
-// overwrites reports whether the later change d undid the recorded hunk h.
-// h's added lines occupy [NewStart-1, NewStart-1+NewLines) of After; a later
-// change that removes any of them, or inserts inside them, overwrote the
-// edit. A deletion adds no lines: it sits between lines NewStart and
-// NewStart+1 of After. A later change there puts the deletion back when it
-// adds any of the deleted lines: an insertion after line NewStart, or a
-// replacement whose old lines include line NewStart or NewStart+1. A change
-// of a neighbouring line alone adds none of them.
-func overwrites(d, h hunks.Hunk) bool {
-	if h.NewLines == 0 {
-		if d.NewLines == 0 {
-			return false
-		}
-		atPoint := d.OldLines == 0 && d.OldStart == h.NewStart ||
-			d.OldLines > 0 && d.OldStart <= h.NewStart+1 && h.NewStart <= d.OldStart+d.OldLines-1
-		return atPoint && addsBack(d, h)
-	}
-	lo, hi := h.NewStart-1, h.NewStart-1+h.NewLines
-	if d.OldLines > 0 {
-		dlo, dhi := d.OldStart-1, d.OldStart-1+d.OldLines
-		return dlo < hi && lo < dhi
-	}
-	return lo < d.OldStart && d.OldStart < hi
 }

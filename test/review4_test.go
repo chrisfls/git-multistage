@@ -79,56 +79,6 @@ func TestHookAfterGlobalOptions(t *testing.T) {
 	}
 }
 
-// expireLeases makes every edit lease of the repository expire, as 15
-// seconds of waiting on an approval prompt would.
-func (r *repo) expireLeases() {
-	r.t.Helper()
-	paths, err := filepath.Glob(r.path(".git/multistage/leases/*.json"))
-	if err != nil || len(paths) == 0 {
-		r.t.Fatalf("no leases: %v", err)
-	}
-	for _, p := range paths {
-		data, err := os.ReadFile(p)
-		if err != nil {
-			r.t.Fatal(err)
-		}
-		var l map[string]any
-		if err := json.Unmarshal(data, &l); err != nil {
-			r.t.Fatal(err)
-		}
-		l["expires"] = 0
-		data, _ = json.Marshal(l)
-		if err := os.WriteFile(p, data, 0o644); err != nil {
-			r.t.Fatal(err)
-		}
-	}
-}
-
-func TestTakingAnExpiredLeaseMakesTheEditUncertain(t *testing.T) {
-	r := newRepo(t)
-	r.write("notes.txt", "one\ntwo\nthree\n")
-	r.git("add", "notes.txt")
-	r.git("commit", "-q", "-m", "notes")
-	patchA := "*** Begin Patch\n*** Update File: notes.txt\n@@\n-two\n+TWO\n*** End Patch"
-	patchB := "*** Begin Patch\n*** Update File: notes.txt\n@@\n-three\n+THREE\n*** End Patch"
-	if res := r.codexCall("PreToolUse", "a", "", "exec-a", patchA); res.code != 0 {
-		t.Fatalf("A PreToolUse:\n%s", res)
-	}
-	r.expireLeases()
-	if res := r.codexCall("PreToolUse", "b", "", "exec-b", patchB); res.code != 0 {
-		t.Fatalf("B PreToolUse:\n%s", res)
-	}
-	r.write("notes.txt", "one\nTWO\nthree\n")
-	r.codexCall("PostToolUse", "a", "", "exec-a", patchA)
-	r.write("notes.txt", "one\nTWO\nTHREE\n")
-	r.codexCall("PostToolUse", "b", "", "exec-b", patchB)
-	res := r.expectCode(3, "", "--stage", "codex-b", "add", "--edits")
-	if !strings.Contains(res.err, "another writer may have changed") {
-		t.Fatalf("add --edits:\n%s", res)
-	}
-	r.expectCode(3, "", "--stage", "codex-a", "add", "--edits")
-}
-
 func TestWriteThroughADanglingSymlinkIsRecorded(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symbolic links need privileges on Windows")
