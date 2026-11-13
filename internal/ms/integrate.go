@@ -351,6 +351,9 @@ func (r *Repo) checkDeleted(base, tip, baseTree, staged, tipTree string, stagedM
 	if err != nil {
 		return "", err
 	}
+	if theirs, err = r.unpairRenames(base, tip, theirs); err != nil {
+		return "", err
+	}
 	deleted, recreated := deletedPaths(mine, theirs, stagedMoves, recreate)
 	if len(deleted) > 0 {
 		e := &Error{
@@ -372,6 +375,34 @@ func (r *Repo) checkDeleted(base, tip, baseTree, staged, tipTree string, stagedM
 		_, err := r.Run(gitx.Opt{Index: idx}, append([]string{"update-index", "--force-remove", "--"}, recreated...)...)
 		return true, err
 	})
+}
+
+// unpairRenames adds a deletion to theirs for each rename of theirs whose
+// old path no single commit of base..tip moved: one commit deleted it, and
+// a later one added a file with the same content, as a commit of a
+// recreated move does.
+func (r *Repo) unpairRenames(base, tip string, theirs []gitx.Entry) ([]gitx.Entry, error) {
+	out := theirs
+	for _, e := range theirs {
+		if e.Status != 'R' {
+			continue
+		}
+		c, _, err := r.removingCommit(e.OldPath, base, "", tip)
+		if err != nil || c == "" {
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
+		n, err := r.movedIn(c, e.OldPath)
+		if err != nil {
+			return nil, err
+		}
+		if n == "" {
+			out = append(slices.Clip(out), gitx.Entry{Path: e.OldPath, Status: 'D'})
+		}
+	}
+	return out, nil
 }
 
 // deletedPaths returns the paths that mine modifies, or moves away, and

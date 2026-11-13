@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -142,15 +143,26 @@ func (l *Stage) prepareMessage(raw string, noVerify bool) (string, error) {
 }
 
 // addMoveTrailers ends msg with one Multistage-Moved trailer for each
-// staged move.
-func (l *Stage) addMoveTrailers(msg string) (string, error) {
-	if len(l.M.Moves) == 0 {
+// staged move onto tip. A move that recreate names, and whose old path tip
+// no longer holds, is committed as a new file and gets no trailer.
+func (l *Stage) addMoveTrailers(msg, tip string, recreate []string) (string, error) {
+	var trailers []string
+	for _, m := range l.M.Moves {
+		if slices.Contains(recreate, m.Old) || slices.Contains(recreate, m.New) {
+			_, onTip, err := l.r.lsTree(tip, m.Old)
+			if err != nil {
+				return "", err
+			}
+			if !onTip {
+				continue
+			}
+		}
+		trailers = append(trailers, "--trailer", trailerMoved+": "+moveTrailer(m))
+	}
+	if len(trailers) == 0 {
 		return msg, nil
 	}
-	args := []string{"interpret-trailers", "--where=end", "--if-exists=addIfDifferent"}
-	for _, m := range l.M.Moves {
-		args = append(args, "--trailer", trailerMoved+": "+moveTrailer(m))
-	}
+	args := append([]string{"interpret-trailers", "--where=end", "--if-exists=addIfDifferent"}, trailers...)
 	return stringOut(l.r.Run(gitx.Opt{Stdin: strings.NewReader(msg)}, args...))
 }
 
@@ -246,9 +258,6 @@ func (l *Stage) prepareCommit(res *CommitResult, rawMsg string, noVerify bool) (
 	if st.msg, err = l.prepareMessage(rawMsg, noVerify); err != nil {
 		return nil, err
 	}
-	if st.msg, err = l.addMoveTrailers(st.msg); err != nil {
-		return nil, err
-	}
 	res.Subject, _, _ = strings.Cut(st.msg, "\n")
 	st.sign = r.configBool("commit.gpgSign", false)
 	st.sync = r.syncEnabled()
@@ -288,7 +297,11 @@ func (l *Stage) commitAttempt(res *CommitResult, st *commitState, attempt int) (
 			return false, err
 		}
 	}
-	commit, err := r.commitTree(tree, tip, st.msg, st.sign)
+	msg, err := l.addMoveTrailers(st.msg, tip, st.recreate)
+	if err != nil {
+		return false, err
+	}
+	commit, err := r.commitTree(tree, tip, msg, st.sign)
 	if err != nil {
 		return false, err
 	}

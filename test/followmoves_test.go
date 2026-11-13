@@ -304,3 +304,22 @@ func TestCommitOfAMoveOfAFileThatAnotherStageDeleted(t *testing.T) {
 		t.Fatalf("kind %q", out.Error.Kind)
 	}
 }
+
+func TestCommitOfARecreatedMoveWritesNoTrailer(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": twenty})
+	r.stageLineOne("c", "x.go")
+	r.mustMS("a", "mv", "x.go", "y.go")
+	r.write("x.go", twenty)
+	r.deleteAndCommit("x.go")
+	r.mustMS("a", "commit", "--recreate", "y.go", "-m", "a keeps y")
+	if msg := r.git("log", "-1", "--format=%B"); strings.Contains(msg, "Multistage-Moved") {
+		t.Fatalf("the commit has a move trailer:\n%s", msg)
+	}
+	var out struct {
+		Error struct{ Kind string } `json:"error"`
+	}
+	decode(t, r.expectCode(3, "c", "commit", "-m", "c edits x", "--json"), &out)
+	if out.Error.Kind != "path-deleted" {
+		t.Fatalf("kind %q", out.Error.Kind)
+	}
+}
