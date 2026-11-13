@@ -21,7 +21,7 @@ Stages share one working tree, so every agent edits the same files. git-multista
 
 A Git checkout has one staging area, the index, shared by every agent working in it. One agent's `git commit` takes what the others staged. Splitting a file that two agents edited takes `git add -p`, which is interactive.
 
-The usual workaround is one worktree per agent, but each one needs its own build and dependencies, and its branch has to be merged back.
+The usual workaround is one worktree per agent. Each worktree can need its own dependency install and build output, and its branch has to be merged back.
 
 git-multistage keeps one checkout and gives each agent its own index.
 
@@ -30,7 +30,7 @@ git-multistage keeps one checkout and gives each agent its own index.
 | Task | Plain Git | git-multistage |
 | --- | --- | --- |
 | Stage a file | `git add src/a.ts`, into the shared index | `git multistage --stage a add src/a.ts` |
-| Stage part of a file from a script | Write a patch by hand (`git add -p` is interactive) | `git multistage --stage a add src/shared.ts --hunk d94c87b26e90` |
+| Stage part of a file from a script | Build a patch and run `git apply --cached` (`git add -p` is interactive) | `git multistage --stage a add src/shared.ts --hunk d94c87b26e90` |
 | See what you staged | `git diff --cached`, which shows every agent's changes | `git multistage --stage a diff --cached` |
 | Commit | `git commit`, which takes the whole shared index | `git multistage --stage a commit -m "Fix login"` |
 | Keep agents apart | One worktree per agent | One stage per agent, in one checkout |

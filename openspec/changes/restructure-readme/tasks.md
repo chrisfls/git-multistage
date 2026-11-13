@@ -3,7 +3,7 @@
 ## 1. README
 
 - [x] 1.1 Overview: add the "What it keeps apart" paragraph on the shared working tree, file leases, `edit-lost`, and shell edits
-- [ ] 1.2 The problem and the table: soften the worktree sentence, and replace "Write a patch by hand"
+- [x] 1.2 The problem and the table: soften the worktree sentence, and replace "Write a patch by hand"
 - [ ] 1.3 Install: lead with the mise command, move the other ways under "Other ways", and show the release archive steps
 - [ ] 1.4 Quick start: add the two-command example, move the hunk walkthrough into "Stage part of a file", and reword the `init` sentence
 - [ ] 1.5 Coding agents: split what the plugin does from what the agent does, reword the opening sentence, shorten the Codex rule, and state the `drop --force` risk
