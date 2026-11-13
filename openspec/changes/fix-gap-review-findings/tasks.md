@@ -18,7 +18,7 @@
 
 ## 5. Lease timeout of release builds
 
-- [ ] 5.1 Add an `internal/ms` test, built without `testhooks`, that sets `GIT_MULTISTAGE_LEASE_TIMEOUT_MS=0` and checks that `takeLease` still waits for a held lease; verify that it fails when the read of the variable is put back in `takeLease`
+- [x] 5.1 Add an `internal/ms` test, built without `testhooks`, that sets `GIT_MULTISTAGE_LEASE_TIMEOUT_MS=0` and checks that `takeLease` still waits for a held lease; verify that it fails when the read of the variable is put back in `takeLease`
 
 ## Workflow follow-up
 
