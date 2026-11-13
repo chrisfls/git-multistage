@@ -98,7 +98,7 @@ func (l *Stage) finishDisk() error {
 func (l *Stage) removeFiles(d *DiskChange) ([]string, error) {
 	var kept []string
 	for i, p := range d.Paths {
-		blob, err := l.diskBlob(p)
+		blob, err := l.r.rawBlob(p)
 		switch {
 		case err != nil:
 			return nil, err
@@ -121,7 +121,7 @@ func (l *Stage) moveFile(d *DiskChange) ([]string, error) {
 	if d.Blobs[0] == "" {
 		return nil, nil // the disk showed the move already
 	}
-	blob, err := l.diskBlob(oldp)
+	blob, err := l.r.rawBlob(oldp)
 	if err != nil || blob == "" {
 		return nil, err
 	}
@@ -177,17 +177,31 @@ func (r *Repo) caseOnly(oldp, newp string) bool {
 	return err == nil && os.SameFile(a, b)
 }
 
-// diskBlob returns the blob of the working-tree file p, or "" when it does
-// not exist.
-func (l *Stage) diskBlob(p string) (string, error) {
-	if !exists(l.r.diskPath(p)) {
+// rawBlob returns the ID of the raw bytes of the working-tree file p,
+// hashed without filters or line-ending conversion, or "" when it does not
+// exist. It does not depend on the stage's index, so a check before and
+// after an index change compares the same bytes.
+func (r *Repo) rawBlob(p string) (string, error) {
+	full := r.diskPath(p)
+	info, err := os.Lstat(full)
+	if errors.Is(err, fs.ErrNotExist) {
 		return "", nil
 	}
-	return l.r.snapshotBlob(l.IndexPath(), p)
+	if err != nil {
+		return "", err
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		target, err := os.Readlink(full)
+		if err != nil {
+			return "", err
+		}
+		return r.Line(gitx.Opt{Stdin: strings.NewReader(target)}, "hash-object", "--no-filters", "--stdin")
+	}
+	return r.Line(gitx.Opt{}, "hash-object", "--no-filters", "--", p)
 }
 
-// checkRemove checks that rm may delete paths, and returns the blob that
-// the disk holds at each.
+// checkRemove checks that rm may delete paths, and returns the raw blob
+// that the disk holds at each.
 func (l *Stage) checkRemove(paths []string, force bool) ([]string, error) {
 	var blobs, untracked, changed []string
 	for _, p := range paths {
@@ -199,7 +213,11 @@ func (l *Stage) checkRemove(paths []string, force bool) ([]string, error) {
 			untracked = append(untracked, p)
 			continue
 		}
-		blob, differs, err := l.r.diskDiffers(l.IndexPath(), p, entry)
+		differs, err := l.r.diskDiffers(l.IndexPath(), p, entry)
+		if err != nil {
+			return nil, err
+		}
+		blob, err := l.r.rawBlob(p)
 		if err != nil {
 			return nil, err
 		}
@@ -224,31 +242,30 @@ func (l *Stage) checkRemove(paths []string, force bool) ([]string, error) {
 	return blobs, nil
 }
 
-// diskDiffers returns the blob of the working-tree file p, "" when it does
-// not exist, and whether it differs from entry. A directory at p is a usage
-// error.
-func (r *Repo) diskDiffers(idx, p string, entry indexEntry) (string, bool, error) {
+// diskDiffers reports whether the working-tree file p differs from entry;
+// false when it does not exist. A directory at p is a usage error.
+func (r *Repo) diskDiffers(idx, p string, entry indexEntry) (bool, error) {
 	info, err := os.Lstat(r.diskPath(p))
 	if errors.Is(err, fs.ErrNotExist) {
-		return "", false, nil
+		return false, nil
 	}
 	if err != nil {
-		return "", false, err
+		return false, err
 	}
 	if info.IsDir() {
-		return "", false, usageErr("path %s is a directory; pass files", p)
+		return false, usageErr("path %s is a directory; pass files", p)
 	}
 	blob, err := r.snapshotBlob(idx, p)
 	if err != nil {
-		return "", false, err
+		return false, err
 	}
 	if blob != entry.oid {
-		return blob, true, nil
+		return true, nil
 	}
 	if entry.mode == "100644" || entry.mode == "100755" {
-		return blob, info.Mode().IsRegular() && r.newFileMode(info) != entry.mode, nil
+		return info.Mode().IsRegular() && r.newFileMode(info) != entry.mode, nil
 	}
-	return blob, false, nil
+	return false, nil
 }
 
 // MovePath stages the move of oldp to newp with the content that the stage
@@ -276,7 +293,7 @@ func (l *Stage) MovePath(oldp, newp string) error {
 	}
 	blob := ""
 	if oldOnDisk {
-		if blob, err = l.diskBlob(oldp); err != nil {
+		if blob, err = l.r.rawBlob(oldp); err != nil {
 			return err
 		}
 	}

@@ -411,3 +411,38 @@ func TestMvCaseOnlyRename(t *testing.T) {
 		t.Fatalf("moves %v", got)
 	}
 }
+
+func TestRmAndMvOfAFileWithCRLFLineEndings(t *testing.T) {
+	const crlf = "one\r\ntwo\r\n"
+	for _, conv := range []string{"core.autocrlf", "text=auto"} {
+		for _, cmd := range []string{"rm", "mv"} {
+			t.Run(conv+" "+cmd, func(t *testing.T) {
+				r := committedRepo(t, map[string]string{"w.txt": crlf})
+				if conv == "core.autocrlf" {
+					r.git("config", "core.autocrlf", "true")
+				} else {
+					r.write(".gitattributes", "* text=auto\n")
+					r.git("add", ".gitattributes")
+					r.git("commit", "-q", "-m", "attributes")
+				}
+				if cmd == "rm" {
+					res := r.mustMS("a", "rm", "w.txt")
+					if !gone(t, r.path("w.txt")) || strings.Contains(res.err, "another writer") {
+						t.Fatalf("rm left w.txt:\n%s", res)
+					}
+					if got := r.stagedStatus("a"); !eq(got, []string{"D w.txt"}) {
+						t.Fatalf("stage a holds %v", got)
+					}
+					return
+				}
+				res := r.mustMS("a", "mv", "w.txt", "v.txt")
+				if !gone(t, r.path("w.txt")) || r.read("v.txt") != crlf || strings.Contains(res.err, "another writer") {
+					t.Fatalf("mv did not move w.txt:\n%s", res)
+				}
+				if got := r.stageMoves("a"); !eq(got, []string{"w.txt -> v.txt"}) {
+					t.Fatalf("moves %v", got)
+				}
+			})
+		}
+	}
+}

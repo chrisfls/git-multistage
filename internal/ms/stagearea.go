@@ -122,7 +122,7 @@ type Meta struct {
 type DiskChange struct {
 	Command string   `json:"command"` // "rm" or "mv"
 	Paths   []string `json:"paths"`   // rm: the paths to delete; mv: the old and the new path
-	Blobs   []string `json:"blobs"`   // the blob expected on disk at each path; "" for none
+	Blobs   []string `json:"blobs"`   // the raw blob (hash-object --no-filters) expected on disk at each path; "" for none
 }
 
 // Move is one staged move of a file.
