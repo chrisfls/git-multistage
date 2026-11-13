@@ -11,8 +11,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // MinVersion is the oldest Git that has every feature git-multistage uses.
@@ -161,8 +163,56 @@ func (r *Repo) checkVersion() error {
 	return nil
 }
 
+// lostObjectWriteRE matches the error of a loose object write that lost a
+// race. Git for Windows creates loose objects by rename, and it checks for an
+// existing object before the rename. When another Git process creates the
+// same object between the check and the rename, the rename onto the new
+// read-only object fails with "Permission denied", and Git reports a failed
+// write although the object now exists.
+var lostObjectWriteRE = regexp.MustCompile(
+	`unable to write file .*objects[/\\][0-9a-f]{2}[/\\][0-9a-f]+: Permission denied`)
+
+// lostObjectWrite reports whether stderr is the error of a loose object
+// write that lost a race to another Git process.
+func lostObjectWrite(stderr string) bool {
+	return lostObjectWriteRE.MatchString(stderr)
+}
+
+// objectWriteRetries is how many times Run reruns a command whose loose
+// object write lost a race. A rerun finds the object and does not write it.
+const objectWriteRetries = 5
+
 // Run runs git with args and returns its stdout.
 func (r *Repo) Run(o Opt, args ...string) ([]byte, error) {
+	// Only Git for Windows creates loose objects by rename. A rerun must
+	// read the same stdin and must not repeat streamed output.
+	stdin, rewindable := o.Stdin.(io.Seeker)
+	retry := runtime.GOOS == "windows" && !o.User && o.Stdout == nil && o.Stderr == nil &&
+		(o.Stdin == nil || rewindable)
+	var start int64
+	if retry && rewindable {
+		var err error
+		if start, err = stdin.Seek(0, io.SeekCurrent); err != nil {
+			retry = false
+		}
+	}
+	for attempt := 1; ; attempt++ {
+		out, err := r.run(o, args...)
+		var ee *ExitError
+		if !retry || attempt > objectWriteRetries || !errors.As(err, &ee) || !lostObjectWrite(ee.Stderr) {
+			return out, err
+		}
+		if rewindable {
+			if _, serr := stdin.Seek(start, io.SeekStart); serr != nil {
+				return out, err
+			}
+		}
+		time.Sleep(time.Duration(attempt) * 10 * time.Millisecond)
+	}
+}
+
+// run runs git with args once.
+func (r *Repo) run(o Opt, args ...string) ([]byte, error) {
 	gitArgs := args
 	if !o.User && !o.KeepFormat {
 		// Stage indexes and rewritten copies of the default index are full,
