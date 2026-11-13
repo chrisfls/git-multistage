@@ -8,6 +8,15 @@ Each agent gets its own staging area. It commits without waiting for the others,
 
 It runs as `git multistage` and writes normal Git history.
 
+## What it keeps apart
+
+Stages share one working tree, so every agent edits the same files. git-multistage keeps their staging and their commits apart:
+
+- With the [agent plugin](#coding-agents), an agent holds a short lease on a file while it edits it, so two agents' edits of one file run one after the other.
+- `add --edits` stages only the lines that the agent itself changed, even when another agent changed the next line.
+- If another writer overwrote those lines, `add --edits` stages nothing and fails with `edit-lost`.
+- Edits made through shell commands, such as a formatter, are not recorded. Stage them with `add` or `add --hunk`.
+
 ## The problem
 
 A Git checkout has one staging area, the index, shared by every agent working in it. One agent's `git commit` takes what the others staged. Splitting a file that two agents edited takes `git add -p`, which is interactive.
