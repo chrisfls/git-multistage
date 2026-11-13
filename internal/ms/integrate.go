@@ -87,7 +87,7 @@ func (r *Repo) followBranch(base, tip, baseTree, staged, tipTree string, stagedM
 	if baseTree, staged, err = r.moveBoth(baseTree, staged, moves); err != nil {
 		return "", "", err
 	}
-	renamed, removers, err := r.followRemovals(base, tip, baseTree, staged, tipTree)
+	renamed, removers, err := r.followRemovals(base, tip, baseTree, staged, tipTree, stagedMoves)
 	if err != nil {
 		return "", "", err
 	}
@@ -355,12 +355,13 @@ func (r *Repo) editTree(tree string, edit func(idx string) (bool, error)) (strin
 }
 
 // followRemovals follows each path that the change from baseTree to
-// staged modifies or moves away, and that tipTree lacks, through the
-// commits of base..tip. It returns the new path of each modified path that
-// a commit moved, and the commit that removed each path that no commit
-// moved. Only the staged paths are followed, so the cost grows with them,
-// not with the renames of the tip.
-func (r *Repo) followRemovals(base, tip, baseTree, staged, tipTree string) (renamed, removers map[string]string, err error) {
+// staged modifies, deletes, or moves away, and that tipTree lacks, through
+// the commits of base..tip. It returns the new path of each modified or
+// deleted path that a commit moved, so that the merge replays the change
+// there, and the commit that removed each path that no commit moved. The
+// old path of a staged move is not moved. Only the staged paths are
+// followed, so the cost grows with them, not with the renames of the tip.
+func (r *Repo) followRemovals(base, tip, baseTree, staged, tipTree string, stagedMoves []Move) (renamed, removers map[string]string, err error) {
 	mine, err := r.DiffTrees(baseTree, staged, false)
 	if err != nil {
 		return nil, nil, err
@@ -375,6 +376,10 @@ func (r *Repo) followRemovals(base, tip, baseTree, staged, tipTree string) (rena
 			gone[e.Path] = true
 		}
 	}
+	movedAway := map[string]bool{}
+	for _, m := range stagedMoves {
+		movedAway[m.Old] = true
+	}
 	renamed, removers = map[string]string{}, map[string]string{}
 	for _, e := range mine {
 		if !gone[e.Path] {
@@ -386,7 +391,7 @@ func (r *Repo) followRemovals(base, tip, baseTree, staged, tipTree string) (rena
 			return nil, nil, err
 		case n == "":
 			removers[e.Path] = desc
-		case e.Status != 'D':
+		case e.Status != 'D' || !movedAway[e.Path]:
 			renamed[e.Path] = n
 		}
 	}

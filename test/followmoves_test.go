@@ -417,3 +417,45 @@ func TestCommitFollowsARenameThatALaterCommitRewrote(t *testing.T) {
 		t.Fatalf("y.go = %q, want %q", got, want)
 	}
 }
+
+func TestCommitOfADeletionFollowsARenameWithoutTrailer(t *testing.T) {
+	r := committedRepo(t, map[string]string{"p.go": twenty, "o.go": "o\n"})
+	r.mustMS("a", "rm", "p.go")
+	r.write("p.go", twenty) // the branch still holds p.go
+	r.git("mv", "p.go", "n.go")
+	r.git("commit", "-q", "-m", "rename p")
+	r.mustMS("a", "commit", "-m", "delete p")
+	if got := r.changedPaths("main"); !eq(got, []string{"n.go"}) {
+		t.Fatalf("the commit changed %v", got)
+	}
+	if out := r.git("ls-tree", "--name-only", "main"); strings.Contains(out, "n.go") {
+		t.Fatalf("main holds n.go:\n%s", out)
+	}
+}
+
+func TestCommitOfADeletionOfARenamedAndRewrittenFileConflicts(t *testing.T) {
+	r := committedRepo(t, map[string]string{"p.go": twenty, "o.go": "o\n"})
+	r.mustMS("a", "rm", "p.go")
+	r.write("p.go", twenty) // the branch still holds p.go
+	r.git("mv", "p.go", "n.go")
+	r.git("commit", "-q", "-m", "rename p")
+	r.write("n.go", heavyEdit(twenty))
+	r.git("commit", "-q", "-am", "rewrite n")
+	head := r.git("rev-parse", "main")
+	var out struct {
+		Error struct {
+			Kind  string
+			Paths []string
+		} `json:"error"`
+	}
+	decode(t, r.expectCode(3, "a", "commit", "-m", "delete p", "--json"), &out)
+	if out.Error.Kind != "conflict" || !eq(out.Error.Paths, []string{"n.go"}) {
+		t.Fatalf("error %+v", out.Error)
+	}
+	if r.git("rev-parse", "main") != head {
+		t.Fatal("a commit landed")
+	}
+	if got := r.stagedStatus("a"); !eq(got, []string{"D p.go"}) {
+		t.Fatalf("stage a holds %v", got)
+	}
+}
