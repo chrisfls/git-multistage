@@ -9,3 +9,7 @@ node = "22"
 "npm:@anthropic-ai/claude-code" = "2.1.310"
 # act runs the Linux CI jobs in containers, and needs a Docker engine.
 act = "0.2.97"
+
+[tasks.release]
+description = "Build the release archives from the pushed default branch and publish them: mise run release <version>"
+run = "bash scripts/release.sh"

@@ -37,13 +37,21 @@ git-multistage keeps one checkout and gives each agent its own index.
 
 ## Install
 
-Requires Git 2.45 or newer.
+Requires Git 2.45 or newer. Pick one way to get the `git-multistage` binary.
+
+**From a release**, with no Go toolchain. [Releases](https://github.com/chrisfls/git-multistage/releases) hold archives for Linux, macOS, and Windows on amd64 and arm64, and a `checksums.txt`. Download the archive for your system, check it with `shasum -a 256 -c checksums.txt`, and put the binary on your `PATH`. Or let mise do it:
+
+```bash
+mise use -g github:chrisfls/git-multistage
+```
+
+**With Go:**
 
 ```bash
 go install github.com/chrisfls/git-multistage/cmd/git-multistage@latest
 ```
 
-Or build from a clone:
+**From a clone:**
 
 ```bash
 git clone https://github.com/chrisfls/git-multistage
@@ -51,13 +59,13 @@ cd git-multistage
 go build -o "$HOME/.local/bin/git-multistage" ./cmd/git-multistage
 ```
 
-The binary must be on your `PATH`. To build on Windows:
+The binary must be on your `PATH`. To build from a clone on Windows:
 
 ```powershell
 go build -o "$env:USERPROFILE\bin\git-multistage.exe" .\cmd\git-multistage
 ```
 
-`git multistage doctor` checks the setup.
+`git multistage doctor` checks the setup, and `git multistage version` prints the version.
 
 ## Quick start
 
@@ -160,7 +168,7 @@ $env:GIT_MULTISTAGE_ID = "fix-login"
 
 Give each agent a stage ID, such as its agent ID, and [the agent guide](skills/git-multistage/SKILL.md).
 
-For Claude Code and Codex, install the plugin. It records each edit an agent makes in that agent's stage and teaches the agent the commands. The `git-multistage` binary must be on your `PATH`.
+For Claude Code and Codex, install the plugin. It records each edit an agent makes in that agent's stage and teaches the agent the commands. The plugin calls the `git-multistage` binary, so [install it](#install) first: the hooks print an error until `git multistage` runs.
 
 Claude Code:
 
