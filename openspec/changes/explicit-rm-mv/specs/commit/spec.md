@@ -1,0 +1,39 @@
+## ADDED Requirements
+
+### Requirement: Move trailers
+A commit whose staged change holds moves made with `mv` SHALL end its message with one `Multistage-Moved: <old> -> <new>` trailer for each move.
+
+#### Scenario: Commit a move
+- **WHEN** stage `a` ran `mv x.go y.go` and commits
+- **THEN** the commit message ends with `Multistage-Moved: x.go -> y.go`
+
+### Requirement: Follow moves onto the tip
+When the staged change is replayed onto a newer tip, each staged path that a `Multistage-Moved` trailer of a commit since the stage's base moved SHALL be replayed at the new path, following chains of moves. Paths that no trailer names SHALL follow Git's rename detection.
+
+#### Scenario: Edit after another stage's move
+- **WHEN** stage `b` committed `mv x.go y.go` with heavy edits of the file, and stage `a` then commits its staged change to `x.go`
+- **THEN** stage `a`'s commit changes `y.go` and does not create `x.go`
+
+### Requirement: Staged change of a deleted file
+When a commit since the stage's base deleted a path that the staged change modifies, `commit` SHALL exit with code 3 and error kind `path-deleted`, commit nothing, and keep the stage. The error SHALL name the path and the deleting commit, and hint at `--recreate <path>` and `restore --staged <path>`. `commit --recreate <path>...` SHALL commit the stage's version of each named path as a new file.
+
+#### Scenario: Another stage deleted the file
+- **WHEN** stage `b` committed `rm x.go` and stage `a` then commits its staged change to `x.go`
+- **THEN** the command exits with code 3, names `x.go` and stage `b`'s commit, and stage `a` keeps its staged change
+
+#### Scenario: Recreate the file
+- **WHEN** stage `a` then runs `commit --recreate x.go -m "Keep x"`
+- **THEN** the commit adds `x.go` with stage `a`'s version
+
+## MODIFIED Requirements
+
+### Requirement: Unsupported commit options
+`commit` SHALL accept only `-m`/`--message`, `-F`/`--file`, `-n`/`--no-verify`, `--recreate`, and the global options. Any other option, such as `--amend`, `-a`, `--author`, `--date`, or `--fixup`, SHALL exit with code 2. It SHALL never open an editor and SHALL ignore `GIT_INDEX_FILE` in its environment.
+
+#### Scenario: Unsupported option
+- **WHEN** the user runs `commit --amend -m "x"`
+- **THEN** the command exits with code 2 and no commit is created
+
+#### Scenario: GIT_INDEX_FILE set
+- **WHEN** `GIT_INDEX_FILE` points to another index and the user runs `commit`
+- **THEN** the commit uses the stage's own index
