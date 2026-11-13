@@ -116,7 +116,7 @@ func (l *Stage) stagedChanges() ([]Change, error) {
 	if err != nil {
 		return nil, err
 	}
-	out, err := l.r.Run(gitx.Opt{Index: l.IndexPath()}, "diff-index", "--cached", "-z", "--name-status", "-M", base)
+	out, err := l.r.Run(gitx.Opt{Index: l.IndexPath()}, "diff-index", flagCached, "-z", "--name-status", "-M", base)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +162,7 @@ func (r *Repo) stageStagedPaths(dir string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		out, err := r.Run(gitx.Opt{Index: idx}, "diff-index", "--cached", "-z", "--name-only", "--no-renames", base)
+		out, err := r.Run(gitx.Opt{Index: idx}, "diff-index", flagCached, "-z", "--name-only", "--no-renames", base)
 		if m2, err2 := readMeta(dir); err2 != nil || m2.Index != m.Index {
 			continue
 		}
@@ -202,7 +202,7 @@ func (l *Stage) AddPaths(paths []string, force, allowShared bool) ([]gitx.Entry,
 			_ = os.Remove(idx)
 		}
 	}()
-	args := []string{"add"}
+	args := []string{cmdAdd}
 	if force {
 		args = append(args, "-f")
 	}
@@ -323,7 +323,7 @@ func (r *Repo) diffBlobs(p, oldBlob, newBlob string) ([]hunks.Hunk, error) {
 // identical copies hash versions and their start lines on side; see
 // hunks.Parse.
 func (r *Repo) diffBlobsWithIDs(p, oldBlob, newBlob, versions string, side hunks.Side) ([]hunks.Hunk, error) {
-	out, err := r.Run(gitx.Opt{}, "diff", "--no-color", "--no-ext-diff", "--no-textconv",
+	out, err := r.Run(gitx.Opt{}, cmdDiff, "--no-color", "--no-ext-diff", "--no-textconv",
 		"-U0", "--inter-hunk-context=0", "--diff-algorithm=myers", oldBlob, newBlob)
 	if err != nil && gitx.ExitCode(err) != 1 {
 		return nil, err
@@ -377,7 +377,7 @@ func (l *Stage) canonical(p string) (string, error) {
 		return p, err
 	}
 	dir := path.Dir(p)
-	out, err := l.r.Run(gitx.Opt{Index: l.IndexPath(), Env: []string{"GIT_LITERAL_PATHSPECS=0", "GIT_ICASE_PATHSPECS=1"}},
+	out, err := l.r.Run(gitx.Opt{Index: l.IndexPath(), Env: []string{envLiteralPathspecs, "GIT_ICASE_PATHSPECS=1"}},
 		"ls-files", "-z", "--", dir)
 	if err != nil {
 		return p, err
@@ -580,9 +580,9 @@ func (l *Stage) changedPaths(cached bool) ([]string, error) {
 		if err2 != nil {
 			return nil, err2
 		}
-		out, err = l.r.Run(gitx.Opt{Index: l.IndexPath()}, "diff-index", "--cached", "-z", "--name-only", "--no-renames", base)
+		out, err = l.r.Run(gitx.Opt{Index: l.IndexPath()}, "diff-index", flagCached, "-z", "--name-only", "--no-renames", base)
 	} else {
-		out, err = l.r.Run(gitx.Opt{Index: l.IndexPath()}, "diff", "-z", "--name-only", "--no-renames")
+		out, err = l.r.Run(gitx.Opt{Index: l.IndexPath()}, cmdDiff, "-z", "--name-only", "--no-renames")
 	}
 	if err != nil {
 		return nil, err
@@ -663,7 +663,7 @@ func checkHunkIDs(files []FileHunks, ids []string) (map[string]bool, error) {
 // .gitignore file ignores.
 func (l *Stage) refuseIgnored(p string) error {
 	// check-ignore takes plain paths and rejects literal pathspec mode.
-	_, err := l.r.Run(gitx.Opt{Index: l.IndexPath(), Env: []string{"GIT_LITERAL_PATHSPECS=0"}}, "check-ignore", "-q", "--", p)
+	_, err := l.r.Run(gitx.Opt{Index: l.IndexPath(), Env: []string{envLiteralPathspecs}}, "check-ignore", "-q", "--", p)
 	if err != nil && gitx.ExitCode(err) != 1 {
 		return err
 	}
@@ -786,7 +786,7 @@ func (l *Stage) RestorePaths(paths []string) error {
 func (l *Stage) restorePaths(idx string, paths []string) error {
 	var err error
 	if l.M.Base == "" {
-		_, err = l.r.Run(gitx.Opt{Index: idx}, append([]string{"rm", "--cached", "-r", "-q", "--ignore-unmatch", "--"}, paths...)...)
+		_, err = l.r.Run(gitx.Opt{Index: idx}, append([]string{"rm", flagCached, "-r", "-q", "--ignore-unmatch", "--"}, paths...)...)
 	} else {
 		_, err = l.r.Run(gitx.Opt{Index: idx}, append([]string{"reset", "-q", l.M.Base, "--"}, paths...)...)
 	}
@@ -850,7 +850,7 @@ func (l *Stage) RestoreHunks(paths, ids []string) ([]string, error) {
 
 // ApplyPatch applies a patch to the stage index only, like `git apply --cached`.
 func (l *Stage) ApplyPatch(patch io.Reader, reverse bool) error {
-	args := []string{"apply", "--cached", "--whitespace=nowarn"}
+	args := []string{"apply", flagCached, "--whitespace=nowarn"}
 	if reverse {
 		args = append(args, "-R")
 	}

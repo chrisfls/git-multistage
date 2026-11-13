@@ -51,11 +51,11 @@ type hookInput struct {
 // paths, for the editor family kind.
 func editedFiles(kind string, in hookInput) []string {
 	switch {
-	case kind == "claude" && (in.Tool == "Edit" || in.Tool == "MultiEdit" || in.Tool == "Write"):
+	case kind == agentClaude && (in.Tool == "Edit" || in.Tool == "MultiEdit" || in.Tool == "Write"):
 		if in.Input.FilePath != "" {
 			return []string{in.Input.FilePath}
 		}
-	case kind == "codex" && in.Tool == "apply_patch":
+	case kind == agentCodex && in.Tool == "apply_patch":
 		var files []string
 		for _, line := range strings.Split(in.Input.Command, "\n") {
 			line = strings.TrimRight(line, "\r")
@@ -102,9 +102,9 @@ func runEditHook(kind string, stdin io.Reader, stdout, stderr io.Writer, stageFl
 		return 0
 	}
 	if kind == "" {
-		kind = "claude"
+		kind = agentClaude
 		if in.Tool == "apply_patch" {
-			kind = "codex"
+			kind = agentCodex
 		}
 	}
 	files := editedFiles(kind, in)
@@ -226,7 +226,7 @@ func newEditHook(in hookInput, stage, file string) (*editHook, error) {
 	// On a case-insensitive file system, use the index's spelling, so that
 	// the lease and the record name one file whatever case the editor used.
 	if r.configBool("core.ignoreCase", false) {
-		out, err := r.Run(gitx.Opt{Env: []string{"GIT_LITERAL_PATHSPECS=0", "GIT_ICASE_PATHSPECS=1"}}, "ls-files", "-z", "--", rel)
+		out, err := r.Run(gitx.Opt{Env: []string{envLiteralPathspecs, "GIT_ICASE_PATHSPECS=1"}}, "ls-files", "-z", "--", rel)
 		if err == nil {
 			for _, name := range strings.Split(string(out), "\x00") {
 				if strings.EqualFold(name, rel) {

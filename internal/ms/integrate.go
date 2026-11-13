@@ -173,7 +173,7 @@ func (l *Stage) refresh() (Freshness, error) {
 
 // cannotMoveTo returns why the stage's base cannot move to tip, or "".
 func (l *Stage) cannotMoveTo(tip string) string {
-	if l.M.Branch == "HEAD" && l.M.Base != "" {
+	if l.M.Branch == refHEAD && l.M.Base != "" {
 		// A base that git cannot check, such as a pruned commit, is reported as stale.
 		if ok, err := l.r.IsAncestor(l.M.Base, tip); err != nil || !ok {
 			return "the detached HEAD moved to a commit that does not contain this stage's base"
@@ -223,7 +223,7 @@ func (l *Stage) moveBase(f Freshness, tip string) (Freshness, error) {
 
 // describeTarget names a stage target for messages.
 func describeTarget(ref string) string {
-	if ref == "HEAD" {
+	if ref == refHEAD {
 		return "a detached HEAD"
 	}
 	return "on " + ref

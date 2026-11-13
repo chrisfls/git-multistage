@@ -38,7 +38,7 @@ func (l *Stage) Status(f Freshness) (*StatusInfo, error) {
 	if st.Staged, err = l.stagedChanges(); err != nil {
 		return nil, err
 	}
-	out, err := l.r.Run(gitx.Opt{Index: l.IndexPath()}, "diff", "-z", "--name-status", "--no-renames")
+	out, err := l.r.Run(gitx.Opt{Index: l.IndexPath()}, cmdDiff, "-z", "--name-status", "--no-renames")
 	if err != nil {
 		return nil, err
 	}

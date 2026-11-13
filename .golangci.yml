@@ -15,6 +15,12 @@ issues:
 
 linters:
   enable:
+    # complexity
+    - gocyclo
+    - nestif
+    - funlen
+    - dupl
+    - goconst
     # correctness
     - govet
     - staticcheck
@@ -61,13 +67,6 @@ linters:
     # The end-to-end tests share the process environment and spawn git
     # processes; running them with t.Parallel needs its own change.
     - paralleltest
-    # The complexity linters flag existing functions that need a refactor of
-    # their own; enable them with that refactor.
-    - gocyclo
-    - nestif
-    - funlen
-    - dupl
-    - goconst
     # godot rewrites every comment that lacks a final period.
     - godot
     # The recommended configuration disables these as too noisy or too
@@ -90,6 +89,18 @@ linters:
     - testpackage
 
   settings:
+    gocyclo:
+      min-complexity: 13
+    nestif:
+      min-complexity: 5
+    funlen:
+      lines: 120
+      statements: 80
+    dupl:
+      threshold: 100
+    goconst:
+      min-len: 3
+      min-occurrences: 4
     errcheck:
       check-type-assertions: true
       exclude-functions:
@@ -112,6 +123,14 @@ linters:
     nolintlint:
       require-explanation: true
       require-specific: true
+
+  exclusions:
+    rules:
+      # The literals of a test are its fixtures; a constant would hide them
+      # from the reader of the test.
+      - path: _test\.go
+        linters:
+          - goconst
 
 formatters:
   enable:

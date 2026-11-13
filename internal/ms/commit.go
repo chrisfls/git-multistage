@@ -381,7 +381,7 @@ func (l *Stage) updateRef(res *CommitResult, commit, tip string, sync bool) erro
 		old = l.r.ZeroOID
 	}
 	refArgs := []string{"update-ref", "-m", reflogMessage(l.ID, res.Subject, sync)}
-	if l.M.Branch == "HEAD" {
+	if l.M.Branch == refHEAD {
 		refArgs = append(refArgs, "--no-deref")
 	}
 	_, err := l.r.Run(gitx.Opt{}, append(refArgs, l.M.Branch, commit, old)...)
@@ -435,7 +435,7 @@ func (l *Stage) checkTarget(tip string) error {
 			Hint:    "check out " + strings.TrimPrefix(l.M.Branch, "refs/heads/") + " again, or drop the stage",
 		}
 	}
-	if l.M.Branch == "HEAD" && l.M.Base != "" && tip != l.M.Base {
+	if l.M.Branch == refHEAD && l.M.Base != "" && tip != l.M.Base {
 		if ok, err := l.r.IsAncestor(l.M.Base, tip); err != nil || !ok {
 			return &Error{
 				Code: ExitRefused, Kind: "branch-mismatch",

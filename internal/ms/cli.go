@@ -74,9 +74,9 @@ func (p *parsed) get(name string) string {
 }
 
 var globalFlags = []flagSpec{
-	{[]string{"--stage"}, true},
-	{[]string{"--agentic"}, false},
-	{[]string{"--json"}, false},
+	{[]string{flagStage}, true},
+	{[]string{flagAgentic}, false},
+	{[]string{flagJSON}, false},
 	{[]string{"--help", "-h"}, false},
 }
 
@@ -163,11 +163,11 @@ func Main(argv []string, stdout, stderr io.Writer) int {
 	}
 	var e *Error
 	if !errors.As(err, &e) {
-		e = &Error{Code: ExitError, Kind: "error", Message: err.Error()}
+		e = &Error{Code: ExitError, Kind: jsonError, Message: err.Error()}
 	}
 	if a.json {
 		a.flushWarnings()
-		a.emit(map[string]any{"error": e, "warnings": a.warnings})
+		a.emit(map[string]any{jsonError: e, jsonWarnings: a.warnings})
 		return e.Code
 	}
 	a.flushWarnings()
@@ -190,9 +190,9 @@ func commandIndex(argv []string) int {
 	i := 0
 	for i < len(argv) {
 		switch {
-		case argv[i] == "--stage":
+		case argv[i] == flagStage:
 			i += 2
-		case strings.HasPrefix(argv[i], "--stage="), argv[i] == "--agentic", argv[i] == "--json":
+		case strings.HasPrefix(argv[i], "--stage="), argv[i] == flagAgentic, argv[i] == flagJSON:
 			i++
 		default:
 			return i
@@ -222,13 +222,13 @@ func (a *app) flushWarnings() {
 	a.warnings = nil
 }
 
-// emit prints v as JSON. A "warnings" entry of v gets the stage's warnings
+// emit prints v as JSON. A jsonWarnings entry of v gets the stage's warnings
 // that are not collected yet.
 func (a *app) emit(v any) {
 	if m, ok := v.(map[string]any); ok {
-		if _, ok := m["warnings"]; ok {
+		if _, ok := m[jsonWarnings]; ok {
 			a.collectStageWarnings()
-			m["warnings"] = a.warnings
+			m[jsonWarnings] = a.warnings
 		}
 	}
 	enc := json.NewEncoder(a.out)
@@ -244,7 +244,7 @@ func (a *app) takeGlobal(argv []string) (rest []string, err error) {
 		switch x := argv[i]; {
 		case x == "--":
 			return append(rest, argv[i:]...), nil
-		case x == "--stage":
+		case x == flagStage:
 			if i+1 >= len(argv) {
 				return nil, usageErr("option --stage needs a value")
 			}
@@ -252,9 +252,9 @@ func (a *app) takeGlobal(argv []string) (rest []string, err error) {
 			a.stageFlag = argv[i]
 		case strings.HasPrefix(x, "--stage="):
 			a.stageFlag = strings.TrimPrefix(x, "--stage=")
-		case x == "--agentic":
+		case x == flagAgentic:
 			a.agentic = true
-		case x == "--json":
+		case x == flagJSON:
 			a.json = true
 		default:
 			rest = append(rest, x)
@@ -368,7 +368,7 @@ func (a *app) run(argv []string) error {
 	if a.repo, err = OpenRepo(cwd); err != nil {
 		return &Error{Code: ExitError, Kind: "repository", Message: err.Error()}
 	}
-	if cmd == "diff" || cmd == "log" {
+	if cmd == cmdDiff || cmd == "log" {
 		return a.passThrough(cmd, args, cwd)
 	}
 	spec, ok := commandSpecs[cmd]
@@ -413,13 +413,13 @@ func (a *app) printInfo(argv []string) bool {
 func (a *app) takeLeadingGlobals(argv []string) []string {
 	for len(argv) > 0 {
 		switch {
-		case argv[0] == "--stage" && len(argv) > 1:
+		case argv[0] == flagStage && len(argv) > 1:
 			a.stageFlag, argv = argv[1], argv[2:]
 		case strings.HasPrefix(argv[0], "--stage="):
 			a.stageFlag, argv = strings.TrimPrefix(argv[0], "--stage="), argv[1:]
-		case argv[0] == "--agentic":
+		case argv[0] == flagAgentic:
 			a.agentic, argv = true, argv[1:]
-		case argv[0] == "--json":
+		case argv[0] == flagJSON:
 			a.json, argv = true, argv[1:]
 		default:
 			return argv
@@ -430,13 +430,13 @@ func (a *app) takeLeadingGlobals(argv []string) []string {
 
 // takeGlobals takes the global options that follow the command.
 func (a *app) takeGlobals(p *parsed) {
-	if p.has("--json") {
+	if p.has(flagJSON) {
 		a.json = true
 	}
-	if p.has("--stage") {
-		a.stageFlag = p.get("--stage")
+	if p.has(flagStage) {
+		a.stageFlag = p.get(flagStage)
 	}
-	if p.has("--agentic") {
+	if p.has(flagAgentic) {
 		a.agentic = true
 	}
 }
@@ -454,7 +454,7 @@ func (a *app) passThrough(cmd string, args []string, cwd string) error {
 	if err != nil {
 		return err
 	}
-	if cmd == "diff" {
+	if cmd == cmdDiff {
 		return a.diff(rest, cwd, id)
 	}
 	return a.log(rest, id)
@@ -464,8 +464,8 @@ func (a *app) passThrough(cmd string, args []string, cwd string) error {
 var commandSpecs = map[string][]flagSpec{
 	"init":   nil,
 	"status": nil,
-	"hunks":  {{[]string{"--cached", "--staged"}, false}},
-	"add": {
+	"hunks":  {{[]string{flagCached, "--staged"}, false}},
+	cmdAdd: {
 		{[]string{"--hunk"}, true},
 		{[]string{"--force", "-f"}, false},
 		{[]string{"--allow-shared"}, false},
@@ -526,7 +526,7 @@ func (a *app) runOnFreshStage(cmd string, stage *Stage, p *parsed, f Freshness) 
 		return a.status(stage, f)
 	case "hunks":
 		return a.hunks(stage, p)
-	case "add":
+	case cmdAdd:
 		return a.add(stage, p)
 	case "apply":
 		return a.apply(stage, p)
@@ -581,7 +581,7 @@ func (a *app) status(l *Stage, f Freshness) error {
 		return err
 	}
 	if a.json {
-		a.emit(map[string]any{"status": st, "warnings": a.warnings})
+		a.emit(map[string]any{"status": st, jsonWarnings: a.warnings})
 		a.warnings = nil
 		return nil
 	}
@@ -643,7 +643,7 @@ func (a *app) hunks(l *Stage, p *parsed) error {
 	if err != nil {
 		return err
 	}
-	files, err := l.Hunks(paths, p.has("--cached"))
+	files, err := l.Hunks(paths, p.has(flagCached))
 	if err != nil {
 		return err
 	}
@@ -651,7 +651,7 @@ func (a *app) hunks(l *Stage, p *parsed) error {
 		if files == nil {
 			files = []FileHunks{}
 		}
-		a.emit(map[string]any{"files": files, "warnings": a.warnings})
+		a.emit(map[string]any{"files": files, jsonWarnings: a.warnings})
 		a.warnings = nil
 		return nil
 	}
@@ -692,7 +692,7 @@ func (a *app) add(l *Stage, p *parsed) error {
 		_, err := a.repo.Run(gitx.Opt{
 			Index: l.IndexPath(), Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
 			Env: []string{"GIT_EDITOR=" + editor()},
-		}, append([]string{"add", "-p", "--"}, paths...)...)
+		}, append([]string{cmdAdd, "-p", "--"}, paths...)...)
 		return err
 	}
 	if ids := p.vals["--hunk"]; len(ids) > 0 {
@@ -712,7 +712,7 @@ func (a *app) addEdits(l *Stage, p *parsed) error {
 		return err
 	}
 	if a.json {
-		a.emit(map[string]any{"staged_paths": staged, "warnings": a.warnings})
+		a.emit(map[string]any{"staged_paths": staged, jsonWarnings: a.warnings})
 		a.warnings = nil
 		return nil
 	}
@@ -727,7 +727,7 @@ func (a *app) addHunks(l *Stage, p *parsed, paths, ids []string) error {
 		return err
 	}
 	if a.json {
-		a.emit(map[string]any{"staged_paths": staged, "hunks": ids, "warnings": a.warnings})
+		a.emit(map[string]any{"staged_paths": staged, "hunks": ids, jsonWarnings: a.warnings})
 		a.warnings = nil
 		return nil
 	}
@@ -749,7 +749,7 @@ func (a *app) addPaths(l *Stage, p *parsed, paths []string) error {
 		if cs == nil {
 			cs = []Change{}
 		}
-		a.emit(map[string]any{"staged": cs, "warnings": a.warnings})
+		a.emit(map[string]any{"staged": cs, jsonWarnings: a.warnings})
 		a.warnings = nil
 		return nil
 	}
@@ -796,7 +796,7 @@ func (a *app) apply(l *Stage, p *parsed) error {
 		return err
 	}
 	if a.json {
-		a.emit(map[string]any{"staged": staged, "warnings": a.warnings})
+		a.emit(map[string]any{"staged": staged, jsonWarnings: a.warnings})
 		a.warnings = nil
 		return nil
 	}
@@ -824,7 +824,7 @@ func (a *app) restore(l *Stage, p *parsed) error {
 		return err
 	}
 	if a.json {
-		a.emit(map[string]any{"unstaged_paths": restored, "warnings": a.warnings})
+		a.emit(map[string]any{"unstaged_paths": restored, jsonWarnings: a.warnings})
 		a.warnings = nil
 		return nil
 	}
@@ -846,7 +846,7 @@ func (a *app) commit(l *Stage, p *parsed) error {
 	}
 	a.warnings = append(a.warnings, res.Sync.Warnings...)
 	if a.json {
-		a.emit(map[string]any{"commit": res, "warnings": a.warnings})
+		a.emit(map[string]any{"commit": res, jsonWarnings: a.warnings})
 		a.warnings = nil
 		return nil
 	}
@@ -880,12 +880,12 @@ func (a *app) diff(args []string, cwd, id string) error {
 	a.noteFreshness(f)
 	a.warnings = append(stage.Warnings, a.warnings...)
 	a.flushWarnings()
-	gitArgs := []string{"diff"}
+	gitArgs := []string{cmdDiff}
 	for _, x := range args {
 		if x == "--" {
 			break
 		}
-		if x == "--cached" || x == "--staged" {
+		if x == flagCached || x == "--staged" {
 			base, err := a.repo.TreeOf(stage.M.Base)
 			if err != nil {
 				return err
@@ -897,7 +897,7 @@ func (a *app) diff(args []string, cwd, id string) error {
 	_, err = a.repo.Run(gitx.Opt{Index: stage.IndexPath(), Dir: cwd, User: true, Stdout: os.Stdout, Stderr: os.Stderr},
 		append(gitArgs, args...)...)
 	if err != nil && gitx.ExitCode(err) == 1 {
-		return &Error{Code: ExitError, Kind: "diff"} // --exit-code reported differences
+		return &Error{Code: ExitError, Kind: cmdDiff} // --exit-code reported differences
 	}
 	return err
 }
@@ -963,7 +963,7 @@ func (a *app) doctor() error {
 	}
 	failed := false
 	for _, c := range rep.Checks {
-		failed = failed || c.Level == "error"
+		failed = failed || c.Level == jsonError
 	}
 	if a.json {
 		a.emit(rep)
@@ -993,7 +993,7 @@ func (a *app) sync(p *parsed) error {
 	}
 	a.warnings = append(a.warnings, res.Warnings...)
 	if a.json {
-		a.emit(map[string]any{"index_sync": res, "warnings": a.warnings})
+		a.emit(map[string]any{"index_sync": res, jsonWarnings: a.warnings})
 		a.warnings = nil
 		return nil
 	}
@@ -1012,7 +1012,7 @@ func (a *app) drop(l *Stage, p *parsed) error {
 			return err
 		}
 		if a.json {
-			a.emit(map[string]any{"dropped_edits": n, "warnings": a.warnings})
+			a.emit(map[string]any{"dropped_edits": n, jsonWarnings: a.warnings})
 			a.warnings = nil
 			return nil
 		}
@@ -1024,7 +1024,7 @@ func (a *app) drop(l *Stage, p *parsed) error {
 		return err
 	}
 	if a.json {
-		a.emit(map[string]any{"dropped": l.ID, "staged_tree": tree, "warnings": a.warnings})
+		a.emit(map[string]any{"dropped": l.ID, "staged_tree": tree, jsonWarnings: a.warnings})
 		a.warnings = nil
 		return nil
 	}
@@ -1044,9 +1044,9 @@ func hookMain(argv []string, stdout, stderr io.Writer) int {
 	if err == nil && len(p.pos) == 1 {
 		kind = p.pos[0]
 	}
-	if err != nil || len(p.pos) > 1 || kind != "" && kind != "claude" && kind != "codex" {
+	if err != nil || len(p.pos) > 1 || kind != "" && kind != agentClaude && kind != agentCodex {
 		fmt.Fprintln(stderr, "usage: git multistage hook [claude|codex] [--stage <id>]")
 		return ExitUsage
 	}
-	return runEditHook(kind, os.Stdin, stdout, stderr, p.get("--stage"))
+	return runEditHook(kind, os.Stdin, stdout, stderr, p.get(flagStage))
 }

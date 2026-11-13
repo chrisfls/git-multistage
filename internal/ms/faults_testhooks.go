@@ -98,14 +98,14 @@ func testRace(r *Repo, branch string) {
 }
 
 // fakeAncestors replaces the process chain with GIT_MULTISTAGE_TEST_ANCESTORS:
-// executable names, nearest first and comma-separated, or "error" for a
+// executable names, nearest first and comma-separated, or jsonError for a
 // process table that cannot be read. An empty value is a chain without tools.
 func fakeAncestors() ([]proc, bool, error) {
 	v, ok := os.LookupEnv("GIT_MULTISTAGE_TEST_ANCESTORS")
 	if !ok {
 		return nil, false, nil
 	}
-	if v == "error" {
+	if v == jsonError {
 		return nil, true, errors.New("no process table")
 	}
 	var chain []proc

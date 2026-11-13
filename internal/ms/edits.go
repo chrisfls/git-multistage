@@ -345,7 +345,7 @@ func (r *Repo) applyDeletion(idx string, rec EditRecord, cur indexEntry, inIndex
 func (r *Repo) applyNewFile(idx string, rec EditRecord, force bool) error {
 	if !force {
 		// Like `git add`, an ignored file needs --force.
-		_, err := r.Run(gitx.Opt{Index: idx, Env: []string{"GIT_LITERAL_PATHSPECS=0"}}, "check-ignore", "-q", "--", rec.Path)
+		_, err := r.Run(gitx.Opt{Index: idx, Env: []string{envLiteralPathspecs}}, "check-ignore", "-q", "--", rec.Path)
 		if err == nil {
 			return errorf(ExitConflict, "edit-conflict", "the file is ignored by .gitignore; pass -f to stage it")
 		}

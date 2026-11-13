@@ -50,10 +50,10 @@ func toolAncestors(chain []proc) (claude, codex int) {
 	claude, codex = -1, -1
 	claudePID, _ := strconv.Atoi(os.Getenv("CLAUDE_PID"))
 	for i, p := range chain {
-		if claude < 0 && (p.pid == claudePID || p.name == "claude") {
+		if claude < 0 && (p.pid == claudePID || p.name == agentClaude) {
 			claude = i
 		}
-		if codex < 0 && p.name == "codex" {
+		if codex < 0 && p.name == agentCodex {
 			codex = i
 		}
 	}

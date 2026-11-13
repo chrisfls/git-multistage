@@ -293,7 +293,7 @@ func (r *Repo) nearestAncestor(head string) (string, int) {
 	}
 	best, bestN := "", -1
 	for _, c := range strings.Fields(string(out)) {
-		diff, err := r.Run(gitx.Opt{Index: r.IndexPath}, "diff-index", "--cached", "--name-only", "-z", c)
+		diff, err := r.Run(gitx.Opt{Index: r.IndexPath}, "diff-index", flagCached, "--name-only", "-z", c)
 		if err != nil {
 			continue
 		}
@@ -349,14 +349,14 @@ func notSyncedReflog(msg string) bool {
 	return ok && strings.HasPrefix(head, "commit (multistage ") && strings.HasSuffix(head, ", index not synced")
 }
 
-// headTarget returns the branch that HEAD points to, or "HEAD" when HEAD is
+// headTarget returns the branch that HEAD points to, or refHEAD when HEAD is
 // detached.
 func (r *Repo) headTarget() (string, error) {
 	b, err := r.SymbolicHead()
 	if err != nil || b != "" {
 		return b, err
 	}
-	return "HEAD", nil
+	return refHEAD, nil
 }
 
 // validRecord returns the commit of the sync record when the record belongs
