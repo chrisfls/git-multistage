@@ -91,24 +91,9 @@ The first command creates the stage `fix-login`. The commit holds only what `fix
 
 ### Stage part of a file
 
-Two changes are in progress in one checkout, each in its own stage:
+Two agents are working in the same checkout, each with its own stage. `fix-login` is committed as above. The `validation` stage holds an input check in `src/shared.ts`, which also holds an unrelated edit.
 
-- `fix-login`: a fix in `src/login.ts`.
-- `validation`: an input check in `src/shared.ts`, which also holds an unrelated edit.
-
-#### 1. Stage a whole file
-
-`src/login.ts` belongs only to the login fix:
-
-```console
-$ git multistage --stage fix-login add src/login.ts
-staged: M  src/login.ts
-warning: created stage fix-login on refs/heads/main
-```
-
-#### 2. Stage part of a file
-
-Only the first of the two edits in `src/shared.ts` is part of the input check:
+List the hunks of the file:
 
 ```console
 $ git multistage --stage validation hunks src/shared.ts
@@ -122,45 +107,23 @@ diff src/shared.ts (modified)
 warning: created stage validation on refs/heads/main
 ```
 
-Stage it by ID:
+Stage only the first hunk by its ID, and commit:
 
 ```console
 $ git multistage --stage validation add src/shared.ts --hunk d94c87b26e90
 staged 1 hunk(s) in src/shared.ts
-```
-
-#### 3. Check a stage
-
-`src/login.ts` shows as not staged here, because it belongs to the other stage. The second `src/shared.ts` entry is the unrelated edit:
-
-```console
-$ git multistage --stage validation status
-stage validation on main (base a1accad774, up to date)
-staged:
-  M  src/shared.ts
-not staged:
-  M  src/login.ts
-  M  src/shared.ts
-```
-
-#### 4. Commit
-
-Commit in any order, or at the same time:
-
-```console
-$ git multistage --stage fix-login commit -m "Honor returnTo after login"
-[main f147d75797] Honor returnTo after login
- 1 file(s) changed
 $ git multistage --stage validation commit -m "Cap input length"
-[main 0858e389c5] Cap input length
+[main 7c4dad5ed0] Cap input length
  1 file(s) changed
 ```
+
+Each stage made its own commit:
 
 ```console
 $ git log --oneline
-0858e38 Cap input length
-f147d75 Honor returnTo after login
-a1accad Initial commit
+7c4dad5 Cap input length
+d2867cd Honor returnTo after login
+f2f2964 Initial commit
 ```
 
 The unrelated edit is still in the working tree:
