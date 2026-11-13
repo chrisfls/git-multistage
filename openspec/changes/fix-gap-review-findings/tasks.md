@@ -6,7 +6,7 @@
 
 ## 2. Staged-by for identical copies
 
-- [ ] 2.1 Port `TestGapStagedByForCopies` to `test/`, and let `markStagedBy` also match the changed lines at the same old start line; verify that the test fails before and passes after
+- [x] 2.1 Port `TestGapStagedByForCopies` to `test/`, and let `markStagedBy` also match the changed lines at the same old start line; verify that the test fails before and passes after
 
 ## 3. Untranslated internal Git output
 

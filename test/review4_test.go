@@ -596,3 +596,34 @@ func TestDeletionNextToANeighbourEdit(t *testing.T) {
 		})
 	}
 }
+
+// TestStagedByMarksIdenticalCopies lets stage b stage two identical copies;
+// stage a's listing must mark both with staged-by, although copy IDs hash
+// versions that differ between the two listings.
+func TestStagedByMarksIdenticalCopies(t *testing.T) {
+	r := newRepo(t)
+	r.write("f.txt", "a\nx\nb\nx\nc\nq\n")
+	r.git("add", "f.txt")
+	r.git("commit", "-q", "-m", "f")
+	r.write("f.txt", "a\ny\nb\ny\nc\nQ\n")
+	var fb filesJSON
+	decode(t, r.mustMS("b", "hunks", "--json", "f.txt"), &fb)
+	args := []string{"add", "f.txt"}
+	for _, h := range fb.Files[0].Hunks {
+		if strings.Contains(strings.Join(h.Lines, ""), "+y") {
+			args = append(args, "--hunk", h.ID)
+		}
+	}
+	r.mustMS("b", args...)
+	var fa filesJSON
+	decode(t, r.mustMS("a", "hunks", "--json", "f.txt"), &fa)
+	marked := 0
+	for _, h := range fa.Files[0].Hunks {
+		if len(h.StagedBy) > 0 {
+			marked++
+		}
+	}
+	if marked != 2 {
+		t.Fatalf("%d of 2 copies staged by b are marked staged-by:\n%s", marked, r.mustMS("a", "hunks", "f.txt").out)
+	}
+}

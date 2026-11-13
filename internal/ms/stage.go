@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/chrisfls/git-multistage/internal/gitx"
@@ -506,8 +507,10 @@ func (l *Stage) Hunks(paths []string, cached bool) ([]FileHunks, error) {
 }
 
 // markStagedBy notes which other stages have staged a hunk identical to each
-// listed hunk. Hunk IDs depend only on the path and the changed lines, so an
-// equal ID means an equal change.
+// listed hunk. The ID of a hunk without copies depends only on the path and
+// the changed lines, so an equal ID means an equal change. The ID of a copy
+// also hashes versions of its own listing, so a copy matches by its changed
+// lines and its start line in the old content instead.
 func (l *Stage) markStagedBy(fh *FileHunks, ids []string) {
 	for _, id := range ids {
 		dir := filepath.Join(l.r.stagesDir(), id)
@@ -520,16 +523,23 @@ func (l *Stage) markStagedBy(fh *FileHunks, ids []string) {
 		if err != nil {
 			continue
 		}
-		ids := map[string]bool{}
+		ids, places := map[string]bool{}, map[string]bool{}
 		for _, h := range staged.Hunks {
 			ids[h.ID] = true
+			places[placeKey(h.Hunk)] = true
 		}
 		for i := range fh.Hunks {
-			if ids[fh.Hunks[i].ID] {
+			if ids[fh.Hunks[i].ID] || places[placeKey(fh.Hunks[i].Hunk)] {
 				fh.Hunks[i].StagedBy = append(fh.Hunks[i].StagedBy, id)
 			}
 		}
 	}
+}
+
+// placeKey names a hunk by its start line in the old content and its
+// changed lines.
+func placeKey(h hunks.Hunk) string {
+	return strconv.Itoa(h.OldStart) + "\x00" + strings.Join(h.Lines(), "\n")
 }
 
 // changedPaths lists tracked files that differ between the stage index and
