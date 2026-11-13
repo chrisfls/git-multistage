@@ -81,15 +81,7 @@ var globalFlags = []flagSpec{
 }
 
 func parseArgs(argv []string, specs []flagSpec) (*parsed, error) {
-	specs = append(append([]flagSpec{}, specs...), globalFlags...)
-	find := func(name string) *flagSpec {
-		for i := range specs {
-			if slices.Contains(specs[i].names, name) {
-				return &specs[i]
-			}
-		}
-		return nil
-	}
+	all := flagSpecs(append(append([]flagSpec{}, specs...), globalFlags...))
 	p := &parsed{vals: map[string][]string{}}
 	for i := 0; i < len(argv); i++ {
 		a := argv[i]
@@ -101,26 +93,50 @@ func parseArgs(argv []string, specs []flagSpec) (*parsed, error) {
 			p.pos = append(p.pos, a)
 			continue
 		}
-		name, val, hasVal := strings.Cut(a, "=")
-		if !strings.HasPrefix(a, "--") && len(a) > 2 && find(a[:2]) != nil && find(a[:2]).value {
-			name, val, hasVal = a[:2], a[2:], true // -mMessage
+		key, val, used, err := all.option(argv[i:])
+		if err != nil {
+			return nil, err
 		}
-		s := find(name)
-		if s == nil {
-			return nil, usageErr("unknown option %s", name)
-		}
-		if s.value && !hasVal {
-			if i+1 >= len(argv) {
-				return nil, usageErr("option %s needs a value", name)
-			}
-			i++
-			val = argv[i]
-		} else if !s.value && hasVal {
-			return nil, usageErr("option %s takes no value", name)
-		}
-		p.vals[s.names[0]] = append(p.vals[s.names[0]], val)
+		i += used
+		p.vals[key] = append(p.vals[key], val)
 	}
 	return p, nil
+}
+
+type flagSpecs []flagSpec
+
+func (fs flagSpecs) find(name string) *flagSpec {
+	for i := range fs {
+		if slices.Contains(fs[i].names, name) {
+			return &fs[i]
+		}
+	}
+	return nil
+}
+
+// option parses the option args[0], and returns its first name, its value,
+// and how many of the following arguments it used as its value.
+func (fs flagSpecs) option(args []string) (key, val string, used int, err error) {
+	a := args[0]
+	name, val, hasVal := strings.Cut(a, "=")
+	if !strings.HasPrefix(a, "--") && len(a) > 2 {
+		if s := fs.find(a[:2]); s != nil && s.value {
+			name, val, hasVal = a[:2], a[2:], true // -mMessage
+		}
+	}
+	s := fs.find(name)
+	switch {
+	case s == nil:
+		return "", "", 0, usageErr("unknown option %s", name)
+	case s.value && !hasVal:
+		if len(args) < 2 {
+			return "", "", 0, usageErr("option %s needs a value", name)
+		}
+		return s.names[0], args[1], 1, nil
+	case !s.value && hasVal:
+		return "", "", 0, usageErr("option %s takes no value", name)
+	}
+	return s.names[0], val, 0, nil
 }
 
 type app struct {
@@ -275,27 +291,9 @@ func (a *app) stageID() (string, error) {
 func agentStageID() (string, error) {
 	claude, codex := os.Getenv("CLAUDE_CODE_SESSION_ID"), os.Getenv("CODEX_THREAD_ID")
 	orca, paseo := os.Getenv("ORCA_AGENT_SESSION_ID"), os.Getenv("PASEO_AGENT_ID")
-	both := claude != "" && codex != ""
-	if both || (claude != "" || codex != "") && (orca != "" || paseo != "") {
-		// Without a process table, the priority order alone decides.
-		if chain, err := ancestors(); err == nil {
-			claudeAt, codexAt := toolAncestors(chain)
-			switch {
-			case claudeAt >= 0 && (codexAt < 0 || claudeAt < codexAt):
-				codex = ""
-			case codexAt >= 0:
-				claude = ""
-			case orca != "" || paseo != "":
-				claude, codex = "", ""
-			}
-		}
-		if claude != "" && codex != "" {
-			return "", &Error{
-				Code: ExitUsage, Kind: "ambiguous-agent",
-				Message: "--agentic found both CLAUDE_CODE_SESSION_ID and CODEX_THREAD_ID, and neither tool is an ancestor process",
-				Hint:    "pass --stage <id>; the editor hook's message names the stage",
-			}
-		}
+	claude, codex, err := pickTool(claude, codex, orca != "" || paseo != "")
+	if err != nil {
+		return "", err
 	}
 	switch {
 	case claude != "":
@@ -322,31 +320,44 @@ func agentStageID() (string, error) {
 	}
 }
 
-func (a *app) run(argv []string) error {
-	// Global options may come before the command.
-	for len(argv) > 0 {
-		switch {
-		case argv[0] == "--stage" && len(argv) > 1:
-			a.stageFlag, argv = argv[1], argv[2:]
-			continue
-		case strings.HasPrefix(argv[0], "--stage="):
-			a.stageFlag, argv = strings.TrimPrefix(argv[0], "--stage="), argv[1:]
-			continue
-		case argv[0] == "--agentic":
-			a.agentic, argv = true, argv[1:]
-			continue
-		case argv[0] == "--json":
-			a.json, argv = true, argv[1:]
-			continue
+// pickTool keeps the tool variables that count, as agentStageID describes.
+// It fails when both still count.
+func pickTool(claude, codex string, orchestrator bool) (string, string, error) {
+	if claude == "" && codex == "" || (claude == "" || codex == "") && !orchestrator {
+		return claude, codex, nil
+	}
+	// Without a process table, the priority order alone decides.
+	if chain, err := ancestors(); err == nil {
+		claude, codex = keepAncestorTool(chain, claude, codex, orchestrator)
+	}
+	if claude != "" && codex != "" {
+		return "", "", &Error{
+			Code: ExitUsage, Kind: "ambiguous-agent",
+			Message: "--agentic found both CLAUDE_CODE_SESSION_ID and CODEX_THREAD_ID, and neither tool is an ancestor process",
+			Hint:    "pass --stage <id>; the editor hook's message names the stage",
 		}
-		break
 	}
-	if len(argv) == 0 || argv[0] == "help" || argv[0] == "--help" || argv[0] == "-h" {
-		fmt.Fprint(a.out, usage)
-		return nil
+	return claude, codex, nil
+}
+
+// keepAncestorTool keeps the variable of the nearer tool in chain. With no
+// tool in chain, an orchestrator's variable wins over both.
+func keepAncestorTool(chain []proc, claude, codex string, orchestrator bool) (string, string) {
+	claudeAt, codexAt := toolAncestors(chain)
+	switch {
+	case claudeAt >= 0 && (codexAt < 0 || claudeAt < codexAt):
+		codex = ""
+	case codexAt >= 0:
+		claude = ""
+	case orchestrator:
+		claude, codex = "", ""
 	}
-	if argv[0] == "version" || argv[0] == "--version" {
-		a.printf("git-multistage %s\n", Version)
+	return claude, codex
+}
+
+func (a *app) run(argv []string) error {
+	argv = a.takeLeadingGlobals(argv)
+	if a.printInfo(argv) {
 		return nil
 	}
 	cmd, args := argv[0], argv[1:]
@@ -357,47 +368,10 @@ func (a *app) run(argv []string) error {
 	if a.repo, err = OpenRepo(cwd); err != nil {
 		return &Error{Code: ExitError, Kind: "repository", Message: err.Error()}
 	}
-
-	// Commands whose arguments go to Git unchanged.
-	switch cmd {
-	case "diff", "log":
-		rest, err := a.takeGlobal(args)
-		if err != nil {
-			return err
-		}
-		if a.json {
-			return usageErr("%s has no --json output", cmd)
-		}
-		id, err := a.stageID()
-		if err != nil {
-			return err
-		}
-		if cmd == "diff" {
-			return a.diff(rest, cwd, id)
-		}
-		return a.log(rest, id)
+	if cmd == "diff" || cmd == "log" {
+		return a.passThrough(cmd, args, cwd)
 	}
-
-	specs := map[string][]flagSpec{
-		"init":   nil,
-		"status": nil,
-		"hunks":  {{[]string{"--cached", "--staged"}, false}},
-		"add": {
-			{[]string{"--hunk"}, true},
-			{[]string{"--force", "-f"}, false},
-			{[]string{"--allow-shared"}, false},
-			{[]string{"--patch", "-p"}, false},
-			{[]string{"--edits"}, false},
-		},
-		"apply":   {{[]string{"--reverse", "-R"}, false}},
-		"restore": {{[]string{"--staged", "-S"}, false}, {[]string{"--hunk"}, true}},
-		"commit":  {{[]string{"--message", "-m"}, true}, {[]string{"--file", "-F"}, true}, {[]string{"--no-verify", "-n"}, false}},
-		"list":    nil,
-		"doctor":  nil,
-		"sync":    {{[]string{"--from"}, true}},
-		"drop":    {{[]string{"--force", "-f"}, false}, {[]string{"--edits"}, false}},
-	}
-	spec, ok := specs[cmd]
+	spec, ok := commandSpecs[cmd]
 	if !ok {
 		return usageErr("unknown command %q; run `git multistage help`", cmd)
 	}
@@ -409,6 +383,53 @@ func (a *app) run(argv []string) error {
 		fmt.Fprint(a.out, usage)
 		return nil
 	}
+	a.takeGlobals(p)
+	switch cmd {
+	case "list":
+		return a.list()
+	case "doctor":
+		return a.doctor()
+	case "sync":
+		return a.sync(p)
+	}
+	return a.runOnStage(cmd, p)
+}
+
+// printInfo prints the usage or the version when argv asks for it.
+func (a *app) printInfo(argv []string) bool {
+	switch {
+	case len(argv) == 0 || argv[0] == "help" || argv[0] == "--help" || argv[0] == "-h":
+		fmt.Fprint(a.out, usage)
+	case argv[0] == "version" || argv[0] == "--version":
+		a.printf("git-multistage %s\n", Version)
+	default:
+		return false
+	}
+	return true
+}
+
+// takeLeadingGlobals takes the global options that come before the
+// command, and returns the rest of argv.
+func (a *app) takeLeadingGlobals(argv []string) []string {
+	for len(argv) > 0 {
+		switch {
+		case argv[0] == "--stage" && len(argv) > 1:
+			a.stageFlag, argv = argv[1], argv[2:]
+		case strings.HasPrefix(argv[0], "--stage="):
+			a.stageFlag, argv = strings.TrimPrefix(argv[0], "--stage="), argv[1:]
+		case argv[0] == "--agentic":
+			a.agentic, argv = true, argv[1:]
+		case argv[0] == "--json":
+			a.json, argv = true, argv[1:]
+		default:
+			return argv
+		}
+	}
+	return argv
+}
+
+// takeGlobals takes the global options that follow the command.
+func (a *app) takeGlobals(p *parsed) {
 	if p.has("--json") {
 		a.json = true
 	}
@@ -418,14 +439,50 @@ func (a *app) run(argv []string) error {
 	if p.has("--agentic") {
 		a.agentic = true
 	}
-	switch cmd {
-	case "list":
-		return a.list()
-	case "doctor":
-		return a.doctor()
-	case "sync":
-		return a.sync(p)
+}
+
+// passThrough runs diff or log, whose arguments go to Git unchanged.
+func (a *app) passThrough(cmd string, args []string, cwd string) error {
+	rest, err := a.takeGlobal(args)
+	if err != nil {
+		return err
 	}
+	if a.json {
+		return usageErr("%s has no --json output", cmd)
+	}
+	id, err := a.stageID()
+	if err != nil {
+		return err
+	}
+	if cmd == "diff" {
+		return a.diff(rest, cwd, id)
+	}
+	return a.log(rest, id)
+}
+
+// commandSpecs holds the options of each command that parseArgs parses.
+var commandSpecs = map[string][]flagSpec{
+	"init":   nil,
+	"status": nil,
+	"hunks":  {{[]string{"--cached", "--staged"}, false}},
+	"add": {
+		{[]string{"--hunk"}, true},
+		{[]string{"--force", "-f"}, false},
+		{[]string{"--allow-shared"}, false},
+		{[]string{"--patch", "-p"}, false},
+		{[]string{"--edits"}, false},
+	},
+	"apply":   {{[]string{"--reverse", "-R"}, false}},
+	"restore": {{[]string{"--staged", "-S"}, false}, {[]string{"--hunk"}, true}},
+	"commit":  {{[]string{"--message", "-m"}, true}, {[]string{"--file", "-F"}, true}, {[]string{"--no-verify", "-n"}, false}},
+	"list":    nil,
+	"doctor":  nil,
+	"sync":    {{[]string{"--from"}, true}},
+	"drop":    {{[]string{"--force", "-f"}, false}, {[]string{"--edits"}, false}},
+}
+
+// runOnStage runs a command that works on one stage.
+func (a *app) runOnStage(cmd string, p *parsed) error {
 	id, err := a.stageID()
 	if err != nil {
 		return err
@@ -459,6 +516,11 @@ func (a *app) run(argv []string) error {
 		return err
 	}
 	a.noteFreshness(f)
+	return a.runOnFreshStage(cmd, stage, p, f)
+}
+
+// runOnFreshStage runs a command on a stage that refresh brought up to date.
+func (a *app) runOnFreshStage(cmd string, stage *Stage, p *parsed, f Freshness) error {
 	switch cmd {
 	case "status":
 		return a.status(stage, f)
@@ -546,6 +608,16 @@ func (a *app) status(l *Stage, f Freshness) error {
 	}
 	section("staged", st.Staged)
 	section("not staged", st.Unstaged)
+	a.printStatusLists(st)
+	if len(st.Staged)+len(st.Unstaged)+len(st.Untracked) == 0 {
+		a.printf("nothing to commit, working tree clean\n")
+	}
+	return nil
+}
+
+// printStatusLists prints the untracked files, the recorded edits, and the
+// files staged in other stages.
+func (a *app) printStatusLists(st *StatusInfo) {
 	if len(st.Untracked) > 0 {
 		a.printf("untracked:\n")
 		for _, u := range st.Untracked {
@@ -564,10 +636,6 @@ func (a *app) status(l *Stage, f Freshness) error {
 			a.printf("  %s (%s)\n", s.Path, strings.Join(s.Stages, ", "))
 		}
 	}
-	if len(st.Staged)+len(st.Unstaged)+len(st.Untracked) == 0 {
-		a.printf("nothing to commit, working tree clean\n")
-	}
-	return nil
 }
 
 func (a *app) hunks(l *Stage, p *parsed) error {
@@ -608,21 +676,7 @@ func (a *app) hunks(l *Stage, p *parsed) error {
 
 func (a *app) add(l *Stage, p *parsed) error {
 	if p.has("--edits") {
-		paths, err := a.repo.repoPaths(p.pos)
-		if err != nil {
-			return err
-		}
-		staged, err := l.AddEdits(paths, p.has("--force"))
-		if err != nil {
-			return err
-		}
-		if a.json {
-			a.emit(map[string]any{"staged_paths": staged, "warnings": a.warnings})
-			a.warnings = nil
-			return nil
-		}
-		a.printf("staged recorded edits in %s\n", strings.Join(staged, ", "))
-		return nil
+		return a.addEdits(l, p)
 	}
 	if len(p.pos) == 0 {
 		return usageErr("usage: git multistage add <path>... [--hunk <id>...]")
@@ -642,18 +696,47 @@ func (a *app) add(l *Stage, p *parsed) error {
 		return err
 	}
 	if ids := p.vals["--hunk"]; len(ids) > 0 {
-		staged, err := l.AddHunks(paths, ids, p.has("--force"))
-		if err != nil {
-			return err
-		}
-		if a.json {
-			a.emit(map[string]any{"staged_paths": staged, "hunks": ids, "warnings": a.warnings})
-			a.warnings = nil
-			return nil
-		}
-		a.printf("staged %d hunk(s) in %s\n", len(ids), strings.Join(staged, ", "))
+		return a.addHunks(l, p, paths, ids)
+	}
+	return a.addPaths(l, p, paths)
+}
+
+// addEdits runs `add --edits`.
+func (a *app) addEdits(l *Stage, p *parsed) error {
+	paths, err := a.repo.repoPaths(p.pos)
+	if err != nil {
+		return err
+	}
+	staged, err := l.AddEdits(paths, p.has("--force"))
+	if err != nil {
+		return err
+	}
+	if a.json {
+		a.emit(map[string]any{"staged_paths": staged, "warnings": a.warnings})
+		a.warnings = nil
 		return nil
 	}
+	a.printf("staged recorded edits in %s\n", strings.Join(staged, ", "))
+	return nil
+}
+
+// addHunks runs `add --hunk`.
+func (a *app) addHunks(l *Stage, p *parsed, paths, ids []string) error {
+	staged, err := l.AddHunks(paths, ids, p.has("--force"))
+	if err != nil {
+		return err
+	}
+	if a.json {
+		a.emit(map[string]any{"staged_paths": staged, "hunks": ids, "warnings": a.warnings})
+		a.warnings = nil
+		return nil
+	}
+	a.printf("staged %d hunk(s) in %s\n", len(ids), strings.Join(staged, ", "))
+	return nil
+}
+
+// addPaths runs `add` for whole files.
+func (a *app) addPaths(l *Stage, p *parsed, paths []string) error {
 	changed, err := l.AddPaths(paths, p.has("--force"), p.has("--allow-shared"))
 	if err != nil {
 		return err
