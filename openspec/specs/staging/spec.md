@@ -110,3 +110,10 @@ Files with a `filter` attribute, symbolic links, submodules, binary files, and d
 #### Scenario: File staged in two stages
 - **WHEN** stages `a` and `b` have both staged `shared.ts` and stage `a` runs `status`
 - **THEN** `shared.ts` is listed as also staged in stage `b`
+
+### Requirement: Staged-by for identical copies
+In an unstaged listing, `staged-by` SHALL also name another stage that has staged a hunk with the same changed lines at the same start line of the old content, so identical copies that another stage staged are marked although their IDs differ.
+
+#### Scenario: Copies staged by another stage
+- **WHEN** a file has two identical hunks, stage `b` stages both, and stage `a` runs `hunks`
+- **THEN** both copies are listed with `staged-by=b`
