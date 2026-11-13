@@ -21,4 +21,4 @@
 ## 4. Agent guide and checks
 
 - [x] 4.1 In `skills/git-multistage/SKILL.md`, tell agents to delete and move files with `rm` and `mv`, and add a `path-deleted` row with `--recreate` and `restore --staged`. Verify: the skill names `rm`, `mv`, and `path-deleted`.
-- [ ] 4.2 Run the checks of the `git-multistage-development` skill and `mise run ci`. Verify: both pass, and `openspec validate explicit-rm-mv` passes.
+- [x] 4.2 Run the checks of the `git-multistage-development` skill and `mise run ci`. Verify: both pass, and `openspec validate explicit-rm-mv` passes.
