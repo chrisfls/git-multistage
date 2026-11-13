@@ -107,11 +107,7 @@ func TestManyAgentsCommitConcurrently(t *testing.T) {
 				}
 			}
 		})
-		for i, e := range errs {
-			if e != "" {
-				t.Fatalf("agent-%d: %s", i, e)
-			}
-		}
+		failOnWorkerErrors(t, "agent-%d", errs)
 		bySubject := r.commitBySubject()
 		if got := len(r.commits()); got != 1+agents*rounds {
 			t.Fatalf("%d commits, want %d", got, 1+agents*rounds)
@@ -175,11 +171,7 @@ func TestAgentsCommitDifferentHunksOfOneFile(t *testing.T) {
 				errs[i] = res.String()
 			}
 		})
-		for i, e := range errs {
-			if e != "" {
-				t.Fatalf("agent-%d: %s", i, e)
-			}
-		}
+		failOnWorkerErrors(t, "agent-%d", errs)
 		final := r.git("show", "main:shared.txt")
 		bySubject := r.commitBySubject()
 		for i := range agents {
@@ -405,30 +397,7 @@ func TestNativeGitActivityDuringAgentCommits(t *testing.T) {
 		errs := make([]string, agents+1)
 		parallel(agents+1, func(i int) {
 			if i == agents {
-				for n := range natives {
-					p := fmt.Sprintf("native-%d.txt", n)
-					if err := writeFile(r.path(p), "native\n"); err != nil {
-						errs[i] = err.Error()
-						return
-					}
-					// A native commit fails while another process holds
-					// index.lock; retry a bounded number of times.
-					committed := false
-					for attempt := 0; attempt < 200 && !committed; attempt++ {
-						_, err1 := r.gitTry("add", p)
-						_, err2 := r.gitTry("commit", "-q", "-m", "native "+strconv.Itoa(n), "--", p)
-						log, err3 := r.gitTry("log", "--format=%s", "main")
-						committed = err1 == nil && err2 == nil ||
-							err3 == nil && strings.Contains(log, "native "+strconv.Itoa(n)+"\n")
-						if !committed {
-							time.Sleep(10 * time.Millisecond)
-						}
-					}
-					if !committed {
-						errs[i] = "native commit " + strconv.Itoa(n) + " did not land after 200 attempts"
-						return
-					}
-				}
+				errs[i] = r.nativeCommits(natives)
 				return
 			}
 			agent := fmt.Sprintf("agent-%d", i)
@@ -448,16 +417,50 @@ func TestNativeGitActivityDuringAgentCommits(t *testing.T) {
 				}
 			}
 		})
-		for i, e := range errs {
-			if e != "" {
-				t.Fatalf("worker %d: %s", i, e)
-			}
-		}
+		failOnWorkerErrors(t, "worker %d", errs)
 		if got := len(r.commits()); got != 1+agents*rounds+natives {
 			t.Fatalf("%d commits, want %d:\n%s", got, 1+agents*rounds+natives, r.git("log", "--oneline"))
 		}
 		r.checkHealthy()
 		r.checkClean()
+	}
+}
+
+// nativeCommits commits n files with plain git, and returns an error text,
+// or "". A native commit fails while another process holds index.lock, so
+// each one is retried a bounded number of times.
+func (r *repo) nativeCommits(n int) string {
+	for i := range n {
+		p := fmt.Sprintf("native-%d.txt", i)
+		if err := writeFile(r.path(p), "native\n"); err != nil {
+			return err.Error()
+		}
+		committed := false
+		for attempt := 0; attempt < 200 && !committed; attempt++ {
+			_, err1 := r.gitTry("add", p)
+			_, err2 := r.gitTry("commit", "-q", "-m", "native "+strconv.Itoa(i), "--", p)
+			log, err3 := r.gitTry("log", "--format=%s", "main")
+			committed = err1 == nil && err2 == nil ||
+				err3 == nil && strings.Contains(log, "native "+strconv.Itoa(i)+"\n")
+			if !committed {
+				time.Sleep(10 * time.Millisecond)
+			}
+		}
+		if !committed {
+			return "native commit " + strconv.Itoa(i) + " did not land after 200 attempts"
+		}
+	}
+	return ""
+}
+
+// failOnWorkerErrors fails the test at the first worker that reported an
+// error; format names the worker by its index.
+func failOnWorkerErrors(t *testing.T, format string, errs []string) {
+	t.Helper()
+	for i, e := range errs {
+		if e != "" {
+			t.Fatalf(format+": %s", i, e)
+		}
 	}
 }
 

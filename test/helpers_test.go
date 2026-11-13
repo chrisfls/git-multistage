@@ -25,6 +25,18 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
+	buildBinary(dir)
+	if err := setTestEnv(dir); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(dir) // best-effort cleanup of the temporary build directory
+	os.Exit(code)
+}
+
+// buildBinary builds git-multistage with the test hooks into dir, and sets
+// bin to it.
+func buildBinary(dir string) {
 	exe := ""
 	if runtime.GOOS == "windows" {
 		exe = ".exe"
@@ -35,19 +47,25 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "build failed: %v\n%s", err, out)
 		os.Exit(1)
 	}
+}
+
+// setTestEnv gives the tests a Git configuration of their own, puts the
+// binary in dir first on PATH, and removes the variables that would change
+// what Git or git-multistage does.
+func setTestEnv(dir string) error {
 	cfg := filepath.Join(dir, "gitconfig")
 	if err := os.WriteFile(cfg, []byte("[user]\n\tname = Test\n\temail = test@example.com\n"+
 		"[init]\n\tdefaultBranch = main\n[core]\n\tautocrlf = false\n[commit]\n\tgpgSign = false\n"), 0o644); err != nil {
-		panic(err)
+		return err
 	}
-	if err := os.Setenv("GIT_CONFIG_GLOBAL", cfg); err != nil {
-		panic(err)
-	}
-	if err := os.Setenv("GIT_CONFIG_NOSYSTEM", "1"); err != nil {
-		panic(err)
-	}
-	if err := os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {
-		panic(err)
+	for _, kv := range [][2]string{
+		{"GIT_CONFIG_GLOBAL", cfg},
+		{"GIT_CONFIG_NOSYSTEM", "1"},
+		{"PATH", dir + string(os.PathListSeparator) + os.Getenv("PATH")},
+	} {
+		if err := os.Setenv(kv[0], kv[1]); err != nil {
+			return err
+		}
 	}
 	for _, v := range []string{
 		"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_DIFF_OPTS", "GIT_EXTERNAL_DIFF",
@@ -55,7 +73,7 @@ func TestMain(m *testing.M) {
 		"PASEO_AGENT_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "ORCA_AGENT_SESSION_ID", "CLAUDE_PID",
 	} {
 		if err := os.Unsetenv(v); err != nil {
-			panic(err)
+			return err
 		}
 	}
 	// The tests set their own identity, stage, and fault settings.
@@ -65,13 +83,11 @@ func TestMain(m *testing.M) {
 			strings.HasPrefix(name, "GIT_MULTISTAGE_") || strings.HasPrefix(name, "GIT_CONFIG_KEY_") ||
 			strings.HasPrefix(name, "GIT_CONFIG_VALUE_") {
 			if err := os.Unsetenv(name); err != nil {
-				panic(err)
+				return err
 			}
 		}
 	}
-	code := m.Run()
-	_ = os.RemoveAll(dir) // best-effort cleanup of the temporary build directory
-	os.Exit(code)
+	return nil
 }
 
 type repo struct {
