@@ -19,4 +19,4 @@
 ## 4. Verify
 
 - [x] 4.1 No Docker engine is installed here, so `act` was not run against the workflow. `act -l` parses it, and `scripts/release.sh --build-only` ran the same build steps locally
-- [ ] 4.2 Publish `v0.0.1` with `mise run release 0.0.1`, install it with mise on a clean path, and run `git multistage doctor`
+- [x] 4.2 Publish `v0.0.1` with `mise run release 0.0.1`, install it with mise on a clean path, and run `git multistage doctor`
