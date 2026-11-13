@@ -15,7 +15,7 @@
 ## Decisions
 
 - **`exec.CommandContext` with `context.WithTimeout`, and `cmd.WaitDelay`.** The deadline kills `ps`. `WaitDelay` closes the output pipe shortly after, so a child of a `ps` wrapper that keeps the pipe open cannot hold `Output()`.
-- **3 seconds, as a package variable.** `ps -A` takes milliseconds on a normal system; 3 seconds leaves room for a loaded one. The test replaces `ps` on `PATH` with a script that sleeps, so it needs no hook.
+- **3 seconds, as a constant.** `ps -A` takes milliseconds on a normal system; 3 seconds leaves room for a loaded one. The test replaces `ps` on `PATH` with a script that sleeps, so it needs no hook.
 - **Return the context error.** `agentStageID` already handles any error as an unreadable table, so no new branch is needed.
 
 ## Risks / Trade-offs

@@ -544,3 +544,29 @@ func TestDoctorReportsAnOrphanedStageIndexLock(t *testing.T) {
 		t.Fatalf("doctor removed the lock: %v", err)
 	}
 }
+
+// TestAgenticBoundsAHangingProcessTableRead puts a ps that hangs first on
+// PATH. --agentic must stop waiting for it and decide as when the process
+// table cannot be read: the single tool variable wins over the orchestrator.
+func TestAgenticBoundsAHangingProcessTableRead(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows reads the process table without ps")
+	}
+	r := newRepo(t)
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "ps"), []byte("#!/bin/sh\nsleep 60\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env := []string{
+		"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"CLAUDE_CODE_SESSION_ID=abc", "PASEO_AGENT_ID=p",
+	}
+	start := time.Now()
+	res := run(r.dir, "", env, "--agentic", "status", "--json")
+	if res.code != 0 || !strings.Contains(res.out, `"stage": "claude-abc"`) {
+		t.Fatalf("--agentic with a hanging ps:\n%s", res)
+	}
+	if d := time.Since(start); d > 15*time.Second {
+		t.Fatalf("--agentic waited %s for ps", d)
+	}
+}
