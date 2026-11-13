@@ -96,6 +96,17 @@ On a `SessionStart` event whose `cwd` is in a Git worktree, the hook SHALL print
 - **WHEN** the hook receives `SessionStart` with `cwd` outside any Git worktree
 - **THEN** it prints nothing and exits with code 0
 
+### Requirement: Session start notice delivery
+In Claude Code and in Codex, the model SHALL receive the session start notice before its first tool call.
+
+#### Scenario: Claude Code session start
+- **WHEN** a Claude Code session starts in a Git worktree with the plugin installed
+- **THEN** the model can quote the shared-checkout notice
+
+#### Scenario: Codex session start
+- **WHEN** a Codex session starts in a Git worktree with the plugin installed and its hooks trusted
+- **THEN** the model can quote the shared-checkout notice before its first tool call
+
 ### Requirement: Failed edits
 On a `PostToolUseFailure` event, the hook SHALL release the leases and delete the pending records of the call, and SHALL record nothing.
 

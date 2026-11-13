@@ -204,6 +204,7 @@ The behavior of every command is specified in [openspec/specs/](openspec/specs/)
 - [CLI](openspec/specs/cli/spec.md): exit codes, JSON output, supported setups, and `doctor`.
 - [Agent plugins](openspec/specs/agent-plugins/spec.md): the Claude Code and Codex plugins.
 - [Releases](openspec/specs/releases/spec.md): the prebuilt binaries and the tag workflow that publishes them.
+- [Local checks](openspec/specs/local-checks/spec.md): `mise run ci` and the workflows that run on GitHub.
 
 ## Contributing
 
