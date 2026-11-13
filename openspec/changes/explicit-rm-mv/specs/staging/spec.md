@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Delete files
-`rm <path>...` SHALL delete each file from the working tree and stage its deletion in the stage's own index. A file that is already gone from disk SHALL have its deletion staged. A path that the stage's index does not hold SHALL exit with code 1 and change nothing. An unstaged change on disk SHALL need `-f`; without it the command SHALL exit with code 5 and change nothing. `rm` SHALL forget the stage's recorded edits of the paths it deletes.
+`rm <path>...` SHALL delete each file from the working tree and stage its deletion in the stage's own index. A file that is already gone from disk SHALL have its deletion staged. A path that the stage's index does not hold SHALL exit with code 1 and change nothing. An unstaged change on disk SHALL need `-f`; without it the command SHALL exit with code 5 and change nothing. `rm` SHALL forget the stage's recorded edits of the paths it deletes, including records that follow a move to those paths. An unchanged symbolic link SHALL need no `-f`.
 
 #### Scenario: Path the stage does not hold
 - **WHEN** stage `a` ran `mv x.go y.go`, another agent then created a new `x.go`, and stage `a` runs `rm -f x.go`
@@ -28,7 +28,7 @@
 - **THEN** the command exits with code 5, and the file and the stage are unchanged
 
 ### Requirement: Finish an interrupted rm or mv
-When `rm` or `mv` stops after it changed the stage and before it finished the disk change, running the same command again SHALL finish the disk change of that command and change nothing else, also after other `rm` or `mv` commands ran in between. When the stage no longer holds that change, such as after `restore --staged`, the command SHALL run as new. It SHALL NOT delete or overwrite a file that another writer created at one of its paths in between.
+When `rm` or `mv` stops after it changed the stage and before it finished the disk change, running the same command again SHALL finish the disk change of that command and change nothing else, also after other `rm` or `mv` commands ran in between, and with the paths spelled in another case on a case-insensitive file system. When the stage no longer holds that change, such as after `restore --staged`, the command SHALL run as new. It SHALL NOT delete or overwrite a file that another writer created at one of its paths in between.
 
 #### Scenario: Rerun after a restore
 - **WHEN** `mv x.go y.go` stopped before it moved the file on disk, stage `a` runs `restore --staged x.go y.go`, then `mv x.go y.go`

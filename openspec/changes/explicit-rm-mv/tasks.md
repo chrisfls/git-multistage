@@ -42,3 +42,10 @@
 - [x] 6.5 Quote trailer paths that hold `->` or start or end with whitespace. Verify: "Path with surrounding spaces" passes, and paths ending in ` ->` round-trip.
 - [x] 6.7 Write no trailer for a move whose new path the commit recreates. Verify: "Recreated move" passes.
 - [x] 6.6 Run the checks of the `git-multistage-development` skill and `mise run ci`. Verify: both pass, and `openspec validate --all --strict` passes.
+
+## 7. Final review fixes
+
+- [ ] 7.1 Check only the renames of paths that the staged change modifies or moves, follow a path when any commit in base..tip moved it, and name the commit that removed it. Verify: with one staged file and a tip commit that renames 300 others, one refresh (1 in flight) takes under 1 s; a delete, re-add, then `git mv` of a staged path lands at the new path; the `path-deleted` message names the removing commit.
+- [ ] 7.2 Make `rm` drop the records that follow a move to a deleted path, and report `edit-conflict` for a record of a path that no commit removed, also on an unborn branch. Verify: "Edit of another stage's new file" passes, and records of a followed path deleted with `rm` and then committed do not block `add --edits`.
+- [ ] 7.3 Match journal entries case-insensitively when `core.ignoreCase` is set, compare a symbolic link by its link text, and never drop or roll back a journal entry with a temporary name before the file left that name. Verify: a crash rerun of `rm readme.md` for `README.md` finishes; `rm` of an unchanged symbolic link needs no `-f`; a case-only `mv` stopped between its renames, then `restore --staged` and `mv` again, leaves no temporary file.
+- [ ] 7.4 Run the checks of the `git-multistage-development` skill and `mise run ci`. Verify: both pass, and `openspec validate --all --strict` passes.

@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Recorded edits follow moves and deletions
-`add --edits` SHALL apply each recorded edit of a path that the stage's index moved, through `mv` or a refresh that followed a move, at the new path. A recorded edit of a path that a commit since the record deleted SHALL fail with error kind `path-deleted`, stage nothing, keep the records, and name the deleting commit.
+`add --edits` SHALL apply each recorded edit of a path that the stage's index moved, through `mv` or a refresh that followed a move, at the new path. A recorded edit of a path that a commit since the record deleted SHALL fail with error kind `path-deleted`, stage nothing, keep the records, and name the deleting commit. A recorded edit of a path that no commit removed and that the stage does not hold SHALL fail with `edit-conflict`.
 
 #### Scenario: Several edits after another stage's move
 - **WHEN** stage `a` recorded two edits of `x.go`, stage `b` committed `mv x.go y.go`, and stage `a` runs `add --edits`
@@ -25,6 +25,10 @@ For a recorded edit, `add --edits` SHALL follow the moves of the commits that th
 #### Scenario: Own move after a followed move
 - **WHEN** stage `a` recorded an edit of `x.go`, stage `b` committed `mv x.go y.go`, stage `a` runs `mv y.go z.go`, then `add --edits`
 - **THEN** the edit is staged in `z.go`
+
+#### Scenario: Edit of another stage's new file
+- **WHEN** stage `b` added `new.go` and has not committed it, stage `a` recorded an edit of `new.go`, and stage `a` runs `add --edits`
+- **THEN** the command fails with `edit-conflict` and keeps the records
 
 #### Scenario: Edit after another stage's deletion
 - **WHEN** stage `a` recorded an edit of `x.go`, stage `b` committed `rm x.go`, and stage `a` runs `add --edits`

@@ -20,7 +20,7 @@ A commit whose staged change holds moves made with `mv` SHALL end its message wi
 - **THEN** the commit message ends with `Multistage-Moved: x.go -> y.go`
 
 ### Requirement: Follow moves onto the tip
-When the staged change is replayed onto a newer tip, each staged path that the base holds and that a `Multistage-Moved` trailer of a commit since the stage's base moved SHALL be replayed at the new path, following chains of moves across commits. Paths that no trailer names SHALL follow Git's rename detection. A path that the stage added SHALL stay where the stage put it.
+When the staged change is replayed onto a newer tip, each staged path that the base holds and that a `Multistage-Moved` trailer of a commit since the stage's base moved SHALL be replayed at the new path, following chains of moves across commits. A path that no trailer names SHALL follow a rename when one commit since the stage's base renamed it, by Git's rename detection on that commit alone; otherwise it SHALL count as deleted. A path that the stage added SHALL stay where the stage put it.
 
 #### Scenario: Several moves in one commit
 - **WHEN** stage `b` committed the trailers `a.go -> c.go` and `c.go -> d.go`, and stage `a` then commits its staged change to `a.go`
