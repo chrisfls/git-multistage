@@ -267,7 +267,7 @@ func (l *Stage) commitAttempt(res *CommitResult, st *commitState, attempt int) (
 	if tip == "" && l.M.Base != "" {
 		return false, errorf(ExitRefused, "branch-missing", "branch %s no longer exists; nothing was committed", l.M.Branch)
 	}
-	tree, err := r.integrate(l.M.Base, st.baseTree, st.staged, tip, st.recreate)
+	tree, err := r.integrate(l.M.Base, st.baseTree, st.staged, tip, l.M.Moves, st.recreate)
 	if err != nil {
 		return false, err
 	}

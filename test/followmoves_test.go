@@ -261,3 +261,46 @@ func TestCommitKeepsANewFileAtAMovedPath(t *testing.T) {
 		t.Fatalf("y.go = %q", got)
 	}
 }
+
+func TestCommitOfAMoveThatAnotherStageMovedElsewhere(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": twenty})
+	r.mustMS("a", "mv", "x.go", "y.go")
+	r.write("z.go", twenty)
+	r.mustMS("b", "mv", "x.go", "z.go")
+	r.mustMS("b", "commit", "-m", "b moves x to z")
+	head := r.git("rev-parse", "main")
+	var out struct {
+		Error struct {
+			Kind  string
+			Paths []string
+		} `json:"error"`
+	}
+	decode(t, r.expectCode(3, "a", "commit", "-m", "a moves x to y", "--json"), &out)
+	if out.Error.Kind != "conflict" || !eq(out.Error.Paths, []string{"x.go"}) {
+		t.Fatalf("error %+v", out.Error)
+	}
+	if r.git("rev-parse", "main") != head {
+		t.Fatal("a commit landed")
+	}
+	if got := r.stageMoves("a"); !eq(got, []string{"x.go -> y.go"}) {
+		t.Fatalf("moves %v", got)
+	}
+}
+
+func TestCommitOfAMoveOfAFileThatAnotherStageDeleted(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": twenty})
+	r.mustMS("a", "mv", "x.go", "y.go")
+	r.write("x.go", twenty)
+	deleting := r.deleteAndCommit("x.go")
+	res := r.expectCode(3, "a", "commit", "-m", "a moves x to y")
+	if !strings.Contains(res.err, "x.go was deleted by "+deleting) {
+		t.Fatalf("error:\n%s", res)
+	}
+	var out struct {
+		Error struct{ Kind string } `json:"error"`
+	}
+	decode(t, r.expectCode(3, "a", "commit", "-m", "a moves x to y", "--json"), &out)
+	if out.Error.Kind != "path-deleted" {
+		t.Fatalf("kind %q", out.Error.Kind)
+	}
+}

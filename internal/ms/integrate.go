@@ -18,7 +18,8 @@ import (
 // lands where the branch moved the files. It returns the merged tree, or an
 // *Error with ExitConflict when the change cannot be replayed safely. Each
 // path of recreate that the branch deleted is replayed as a new file.
-func (r *Repo) integrate(base, baseTree, staged, tip string, recreate []string) (string, error) {
+// stagedMoves are the moves that the change stages.
+func (r *Repo) integrate(base, baseTree, staged, tip string, stagedMoves []Move, recreate []string) (string, error) {
 	tipTree, err := r.TreeOf(tip)
 	if err != nil {
 		return "", err
@@ -26,7 +27,7 @@ func (r *Repo) integrate(base, baseTree, staged, tip string, recreate []string) 
 	if tipTree == baseTree {
 		return staged, nil
 	}
-	if baseTree, staged, err = r.followBranch(base, tip, baseTree, staged, tipTree, recreate); err != nil {
+	if baseTree, staged, err = r.followBranch(base, tip, baseTree, staged, tipTree, stagedMoves, recreate); err != nil {
 		return "", err
 	}
 	res, err := r.MergeTrees(baseTree, tipTree, staged)
@@ -62,7 +63,8 @@ func (r *Repo) integrate(base, baseTree, staged, tip string, recreate []string) 
 // Multistage-Moved trailers of base..tip moved, then checks for paths that
 // base..tip deleted, and returns the two trees. Only entries that baseTree
 // holds move, so a file that the stage added stays where the stage put it.
-func (r *Repo) followBranch(base, tip, baseTree, staged, tipTree string, recreate []string) (string, string, error) {
+// A staged move of a path that a trailer moved elsewhere is a conflict.
+func (r *Repo) followBranch(base, tip, baseTree, staged, tipTree string, stagedMoves []Move, recreate []string) (string, string, error) {
 	if base == "" || tip == "" {
 		return baseTree, staged, nil
 	}
@@ -78,14 +80,40 @@ func (r *Repo) followBranch(base, tip, baseTree, staged, tipTree string, recreat
 			delete(moves, oldp)
 		}
 	}
+	if err := movedTwice(stagedMoves, moves, tip); err != nil {
+		return "", "", err
+	}
 	if baseTree, err = r.moveEntries(baseTree, moves); err != nil {
 		return "", "", err
 	}
 	if staged, err = r.moveEntries(staged, moves); err != nil {
 		return "", "", err
 	}
-	baseTree, err = r.checkDeleted(base, tip, baseTree, staged, tipTree, followMoves(recreate, moves))
+	baseTree, err = r.checkDeleted(base, tip, baseTree, staged, tipTree, stagedMoves, followMoves(recreate, moves))
 	return baseTree, staged, err
+}
+
+// movedTwice fails with conflict when a staged move moves a path that the
+// trailers moves moved to another path, so the stage's trailer would name a
+// path that the parent commit lacks.
+func movedTwice(stagedMoves []Move, moves map[string]string, tip string) error {
+	var paths, details []string
+	for _, m := range stagedMoves {
+		if n, ok := moves[m.Old]; ok && n != m.New {
+			paths = append(paths, m.Old)
+			details = append(details, fmt.Sprintf("the stage moves %s to %s, but a commit on the branch moved it to %s", m.Old, m.New, n))
+		}
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	return &Error{
+		Code: ExitConflict, Kind: "conflict",
+		Message: "staged moves conflict with moves on " + short(tip),
+		Paths:   paths, Details: details,
+		Hint: "the staged changes are kept; unstage the move with `git multistage restore --staged <path>` " +
+			"for both of its paths, then move the file again",
+	}
 }
 
 // trailerMoves returns the moves that the Multistage-Moved trailers of the
@@ -311,9 +339,10 @@ func (r *Repo) editTree(tree string, edit func(idx string) (bool, error)) (strin
 }
 
 // checkDeleted fails with path-deleted when a commit of base..tip deleted a
-// path that the change from baseTree to staged modifies. It returns baseTree
-// without the deleted paths of recreate, so that the merge adds them.
-func (r *Repo) checkDeleted(base, tip, baseTree, staged, tipTree string, recreate []string) (string, error) {
+// path that the change from baseTree to staged modifies or moves. It returns
+// baseTree without the deleted paths of recreate, so that the merge adds
+// them; a move is recreated when recreate names either of its paths.
+func (r *Repo) checkDeleted(base, tip, baseTree, staged, tipTree string, stagedMoves []Move, recreate []string) (string, error) {
 	mine, err := r.DiffTrees(baseTree, staged, false)
 	if err != nil {
 		return "", err
@@ -322,22 +351,7 @@ func (r *Repo) checkDeleted(base, tip, baseTree, staged, tipTree string, recreat
 	if err != nil {
 		return "", err
 	}
-	deletedOnTip := map[string]bool{}
-	for _, e := range theirs {
-		if e.Status == 'D' {
-			deletedOnTip[e.Path] = true
-		}
-	}
-	var deleted, recreated []string
-	for _, e := range mine {
-		switch {
-		case e.Status != 'M' && e.Status != 'T' || !deletedOnTip[e.Path]:
-		case slices.Contains(recreate, e.Path):
-			recreated = append(recreated, e.Path)
-		default:
-			deleted = append(deleted, e.Path)
-		}
-	}
+	deleted, recreated := deletedPaths(mine, theirs, stagedMoves, recreate)
 	if len(deleted) > 0 {
 		e := &Error{
 			Code: ExitConflict, Kind: "path-deleted",
@@ -358,6 +372,34 @@ func (r *Repo) checkDeleted(base, tip, baseTree, staged, tipTree string, recreat
 		_, err := r.Run(gitx.Opt{Index: idx}, append([]string{"update-index", "--force-remove", "--"}, recreated...)...)
 		return true, err
 	})
+}
+
+// deletedPaths returns the paths that mine modifies, or moves away, and
+// that theirs deletes: the paths that recreate names, directly or by the new
+// path of their move, and the others.
+func deletedPaths(mine, theirs []gitx.Entry, stagedMoves []Move, recreate []string) (deleted, recreated []string) {
+	deletedOnTip := map[string]bool{}
+	for _, e := range theirs {
+		if e.Status == 'D' {
+			deletedOnTip[e.Path] = true
+		}
+	}
+	movedTo := map[string]string{}
+	for _, m := range stagedMoves {
+		movedTo[m.Old] = m.New
+	}
+	for _, e := range mine {
+		newp, moved := movedTo[e.Path]
+		switch {
+		case !deletedOnTip[e.Path]:
+		case e.Status != 'M' && e.Status != 'T' && (e.Status != 'D' || !moved):
+		case slices.Contains(recreate, e.Path) || moved && slices.Contains(recreate, newp):
+			recreated = append(recreated, e.Path)
+		default:
+			deleted = append(deleted, e.Path)
+		}
+	}
+	return deleted, recreated
 }
 
 // deletingCommit names the newest commit of revs that deleted p.
@@ -526,7 +568,7 @@ func (l *Stage) moveBase(f Freshness, tip string) (Freshness, error) {
 		f.Base = tip
 		return f, nil
 	}
-	merged, err := l.r.integrate(l.M.Base, baseTree, staged, tip, nil)
+	merged, err := l.r.integrate(l.M.Base, baseTree, staged, tip, l.M.Moves, nil)
 	e := &Error{}
 	if errors.As(err, &e) {
 		f.Stale = true
