@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -443,11 +442,7 @@ func (h *editHook) takeLease() (nonce, holder string, tookOver bool, err error) 
 	b := make([]byte, 8)
 	_, _ = rand.Read(b)
 	mine := hex.EncodeToString(b)
-	timeout := leaseTimeout
-	if ms, err := strconv.Atoi(os.Getenv("GIT_MULTISTAGE_LEASE_TIMEOUT_MS")); err == nil && ms >= 0 {
-		timeout = time.Duration(ms) * time.Millisecond
-	}
-	deadline := time.Now().Add(timeout)
+	deadline := time.Now().Add(testLeaseTimeout(leaseTimeout))
 	for {
 		taken := false
 		err := h.withLeaseFile(func(cur *lease) (*lease, error) {
