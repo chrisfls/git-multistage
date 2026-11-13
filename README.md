@@ -53,6 +53,7 @@ Each way puts the `git-multistage` binary in a directory that must be on your `P
 ```bash
 shasum -a 256 -c checksums.txt --ignore-missing
 tar -xzf git-multistage_<version>_<os>_<arch>.tar.gz git-multistage
+mkdir -p "$HOME/.local/bin"
 mv git-multistage "$HOME/.local/bin/"
 ```
 
@@ -63,6 +64,8 @@ On Windows, unpack `git-multistage.exe` from the `.zip` into a directory on your
 ```bash
 go install github.com/chrisfls/git-multistage/cmd/git-multistage@latest
 ```
+
+`go install` puts the binary in `GOBIN`, or in `$(go env GOPATH)/bin` when `GOBIN` is not set. Add that directory to your `PATH` if it is missing.
 
 **From a clone:**
 
