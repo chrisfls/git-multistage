@@ -239,7 +239,8 @@ func (l *Stage) followRecords(chosen []EditRecord, recreate []string) ([]EditRec
 // edits an existing file that the stage's index does not hold.
 func (l *Stage) gonePaths(chosen []EditRecord) ([]EditRecord, error) {
 	seen := map[string]bool{}
-	var gone []EditRecord
+	var oldest []EditRecord
+	var paths []string
 	for _, rec := range chosen {
 		if seen[rec.Path] {
 			continue
@@ -248,11 +249,16 @@ func (l *Stage) gonePaths(chosen []EditRecord) ([]EditRecord, error) {
 		if rec.From != "" || rec.Before == "" {
 			continue
 		}
-		_, ok, err := l.r.lsIndex(l.IndexPath(), rec.Path)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
+		oldest = append(oldest, rec)
+		paths = append(paths, rec.Path)
+	}
+	held, err := l.r.lsIndexMany(l.IndexPath(), paths)
+	if err != nil {
+		return nil, err
+	}
+	var gone []EditRecord
+	for _, rec := range oldest {
+		if _, ok := held[rec.Path]; !ok {
 			gone = append(gone, rec)
 		}
 	}
@@ -439,8 +445,12 @@ func chooseRecords(recs []EditRecord, paths []string) []EditRecord {
 func (r *Repo) applyRecords(idx string, chosen []EditRecord, force bool) (map[string]bool, error) {
 	var failed []string
 	staged := map[string]bool{}
+	view, err := r.newIndexView(idx, chosen)
+	if err != nil {
+		return nil, err
+	}
 	for _, rec := range chosen {
-		if err := r.applyRecord(idx, rec, force); err != nil {
+		if err := r.applyRecord(view, rec, force); err != nil {
 			var e *Error
 			if errors.As(err, &e) {
 				failed = append(failed, rec.Path+": "+e.Message)
@@ -508,12 +518,57 @@ func (r *Repo) blobContent(oid string) ([]byte, error) {
 	return r.catBlob(oid)
 }
 
-// applyRecord replays one recorded edit onto the index entry of its path.
-func (r *Repo) applyRecord(idx string, rec EditRecord, force bool) error {
-	if rec.From != "" {
-		return r.applyMove(idx, rec)
+// indexView reads the entries of the index file idx that records name. One
+// Git call reads them all before the first record applies. A record that
+// writes a path makes the read of that path stale, so the view reads it
+// again, with one call, when a later record needs it.
+type indexView struct {
+	r       *Repo
+	idx     string
+	entries map[string]indexEntry
+	loaded  map[string]bool
+}
+
+func (r *Repo) newIndexView(idx string, recs []EditRecord) (*indexView, error) {
+	v := &indexView{r: r, idx: idx, loaded: map[string]bool{}}
+	var paths []string
+	for _, rec := range recs {
+		for _, p := range []string{rec.Path, rec.From} {
+			if p != "" && !v.loaded[p] {
+				v.loaded[p] = true
+				paths = append(paths, p)
+			}
+		}
 	}
-	cur, inIndex, err := r.lsIndex(idx, rec.Path)
+	var err error
+	v.entries, err = r.lsIndexMany(idx, paths)
+	return v, err
+}
+
+// get returns the stage-0 entry of p in the index file.
+func (v *indexView) get(p string) (indexEntry, bool, error) {
+	if v.loaded[p] {
+		e, ok := v.entries[p]
+		return e, ok, nil
+	}
+	return v.r.lsIndex(v.idx, p)
+}
+
+// wrote marks the reads of paths as stale.
+func (v *indexView) wrote(paths ...string) {
+	for _, p := range paths {
+		v.loaded[p] = false
+	}
+}
+
+// applyRecord replays one recorded edit onto the index entry of its path.
+func (r *Repo) applyRecord(v *indexView, rec EditRecord, force bool) error {
+	idx := v.idx
+	defer v.wrote(rec.Path, rec.From)
+	if rec.From != "" {
+		return r.applyMove(v, rec)
+	}
+	cur, inIndex, err := v.get(rec.Path)
 	if err != nil {
 		return err
 	}
@@ -555,15 +610,16 @@ func (r *Repo) applyDeletion(idx string, rec EditRecord, cur indexEntry, inIndex
 }
 
 // applyMove moves the index entry of rec.From to rec.Path, as `mv` does.
-func (r *Repo) applyMove(idx string, rec EditRecord) error {
-	cur, ok, err := r.lsIndex(idx, rec.From)
+func (r *Repo) applyMove(v *indexView, rec EditRecord) error {
+	idx := v.idx
+	cur, ok, err := v.get(rec.From)
 	if err != nil {
 		return err
 	}
 	if !ok {
 		return errorf(ExitConflict, "edit-conflict", "the moved file %s is not in the stage", rec.From)
 	}
-	if _, taken, err := r.lsIndex(idx, rec.Path); err != nil || taken {
+	if _, taken, err := v.get(rec.Path); err != nil || taken {
 		if err != nil {
 			return err
 		}

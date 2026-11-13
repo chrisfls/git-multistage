@@ -73,11 +73,16 @@ func (r *Repo) followBranch(base, tip, baseTree, staged, tipTree string, stagedM
 	if err != nil {
 		return "", "", err
 	}
+	olds := make([]string, 0, len(moves))
 	for oldp := range moves {
-		if _, ok, err := r.lsTree(baseTree, oldp); err != nil || !ok {
-			if err != nil {
-				return "", "", err
-			}
+		olds = append(olds, oldp)
+	}
+	onBase, err := r.lsTreeMany(baseTree, olds)
+	if err != nil {
+		return "", "", err
+	}
+	for _, oldp := range olds {
+		if _, ok := onBase[oldp]; !ok {
 			delete(moves, oldp)
 		}
 	}
@@ -307,18 +312,19 @@ func (r *Repo) moveEntries(tree string, moves map[string]string) (string, error)
 func (r *Repo) freeMoves(idx string, moves map[string]string) (map[string]indexEntry, error) {
 	entries := map[string]indexEntry{}
 	taken := map[string]bool{}
+	paths := make([]string, 0, 2*len(moves))
 	for oldp, newp := range moves {
-		e, ok, err := r.lsIndex(idx, oldp)
-		if err != nil {
-			return nil, err
-		}
-		if ok && oldp != newp {
+		paths = append(paths, oldp, newp)
+	}
+	held, err := r.lsIndexMany(idx, paths)
+	if err != nil {
+		return nil, err
+	}
+	for oldp, newp := range moves {
+		if e, ok := held[oldp]; ok && oldp != newp {
 			entries[oldp] = e
 		}
-		if _, ok, err = r.lsIndex(idx, newp); err != nil {
-			return nil, err
-		}
-		taken[newp] = ok
+		_, taken[newp] = held[newp]
 	}
 	// Drop each move whose new path an entry that stays holds, until every
 	// left move has a free path.

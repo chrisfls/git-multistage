@@ -196,7 +196,13 @@ func (r *Repo) replayConflicts(baseTree, tipTree, staged string, res gitx.MergeR
 		if !res.ContentOnly[p] {
 			return "", nil
 		}
-		d, ok, err := r.replayPath(baseTree, tipTree, staged, p)
+	}
+	trees, err := r.readThreeTrees(baseTree, tipTree, staged, res.Conflicts)
+	if err != nil {
+		return "", err
+	}
+	for _, p := range res.Conflicts {
+		d, ok, err := r.replayPath(trees, p)
 		if err != nil || !ok {
 			return "", err
 		}
@@ -224,10 +230,10 @@ type resolvedPath struct{ mode, oid, path string }
 // replayPath resolves the content conflict of path p by line replay. It
 // reports false when p is not a text file in all three trees, the modes
 // conflict, or some block cannot be placed.
-func (r *Repo) replayPath(baseTree, tipTree, staged, p string) (resolvedPath, bool, error) {
-	b, t, m, ok, err := r.threeEntries(baseTree, tipTree, staged, p)
-	if err != nil || !ok {
-		return resolvedPath{}, false, err
+func (r *Repo) replayPath(trees threeTrees, p string) (resolvedPath, bool, error) {
+	b, t, m, ok := trees.entries(p)
+	if !ok {
+		return resolvedPath{}, false, nil
 	}
 	mode := t.mode
 	if m.mode != b.mode {
@@ -244,15 +250,11 @@ func (r *Repo) replayPath(baseTree, tipTree, staged, p string) (resolvedPath, bo
 	if err != nil {
 		return resolvedPath{}, false, nil //nolint:nilerr // binary content cannot be replayed
 	}
-	baseContent, err := r.catBlob(b.oid)
+	contents, err := r.catBlobs(b.oid, t.oid)
 	if err != nil {
 		return resolvedPath{}, false, err
 	}
-	tipContent, err := r.catBlob(t.oid)
-	if err != nil {
-		return resolvedPath{}, false, err
-	}
-	out, ok := replayLines(baseContent, tipContent, mineHunks, theirHunks)
+	out, ok := replayLines(contents[0], contents[1], mineHunks, theirHunks)
 	if !ok {
 		return resolvedPath{}, false, nil
 	}
@@ -263,22 +265,32 @@ func (r *Repo) replayPath(baseTree, tipTree, staged, p string) (resolvedPath, bo
 	return resolvedPath{mode, oid, p}, true, nil
 }
 
-// threeEntries reads p from the base, tip, and staged trees. It reports
-// false when p is missing from one of them, or is a symbolic link or
-// submodule in the base.
-func (r *Repo) threeEntries(baseTree, tipTree, staged, p string) (b, t, m indexEntry, ok bool, err error) {
-	b, okB, err := r.lsTree(baseTree, p)
-	if err != nil {
-		return b, t, m, false, err
+// threeTrees holds the entries of some paths in the base, tip, and staged
+// trees.
+type threeTrees struct{ base, tip, staged map[string]indexEntry }
+
+// readThreeTrees reads paths from the base, tip, and staged trees, with one
+// Git call for each tree.
+func (r *Repo) readThreeTrees(baseTree, tipTree, staged string, paths []string) (threeTrees, error) {
+	var t threeTrees
+	var err error
+	if t.base, err = r.lsTreeMany(baseTree, paths); err != nil {
+		return t, err
 	}
-	t, okT, err := r.lsTree(tipTree, p)
-	if err != nil {
-		return b, t, m, false, err
+	if t.tip, err = r.lsTreeMany(tipTree, paths); err != nil {
+		return t, err
 	}
-	m, okM, err := r.lsTree(staged, p)
-	if err != nil {
-		return b, t, m, false, err
-	}
+	t.staged, err = r.lsTreeMany(staged, paths)
+	return t, err
+}
+
+// entries returns p from the base, tip, and staged trees. It reports false
+// when p is missing from one of them, or is a symbolic link or submodule in
+// the base.
+func (t threeTrees) entries(p string) (b, tip, m indexEntry, ok bool) {
+	b, okB := t.base[p]
+	tip, okT := t.tip[p]
+	m, okM := t.staged[p]
 	ok = okB && okT && okM && b.mode != "120000" && b.mode != "160000"
-	return b, t, m, ok, nil
+	return b, tip, m, ok
 }

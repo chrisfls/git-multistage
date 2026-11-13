@@ -357,6 +357,46 @@ func (r *Repo) lsTree(commit, p string) (indexEntry, bool, error) {
 	return indexEntry{}, false, nil
 }
 
+// lsIndexMany returns the stage-0 index entries of paths in idx, by path,
+// with one Git call for each 200 paths. A path that has no stage-0 entry is
+// not in the result.
+func (r *Repo) lsIndexMany(idx string, paths []string) (map[string]indexEntry, error) {
+	current, _, err := r.readIndexEntries(idx, paths)
+	if err != nil {
+		return nil, err
+	}
+	entries := make(map[string]indexEntry, len(current))
+	for p, e := range current {
+		entries[p] = indexEntry(e)
+	}
+	return entries, nil
+}
+
+// lsTreeMany returns the blob entries of paths in commit, by path, with one
+// Git call for each 200 paths. A path that is not a blob there is not in the
+// result.
+func (r *Repo) lsTreeMany(commit string, paths []string) (map[string]indexEntry, error) {
+	entries := map[string]indexEntry{}
+	if commit == "" {
+		return entries, nil
+	}
+	for start := 0; start < len(paths); start += 200 {
+		end := min(start+200, len(paths))
+		out, err := r.Run(gitx.Opt{}, append([]string{"ls-tree", "-z", "--full-tree", commit, "--"}, paths[start:end]...)...)
+		if err != nil {
+			return nil, err
+		}
+		for _, rec := range strings.Split(string(out), "\x00") {
+			meta, name, ok := strings.Cut(rec, "\t")
+			f := strings.Fields(meta)
+			if ok && len(f) == 3 && f[1] == "blob" {
+				entries[name] = indexEntry{f[0], f[2]}
+			}
+		}
+	}
+	return entries, nil
+}
+
 // diffBlobs returns the hunks between two blobs of p. Their IDs are for
 // internal use: identical copies get IDs that hash no versions.
 func (r *Repo) diffBlobs(p, oldBlob, newBlob string) ([]hunks.Hunk, error) {
@@ -389,6 +429,31 @@ func (r *Repo) catBlob(oid string) ([]byte, error) {
 	return r.Run(gitx.Opt{}, "cat-file", "blob", oid)
 }
 
+// catBlobs returns the content of the blobs oids, in order, with one Git
+// call. It fails when an object is missing or is not a blob.
+func (r *Repo) catBlobs(oids ...string) ([][]byte, error) {
+	out, err := r.Run(gitx.Opt{Stdin: strings.NewReader(strings.Join(oids, "\n") + "\n")}, "cat-file", "--batch")
+	if err != nil {
+		return nil, err
+	}
+	blobs := make([][]byte, 0, len(oids))
+	for _, oid := range oids {
+		// <oid> SP <type> SP <size> LF <content> LF
+		header, rest, ok := bytes.Cut(out, []byte("\n"))
+		f := strings.Fields(string(header))
+		if !ok || len(f) != 3 || f[0] != oid || f[1] != "blob" {
+			return nil, fmt.Errorf("git cat-file --batch: no blob %s: %s", oid, header)
+		}
+		size, err := strconv.Atoi(f[2])
+		if err != nil || size+1 > len(rest) {
+			return nil, fmt.Errorf("git cat-file --batch: bad header %q", header)
+		}
+		blobs = append(blobs, rest[:size])
+		out = rest[size+1:]
+	}
+	return blobs, nil
+}
+
 // hasFilter reports whether a clean/smudge filter (such as Git LFS) applies to p.
 func (r *Repo) hasFilter(p string) (string, error) {
 	out, err := r.Run(gitx.Opt{}, "check-attr", "-z", "filter", "--", p)
@@ -403,10 +468,17 @@ func (r *Repo) hasFilter(p string) (string, error) {
 }
 
 // canonicalPaths replaces each path with its spelling in the stage index.
+// One Git call finds the paths that the index holds as spelled.
 func (l *Stage) canonicalPaths(paths []string) error {
+	held, err := l.r.lsIndexMany(l.IndexPath(), paths)
+	if err != nil {
+		return err
+	}
 	for i, p := range paths {
-		var err error
-		if paths[i], err = l.canonical(p); err != nil {
+		if _, ok := held[p]; ok {
+			continue
+		}
+		if paths[i], err = l.canonicalUnheld(p); err != nil {
 			return err
 		}
 	}
@@ -417,8 +489,17 @@ func (l *Stage) canonicalPaths(paths []string) error {
 // case-insensitive file system a path argument may differ in case from the
 // tracked path.
 func (l *Stage) canonical(p string) (string, error) {
-	if _, ok, err := l.r.lsIndex(l.IndexPath(), p); err != nil || ok || !l.r.configBool("core.ignoreCase", false) {
+	if _, ok, err := l.r.lsIndex(l.IndexPath(), p); err != nil || ok {
 		return p, err
+	}
+	return l.canonicalUnheld(p)
+}
+
+// canonicalUnheld returns the spelling in the stage index of a path that the
+// index does not hold as spelled.
+func (l *Stage) canonicalUnheld(p string) (string, error) {
+	if !l.r.configBool("core.ignoreCase", false) {
+		return p, nil
 	}
 	dir := path.Dir(p)
 	out, err := l.r.Run(gitx.Opt{Index: l.IndexPath(), Env: []string{envLiteralPathspecs, "GIT_ICASE_PATHSPECS=1"}},
