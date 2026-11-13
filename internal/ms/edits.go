@@ -286,34 +286,44 @@ func (l *Stage) followPath(rec EditRecord) (string, bool, string, error) {
 }
 
 // followCommits follows rec.Path through the commits that the branch
-// reached after the record, oldest first: at each commit that removed the
-// path, the commit's Multistage-Moved trailers, or else Git's rename
-// detection, name where it went. It returns the path where the commits
-// left it, or the commit that deleted it. A record without a tip, written
-// by an earlier version, follows the commits dated after the record.
+// reached after the record, as followRemoval does. A record without a tip,
+// written by an earlier version, follows the commits dated after the record.
 func (l *Stage) followCommits(rec EditRecord) (string, string, error) {
-	from, since := rec.Tip, ""
-	if from == "" {
-		since = fmt.Sprintf("--since=%d", rec.Time.Unix()-1)
+	if rec.Tip == "" {
+		return l.r.followRemoval(rec.Path, "", fmt.Sprintf("--since=%d", rec.Time.Unix()-1), l.M.Branch)
 	}
-	p := rec.Path
+	return l.r.followRemoval(rec.Path, rec.Tip, "", l.M.Branch)
+}
+
+// followRemoval follows p through the commits of from..branch, oldest
+// first: from the oldest commit that moved the path, by its
+// Multistage-Moved trailers or else Git's rename detection on that commit,
+// it goes on at the new path. It returns the path where the commits left
+// it, or, when commits removed it and none moved it, the "<short>
+// <subject>" of the newest commit that removed it. A since option, when
+// set, limits the commits by date.
+func (r *Repo) followRemoval(p, from, since, branch string) (string, string, error) {
 	for {
-		c, desc, err := l.r.removingCommit(p, from, since, l.M.Branch)
-		if err != nil || c == "" {
-			return p, "", err
+		n, c, desc, err := r.removal(p, from, since, branch)
+		switch {
+		case err != nil:
+			return "", "", err
+		case n != "":
+			p, from, since = n, c, ""
+		case desc == "":
+			return p, "", nil
+		default:
+			return "", desc, nil
 		}
-		n, err := l.r.movedIn(c, p)
-		if err != nil || n == "" {
-			return "", desc, err
-		}
-		p, from, since = n, c, ""
 	}
 }
 
-// removingCommit returns the oldest commit of from..branch (of branch when
-// from is "") that removed p, and its "<short> <subject>"; "" when none did.
-// A since option, when set, limits the commits by date.
-func (r *Repo) removingCommit(p, from, since, branch string) (string, string, error) {
+// removal returns where the commits of from..branch (of branch when from
+// is "") moved p: the new path and the oldest commit that moved it. When
+// none moved it, it returns "" and the "<short> <subject>" of the newest
+// commit that removed p, or "" when none removed it. A since option, when
+// set, limits the commits by date.
+func (r *Repo) removal(p, from, since, branch string) (newp, commit, desc string, err error) {
 	revs := branch
 	if from != "" {
 		revs = from + ".." + branch
@@ -324,11 +334,20 @@ func (r *Repo) removingCommit(p, from, since, branch string) (string, string, er
 	}
 	out, err := r.Run(gitx.Opt{}, append(args, revs, "--", p)...)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	first, _, _ := strings.Cut(string(out), "\n")
-	c, desc, _ := strings.Cut(first, " ")
-	return c, desc, nil
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		c, d, _ := strings.Cut(line, " ")
+		if c == "" {
+			continue
+		}
+		n, err := r.movedIn(c, p)
+		if err != nil || n != "" {
+			return n, c, "", err
+		}
+		desc = d
+	}
+	return "", "", desc, nil
 }
 
 // movedIn returns the path where commit c moved p: the path that its

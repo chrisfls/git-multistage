@@ -2,8 +2,10 @@ package test
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // twenty is a file of twenty lines.
@@ -332,5 +334,86 @@ func TestCommitAMoveOfPathsWithSurroundingSpaces(t *testing.T) {
 	r.mustMS("b", "commit", "-m", "first line")
 	if !eq(r.changedPaths("main"), []string{newp}) {
 		t.Fatalf("the commit changed %q", r.changedPaths("main"))
+	}
+}
+
+// gitLogCalls returns the number of `git log` processes that agent's
+// git-multistage args start.
+func (r *repo) gitLogCalls(agent string, args ...string) int {
+	r.t.Helper()
+	trace := filepath.Join(r.t.TempDir(), "trace")
+	if res := run(r.dir, agent, []string{"GIT_TRACE=" + trace}, args...); res.code != 0 {
+		r.t.Fatalf("git-multistage %s:\n%s", strings.Join(args, " "), res)
+	}
+	data, err := os.ReadFile(trace)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return strings.Count(string(data), "built-in: git log ")
+}
+
+func TestRefreshChecksOnlyTheRenamesOfStagedPaths(t *testing.T) {
+	const n = 300
+	files := map[string]string{"o.go": "o\n"}
+	for i := range n {
+		files["src/f"+itoa(i)+".go"] = "package p\n// file " + itoa(i) + "\nfunc F" + itoa(i) + "() {}\n"
+	}
+	r := committedRepo(t, files)
+	r.write("o.go", "o2\n")
+	r.mustMS("a", "add", "o.go")
+	r.git("mv", "src", "lib")
+	r.git("commit", "-q", "-m", "move dir")
+	start := time.Now()
+	if calls := r.gitLogCalls("a", "status"); calls > 5 {
+		t.Fatalf("one refresh with %d renamed files on the tip ran git log %d times", n, calls)
+	}
+	t.Logf("one refresh with %d renamed files on the tip, 1 in flight: %v", n, time.Since(start))
+	if got := r.stagedStatus("a"); !eq(got, []string{"M o.go"}) {
+		t.Fatalf("stage a holds %v", got)
+	}
+}
+
+func TestCommitFollowsAMoveAfterADeleteAndReAdd(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": twenty})
+	r.stageLineOne("a", "x.go")
+	r.git("rm", "-q", "x.go")
+	r.git("commit", "-q", "-m", "delete x")
+	r.write("x.go", twenty)
+	r.git("add", "x.go")
+	r.git("commit", "-q", "-m", "add x again")
+	r.git("mv", "x.go", "y.go")
+	r.git("commit", "-q", "-m", "move x")
+	r.mustMS("a", "commit", "-m", "first line")
+	if !eq(r.changedPaths("main"), []string{"y.go"}) {
+		t.Fatalf("the commit changed %v", r.changedPaths("main"))
+	}
+	if got := r.git("show", "main:y.go"); !strings.HasPrefix(got, "FIRST\n") {
+		t.Fatalf("y.go = %q", got)
+	}
+}
+
+func TestPathDeletedNamesTheRemovingCommit(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": twenty})
+	r.stageLineOne("a", "x.go")
+	r.git("mv", "x.go", "y.go")
+	r.git("commit", "-q", "-m", "move x")
+	moving := strings.TrimSpace(r.git("log", "-1", "--format=%h"))
+	deleting := r.deleteAndCommit("y.go")
+	res := r.expectCode(3, "a", "commit", "-m", "first line")
+	if !strings.Contains(res.err, "x.go was deleted by "+deleting) || strings.Contains(res.err, moving) {
+		t.Fatalf("error:\n%s", res)
+	}
+}
+
+func TestCommitFollowsARenameThatALaterCommitRewrote(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": twenty})
+	r.stageLineOne("a", "x.go")
+	r.git("mv", "x.go", "y.go")
+	r.git("commit", "-q", "-m", "move x")
+	r.write("y.go", heavyEdit(twenty))
+	r.git("commit", "-q", "-am", "rewrite y")
+	r.mustMS("a", "commit", "-m", "first line")
+	if got, want := r.git("show", "main:y.go"), "FIRST\n"+strings.SplitN(heavyEdit(twenty), "\n", 2)[1]; got != want {
+		t.Fatalf("y.go = %q, want %q", got, want)
 	}
 }
