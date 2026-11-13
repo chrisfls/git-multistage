@@ -2,7 +2,18 @@
 
 ## 1. Baseline
 
-- [ ] 1.1 On an idle machine, measure one full `go test -count=1 ./...` at the default `-parallel` value, and the `git` processes and time of one `status`, one `add` followed by `commit`, and one `add --edits` in a small repository, one command in flight. Verify: the numbers, their units, and the concurrency are recorded in this task.
+- [x] 1.1 On an idle machine, measure one full `go test -count=1 ./...` at the default `-parallel` value, and the `git` processes and time of one `status`, one `add` followed by `commit`, and one `add --edits` in a small repository, one command in flight. Verify: the numbers, their units, and the concurrency are recorded in this task.
+
+  Baseline, 2026-11-13, master `c0c1a16`, macOS, 12 cores, idle machine:
+  - `go test -count=1 ./...`, default `-parallel` (12), tests serial (no `t.Parallel`): 467.7 s wall; `test` package 467.3 s; CPU 174.6 s user + 229.6 s system.
+  - One command in flight, small repository of 5 files, two runs (`/tmp/fc/count.sh`):
+
+    | Command | git processes | Run 1 | Run 2 |
+    | --- | --- | --- | --- |
+    | `status` | 23 | 1330 ms | 880 ms |
+    | `add f1.txt` | 19 | 411 ms | 405 ms |
+    | `commit -m x` | 46 | 993 ms | 937 ms |
+    | `add --edits` | 17 | 354 ms | 349 ms |
 
 ## 2. Fewer git processes
 
