@@ -19,12 +19,20 @@
 - **WHEN** an agent deleted `old.go` with a shell command and stage `a` then runs `rm old.go`
 - **THEN** stage `a` holds the deletion of `old.go`
 
+#### Scenario: File with CRLF line endings
+- **WHEN** `w.txt` was committed with CRLF line endings, `core.autocrlf` is `true`, and stage `a` runs `rm w.txt`
+- **THEN** `w.txt` is gone from disk, and stage `a` holds its deletion
+
 #### Scenario: Unstaged change
 - **WHEN** `old.go` on disk differs from stage `a`'s index and stage `a` runs `rm old.go` without `-f`
 - **THEN** the command exits with code 5, and the file and the stage are unchanged
 
 ### Requirement: Finish an interrupted rm or mv
-When `rm` or `mv` stops after it changed the stage and before it changed the disk, running the same command again SHALL finish the disk change of that command and change nothing else. It SHALL NOT delete or overwrite a file that another writer created at one of its paths in between.
+When `rm` or `mv` stops after it changed the stage and before it finished the disk change, running the same command again SHALL finish the disk change of that command and change nothing else, also after other `rm` or `mv` commands ran in between. When the stage no longer holds that change, such as after `restore --staged`, the command SHALL run as new. It SHALL NOT delete or overwrite a file that another writer created at one of its paths in between.
+
+#### Scenario: Rerun after a restore
+- **WHEN** `mv x.go y.go` stopped before it moved the file on disk, stage `a` runs `restore --staged x.go y.go`, then `mv x.go y.go`
+- **THEN** stage `a` holds the move, and `y.go` is on disk in place of `x.go`
 
 #### Scenario: Crash during a chained move
 - **WHEN** stage `a` ran `mv x.go y.go`, then `mv y.go z.go` stopped before it moved the file on disk, and stage `a` runs `mv y.go z.go` again
@@ -53,7 +61,7 @@ Recorded edits of `<old>` SHALL follow a move to `<new>`. A move of a path that 
 - **THEN** the edits are staged in `y.go`
 
 ### Requirement: Move refusals
-`mv` SHALL never overwrite a file on disk. A `<new>` that the stage's index already holds, or a `<new>` that exists on disk while `<old>` exists too, SHALL exit with code 5 with error kind `path-exists` and change nothing. When neither path exists on disk, `mv` SHALL exit with code 1. On a case-insensitive file system, a move between two spellings of one path SHALL rename the file.
+`mv` SHALL never overwrite a file on disk. A `<new>` that the stage's index already holds, or a `<new>` that exists on disk while `<old>` exists too, SHALL exit with code 5 with error kind `path-exists` and change nothing. When neither path exists on disk, `mv` SHALL exit with code 1. When a file appears at `<new>` after the check, `mv` SHALL still change nothing. On a case-insensitive file system, a move between two spellings of one path SHALL rename the file.
 
 #### Scenario: Target exists
 - **WHEN** `x.go` and `y.go` both exist on disk and stage `a` runs `mv x.go y.go`

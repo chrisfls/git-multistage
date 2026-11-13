@@ -8,7 +8,7 @@
 - **THEN** both edits are staged in `y.go`
 
 ### Requirement: Commits that a recorded edit follows
-For a recorded edit, `add --edits` SHALL follow the moves of the commits that the branch reached after the record was made, whatever their dates: their `Multistage-Moved` trailers, and otherwise Git's rename detection, as a commit does.
+For a recorded edit, `add --edits` SHALL follow the moves of the commits that the branch reached after the record was made, whatever their dates: their `Multistage-Moved` trailers, and otherwise Git's rename detection, as a commit does. For a record without the branch tip, written by an earlier version, it SHALL follow the commits dated after the record.
 
 #### Scenario: Edit after a plain Git rename
 - **WHEN** stage `a` recorded an edit of `x.go`, and a commit made with `git mv x.go y.go` and `git commit` landed on the branch
@@ -21,6 +21,10 @@ For a recorded edit, `add --edits` SHALL follow the moves of the commits that th
 #### Scenario: Edit after another stage's move
 - **WHEN** stage `a` recorded an edit of `x.go`, stage `b` committed `mv x.go y.go`, and stage `a` runs `add --edits`
 - **THEN** the edit is staged in `y.go`
+
+#### Scenario: Own move after a followed move
+- **WHEN** stage `a` recorded an edit of `x.go`, stage `b` committed `mv x.go y.go`, stage `a` runs `mv y.go z.go`, then `add --edits`
+- **THEN** the edit is staged in `z.go`
 
 #### Scenario: Edit after another stage's deletion
 - **WHEN** stage `a` recorded an edit of `x.go`, stage `b` committed `rm x.go`, and stage `a` runs `add --edits`
