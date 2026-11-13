@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -32,6 +33,9 @@ type Repo struct {
 	EmptyTree    string
 	EmptyBlob    string
 	baseEnv      []string
+
+	emptyBlobOnce sync.Once
+	emptyBlobErr  error
 }
 
 // ExitError is a Git command that exited with a nonzero status.
@@ -102,15 +106,32 @@ func internalEnv() []string {
 	return append(env, "GIT_LITERAL_PATHSPECS=1", "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0", "GIT_EDITOR=:")
 }
 
+// emptyObjects holds the object IDs of the empty tree and the empty blob for
+// each object format, so that Open starts no `git hash-object` for them.
+var emptyObjects = map[string]struct{ tree, blob string }{
+	"sha1": {
+		"4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+		"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+	},
+	"sha256": {
+		"6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321",
+		"473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813",
+	},
+}
+
 // Open discovers the repository that contains dir.
 func Open(dir string) (*Repo, error) {
 	r := &Repo{baseEnv: internalEnv()}
 	r.Top = dir
-	if err := r.checkVersion(); err != nil {
-		return nil, err
-	}
+	// The version check runs beside rev-parse; its error comes first, because
+	// an old Git can fail rev-parse for a reason that the check explains.
+	versionErr := make(chan error, 1)
+	go func() { versionErr <- r.checkVersion() }()
 	out, err := r.Run(Opt{Dir: dir}, "rev-parse", "--path-format=absolute",
-		"--show-toplevel", "--git-dir", "--git-common-dir")
+		"--show-toplevel", "--git-dir", "--git-common-dir", "--show-prefix", "--show-object-format")
+	if verr := <-versionErr; verr != nil {
+		return nil, verr
+	}
 	if err != nil {
 		var ee *ExitError
 		if errors.As(err, &ee) {
@@ -118,34 +139,52 @@ func Open(dir string) (*Repo, error) {
 		}
 		return nil, err
 	}
-	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
-	if len(lines) != 3 || lines[0] == "" {
+	// The prefix is "" at the top of the worktree, so its line can be empty.
+	lines := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
+	if len(lines) != 5 || lines[0] == "" {
 		return nil, errors.New("not inside a Git worktree (bare repositories are not supported)")
 	}
 	r.Top, r.GitDir, r.CommonDir = filepath.Clean(lines[0]), filepath.Clean(lines[1]), filepath.Clean(lines[2])
-	out, err = r.Run(Opt{Dir: dir}, "rev-parse", "--show-prefix", "--show-object-format")
-	if err != nil {
-		return nil, err
+	r.Prefix, r.ObjectFormat = lines[3], lines[4]
+	empty, ok := emptyObjects[r.ObjectFormat]
+	if !ok {
+		return nil, fmt.Errorf("unknown object format %q", r.ObjectFormat)
 	}
-	lines = strings.Split(strings.TrimRight(string(out), "\n"), "\n")
-	if len(lines) == 2 {
-		r.Prefix, r.ObjectFormat = lines[0], lines[1]
-	} else {
-		r.ObjectFormat = lines[len(lines)-1]
-	}
-	if r.EmptyTree, err = r.Line(Opt{Stdin: strings.NewReader("")}, "hash-object", "-t", "tree", "--stdin"); err != nil {
-		return nil, err
-	}
-	if r.EmptyBlob, err = r.Line(Opt{Stdin: strings.NewReader("")}, "hash-object", "-w", "--stdin"); err != nil {
-		return nil, err
-	}
+	r.EmptyTree, r.EmptyBlob = empty.tree, empty.blob
 	r.ZeroOID = strings.Repeat("0", len(r.EmptyTree))
 	return r, nil
 }
 
+// EnsureEmptyBlob writes the empty blob to the object database, once for each
+// process, and returns its object ID. Git does not store the empty blob by
+// itself, and a diff that names it needs it to exist.
+func (r *Repo) EnsureEmptyBlob() (string, error) {
+	r.emptyBlobOnce.Do(func() {
+		var id string
+		id, r.emptyBlobErr = r.Line(Opt{Stdin: strings.NewReader("")}, "hash-object", "-w", "--stdin")
+		if r.emptyBlobErr == nil && id != r.EmptyBlob {
+			r.emptyBlobErr = fmt.Errorf("the empty blob is %s, want %s", id, r.EmptyBlob)
+		}
+	})
+	return r.EmptyBlob, r.emptyBlobErr
+}
+
 var versionRE = regexp.MustCompile(`git version (\d+)\.(\d+)`)
 
+// versionChecked caches the outcome of the version check: the Git on PATH
+// does not change during one process.
+var versionChecked struct {
+	once sync.Once
+	err  error
+}
+
+// checkVersion runs `git version` once for each process.
 func (r *Repo) checkVersion() error {
+	versionChecked.once.Do(func() { versionChecked.err = r.runVersionCheck() })
+	return versionChecked.err
+}
+
+func (r *Repo) runVersionCheck() error {
 	out, err := r.Run(Opt{}, "version")
 	if err != nil {
 		return fmt.Errorf("cannot run git: %w", err)

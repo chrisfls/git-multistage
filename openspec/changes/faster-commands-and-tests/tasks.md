@@ -17,7 +17,7 @@
 
 ## 2. Fewer git processes
 
-- [ ] 2.1 Make `gitx.Open` start one `rev-parse` and no `hash-object`, and run the version check once per process. Verify: a `status` starts at least 3 fewer `git` processes, and `go test ./...` passes.
+- [x] 2.1 Make `gitx.Open` start one `rev-parse` and no `hash-object`, and run the version check once per process. Verify: a `status` starts at least 3 fewer `git` processes, and `go test ./...` passes.
 - [ ] 2.2 Replace per-path `git` calls with batch reads in the paths that `status`, `add`, `commit`, and `add --edits` use. Verify: the counting wrapper shows fewer calls for each of the four commands, and `go test ./...` passes.
 
 ## 3. Parallel tests

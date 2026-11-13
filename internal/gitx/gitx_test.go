@@ -1,6 +1,13 @@
 package gitx
 
-import "testing"
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 func TestLostObjectWrite(t *testing.T) {
 	tests := []struct {
@@ -42,6 +49,53 @@ func TestLostObjectWrite(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := lostObjectWrite(tt.stderr); got != tt.want {
 				t.Fatalf("lostObjectWrite(%q) = %v, want %v", tt.stderr, got, tt.want)
+			}
+		})
+	}
+}
+
+func initRepo(t *testing.T, format string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if out, err := exec.CommandContext(context.Background(), "git", "init", "-q", "--object-format="+format, dir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestOpenKnowsTheEmptyObjects(t *testing.T) {
+	t.Parallel()
+	for _, format := range []string{"sha1", "sha256"} {
+		t.Run(format, func(t *testing.T) {
+			t.Parallel()
+			dir := initRepo(t, format)
+			top, err := Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sub, err := Open(filepath.Join(dir, "sub"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if top.Prefix != "" || sub.Prefix != "sub/" || top.ObjectFormat != format {
+				t.Fatalf("prefix %q and %q, format %q", top.Prefix, sub.Prefix, top.ObjectFormat)
+			}
+			tree, err := top.Line(Opt{Stdin: strings.NewReader("")}, "hash-object", "-t", "tree", "--stdin")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tree != top.EmptyTree || top.ZeroOID != strings.Repeat("0", len(tree)) {
+				t.Fatalf("empty tree %s, want %s; zero %s", top.EmptyTree, tree, top.ZeroOID)
+			}
+			blob, err := top.EnsureEmptyBlob()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := top.Run(Opt{}, "cat-file", "-e", blob); err != nil {
+				t.Fatalf("the empty blob is not in the object database: %v", err)
 			}
 		})
 	}

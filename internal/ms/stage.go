@@ -457,7 +457,10 @@ func (l *Stage) unstagedHunks(p string) (FileHunks, error) {
 	}
 	fh.mode, fh.oldBlob = old.mode, old.oid
 	if !tracked {
-		fh.Status, fh.oldBlob, fh.mode = "added", l.r.EmptyBlob, l.r.newFileMode(info)
+		fh.Status, fh.mode = "added", l.r.newFileMode(info)
+		if fh.oldBlob, err = l.r.EnsureEmptyBlob(); err != nil {
+			return fh, err
+		}
 	}
 	if note, err := l.r.wholeFileNote(p, info, fh.mode); err != nil || note != "" {
 		fh.Note = note
@@ -528,7 +531,10 @@ func (l *Stage) stagedHunks(p string) (FileHunks, error) {
 		fh.Status, fh.Note = "deleted", "unstage the deletion with `git multistage restore --staged "+p+"`"
 		return fh, nil
 	case !inBase:
-		fh.Status, base.oid = "added", l.r.EmptyBlob
+		fh.Status = "added"
+		if base.oid, err = l.r.EnsureEmptyBlob(); err != nil {
+			return fh, err
+		}
 	}
 	fh.mode, fh.oldBlob = cur.mode, base.oid
 	if inBase && base.mode != cur.mode || cur.mode == "120000" || cur.mode == "160000" {

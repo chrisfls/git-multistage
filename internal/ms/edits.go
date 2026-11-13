@@ -595,7 +595,10 @@ func (r *Repo) applyNewFile(idx string, rec EditRecord, force bool) error {
 func (r *Repo) replayRecord(rec EditRecord, cur string) ([]byte, error) {
 	before := rec.Before
 	if before == "" {
-		before = r.EmptyBlob
+		var err error
+		if before, err = r.EnsureEmptyBlob(); err != nil {
+			return nil, err
+		}
 	}
 	mine, err := r.diffBlobs(rec.Path, before, rec.After)
 	if err != nil {
