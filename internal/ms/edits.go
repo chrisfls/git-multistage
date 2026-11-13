@@ -183,47 +183,87 @@ func (l *Stage) AddEdits(paths []string, force bool, recreate []string) ([]strin
 	return out, nil
 }
 
-// followRecords returns the records to apply. A record of a path that the
-// stage's index no longer holds follows the Multistage-Moved trailers of the
-// commits since the record, or fails with path-deleted when such a commit
-// deleted the path. The records of a deleted path of recreate become one
-// record that creates the file with the content of the newest of them.
+// followRecords returns the records to apply. Where each path that the
+// stage's index no longer holds went is worked out once, from its oldest
+// record, and applies to every record of the path: a moved path is applied
+// at its new path, and a deleted path fails with path-deleted. The records
+// of a deleted path of recreate become one record that creates the file
+// with the content of the newest of them.
 func (l *Stage) followRecords(chosen []EditRecord, recreate []string) ([]EditRecord, error) {
-	var out []EditRecord
-	gone := &goneRecords{newest: map[string]EditRecord{}}
-	created := map[string]bool{} // paths that earlier records create
-	var moves map[string]string
-	for _, rec := range chosen {
-		missing, err := l.recordPathGone(rec, created)
-		if err != nil {
-			return nil, err
-		}
-		created[rec.Path] = rec.After != "" || rec.From != ""
-		if !missing {
-			out = append(out, rec)
-			continue
-		}
-		since := fmt.Sprintf("--since=%d", rec.Time.Unix()-1)
-		if moves == nil {
-			if moves, err = l.r.trailerMoves(since, l.M.Branch); err != nil {
-				return nil, err
-			}
-		}
-		n, ok, err := l.movedTo(rec.Path, moves)
+	gone, err := l.gonePaths(chosen)
+	if err != nil {
+		return nil, err
+	}
+	moved := map[string]string{}
+	g := &goneRecords{newest: map[string]EditRecord{}}
+	recreated := map[string]bool{}
+	for _, rec := range gone {
+		n, ok, deleting, err := l.followPath(rec)
 		switch {
 		case err != nil:
 			return nil, err
 		case ok:
-			rec.Path = n
-			out = append(out, rec)
+			moved[rec.Path] = n
 		case slices.Contains(recreate, rec.Path):
-			gone.newest[rec.Path] = rec
-		case !slices.Contains(gone.paths, rec.Path):
-			gone.paths = append(gone.paths, rec.Path)
-			gone.details = append(gone.details, rec.Path+" was deleted by "+l.r.deletingCommit(rec.Path, since, l.M.Branch))
+			recreated[rec.Path] = true
+		default:
+			g.paths = append(g.paths, rec.Path)
+			g.details = append(g.details, rec.Path+" was deleted by "+deleting)
 		}
 	}
-	return gone.finish(out, recreate)
+	var out []EditRecord
+	for _, rec := range chosen {
+		if n, ok := moved[rec.Path]; ok {
+			rec.Path = n
+		}
+		if recreated[rec.Path] {
+			g.newest[rec.Path] = rec
+			continue
+		}
+		out = append(out, rec)
+	}
+	return g.finish(out, recreate)
+}
+
+// gonePaths returns the oldest record of each path whose oldest record
+// edits an existing file that the stage's index does not hold.
+func (l *Stage) gonePaths(chosen []EditRecord) ([]EditRecord, error) {
+	seen := map[string]bool{}
+	var gone []EditRecord
+	for _, rec := range chosen {
+		if seen[rec.Path] {
+			continue
+		}
+		seen[rec.Path] = true
+		if rec.From != "" || rec.Before == "" {
+			continue
+		}
+		_, ok, err := l.r.lsIndex(l.IndexPath(), rec.Path)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			gone = append(gone, rec)
+		}
+	}
+	return gone, nil
+}
+
+// followPath returns the path where the commits since rec moved rec.Path,
+// when the stage's index holds it, or else the commit that deleted it.
+func (l *Stage) followPath(rec EditRecord) (string, bool, string, error) {
+	since := fmt.Sprintf("--since=%d", rec.Time.Unix()-1)
+	moves, err := l.r.trailerMoves(since, l.M.Branch)
+	if err != nil {
+		return "", false, "", err
+	}
+	if n, ok := moves[rec.Path]; ok {
+		_, ok, err := l.r.lsIndex(l.IndexPath(), n)
+		if err != nil || ok {
+			return n, ok, "", err
+		}
+	}
+	return "", false, l.r.deletingCommit(rec.Path, since, l.M.Branch), nil
 }
 
 // goneRecords collects the records of files that a commit deleted.
@@ -250,26 +290,6 @@ func (g *goneRecords) finish(out []EditRecord, recreate []string) ([]EditRecord,
 		}
 	}
 	return out, nil
-}
-
-// movedTo returns the path where moves put p, when the stage's index holds it.
-func (l *Stage) movedTo(p string, moves map[string]string) (string, bool, error) {
-	n, ok := moves[p]
-	if !ok {
-		return "", false, nil
-	}
-	_, ok, err := l.r.lsIndex(l.IndexPath(), n)
-	return n, ok, err
-}
-
-// recordPathGone reports whether rec edits an existing file that neither the
-// stage's index nor an earlier record of created holds.
-func (l *Stage) recordPathGone(rec EditRecord, created map[string]bool) (bool, error) {
-	if rec.From != "" || rec.Before == "" || created[rec.Path] {
-		return false, nil
-	}
-	_, ok, err := l.r.lsIndex(l.IndexPath(), rec.Path)
-	return !ok, err
 }
 
 // chooseRecords returns the records of the given paths (all when none).

@@ -98,3 +98,49 @@ func TestCodexMovesAFile(t *testing.T) {
 	}
 	r.checkClean()
 }
+
+// recordTwoEdits records in stage claude-<session> two edits of p, of its
+// first and second lines, and leaves the disk as it was. It returns the
+// content after both.
+func (r *repo) recordTwoEdits(session, p string) string {
+	r.t.Helper()
+	orig := r.read(p)
+	ls := strings.SplitN(orig, "\n", 3)
+	r.hookedEdit(session, "", p, "FIRST\n"+ls[1]+"\n"+ls[2])
+	both := "FIRST\nSECOND\n" + ls[2]
+	r.hookedEdit(session, "", p, both)
+	r.write(p, orig)
+	return both
+}
+
+func TestAddEditsFollowsAMoveWithSeveralRecords(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": twenty})
+	r.recordTwoEdits("a", "x.go")
+	r.moveAndRewrite("b", "x.go", "y.go", true)
+	r.mustMS("", "--stage", "claude-a", "add", "--edits")
+	if got := r.stagedStatus("claude-a"); !eq(got, []string{"M y.go"}) {
+		t.Fatalf("stage claude-a holds %v", got)
+	}
+	r.mustMS("", "--stage", "claude-a", "commit", "-m", "two lines")
+	if got, want := r.git("show", "main:y.go"), "FIRST\nSECOND\n"+strings.SplitN(heavyEdit(twenty), "\n", 3)[2]; got != want {
+		t.Fatalf("y.go = %q, want %q", got, want)
+	}
+}
+
+func TestAddEditsRecreatesFromSeveralRecords(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": twenty})
+	both := r.recordTwoEdits("a", "x.go")
+	r.deleteAndCommit("x.go")
+	r.expectCode(3, "", "--stage", "claude-a", "add", "--edits")
+	r.mustMS("", "--stage", "claude-a", "add", "--edits", "--recreate", "x.go")
+	if got := r.stagedStatus("claude-a"); !eq(got, []string{"A x.go"}) {
+		t.Fatalf("stage claude-a holds %v", got)
+	}
+	if st := r.mustMS("", "--stage", "claude-a", "status").out; strings.Contains(st, "recorded edits") {
+		t.Fatalf("records are left:\n%s", st)
+	}
+	r.mustMS("", "--stage", "claude-a", "commit", "-m", "Keep x")
+	if got := r.git("show", "main:x.go"); got != both {
+		t.Fatalf("x.go = %q, want %q", got, both)
+	}
+}

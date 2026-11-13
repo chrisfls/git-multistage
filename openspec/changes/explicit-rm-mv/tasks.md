@@ -25,7 +25,7 @@
 
 ## 5. Review fixes
 
-- [ ] 5.1 Work out where each recorded path went once and apply it to every record of the path; `--recreate` stages the newest record and drops the older ones. Verify: "Several edits after another stage's move" passes, and a recreate test with two records passes.
+- [x] 5.1 Work out where each recorded path went once and apply it to every record of the path; `--recreate` stages the newest record and drops the older ones. Verify: "Several edits after another stage's move" passes, and a recreate test with two records passes.
 - [ ] 5.2 Store the branch tip in each record and follow `<record tip>..<branch>`, with trailers first and then Git's rename detection. Verify: "Edit after a plain Git rename" and "Move commit with an older date" pass.
 - [ ] 5.3 Add the `Meta.PendingDisk` journal for `rm` and `mv`, remove the base-tree fallback of `rm`, and make `rm` drop the records of the paths it deletes. Verify: "Path the stage does not hold", "Recorded edits of a deleted file", and "Crash during a chained move" pass, and the crash reruns of `rm` of an edited file and of a new file finish.
 - [ ] 5.4 Apply each commit's trailers as one simultaneous step, move only entries that the base holds, and quote unusual trailer paths. Verify: "Several moves in one commit" and "Path with an arrow" pass, and a stage's new file at a trailer's old path stays in place.
