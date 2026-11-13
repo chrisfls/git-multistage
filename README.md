@@ -37,13 +37,27 @@ git-multistage keeps one checkout and gives each agent its own index.
 
 ## Install
 
-Requires Git 2.45 or newer. Pick one way to get the `git-multistage` binary, and put it on your `PATH`.
-
-**From a release**, with no Go toolchain. [Releases](https://github.com/chrisfls/git-multistage/releases) hold archives for Linux, macOS, and Windows on amd64 and arm64, and a `checksums.txt`. Download the archive for your system, check it with `shasum -a 256 -c checksums.txt`, and unpack the binary. Or let mise do it:
+Requires Git 2.45 or newer. Install the `git-multistage` binary with [mise](https://mise.jdx.dev):
 
 ```bash
 mise use -g github:chrisfls/git-multistage
 ```
+
+`git multistage doctor` checks the setup, and `git multistage version` prints the version.
+
+### Other ways
+
+Each way puts the `git-multistage` binary in a directory that must be on your `PATH`.
+
+**From a release**, with no Go toolchain. [Releases](https://github.com/chrisfls/git-multistage/releases) hold archives for Linux, macOS, and Windows on amd64 and arm64, and a `checksums.txt`. Download the archive for your system and `checksums.txt`, then check and unpack it:
+
+```bash
+shasum -a 256 -c checksums.txt --ignore-missing
+tar -xzf git-multistage_<version>_<os>_<arch>.tar.gz git-multistage
+mv git-multistage "$HOME/.local/bin/"
+```
+
+On Windows, unpack `git-multistage.exe` from the `.zip` into a directory on your `PATH`.
 
 **With Go:**
 
@@ -59,13 +73,11 @@ cd git-multistage
 go build -o "$HOME/.local/bin/git-multistage" ./cmd/git-multistage
 ```
 
-To build from a clone on Windows:
+On Windows:
 
 ```powershell
 go build -o "$env:USERPROFILE\bin\git-multistage.exe" .\cmd\git-multistage
 ```
-
-`git multistage doctor` checks the setup, and `git multistage version` prints the version.
 
 ## Quick start
 
