@@ -144,3 +144,39 @@ func TestAddEditsRecreatesFromSeveralRecords(t *testing.T) {
 		t.Fatalf("x.go = %q, want %q", got, both)
 	}
 }
+
+func TestAddEditsFollowsAPlainGitRename(t *testing.T) {
+	for _, staged := range []bool{false, true} {
+		r := committedRepo(t, map[string]string{"x.go": twenty})
+		if staged {
+			r.write("x.go", strings.Replace(twenty, "line p", "STAGED", 1))
+			r.mustMS("", "--stage", "claude-a", "add", "x.go")
+			r.write("x.go", twenty)
+		}
+		r.recordLineOne("a", "x.go")
+		r.git("mv", "x.go", "y.go")
+		r.git("commit", "-q", "-m", "native rename")
+		r.mustMS("", "--stage", "claude-a", "add", "--edits")
+		if got := r.stagedStatus("claude-a"); !eq(got, []string{"M y.go"}) {
+			t.Fatalf("staged %v: stage claude-a holds %v", staged, got)
+		}
+		if d := r.mustMS("", "--stage", "claude-a", "diff", "--cached").out; !strings.Contains(d, "+FIRST") {
+			t.Fatalf("staged %v: staged diff:\n%s", staged, d)
+		}
+	}
+}
+
+func TestAddEditsFollowsAMoveCommitWithAnOlderDate(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": twenty})
+	r.recordLineOne("a", "x.go")
+	r.mustMS("b", "mv", "x.go", "y.go")
+	r.write("y.go", heavyEdit(r.read("y.go")))
+	r.mustMS("b", "add", "y.go")
+	if res := run(r.dir, "b", []string{"GIT_COMMITTER_DATE=2020-01-01T00:00:00Z"}, "commit", "-m", "move x"); res.code != 0 {
+		t.Fatalf("commit:\n%s", res)
+	}
+	r.mustMS("", "--stage", "claude-a", "add", "--edits")
+	if got := r.stagedStatus("claude-a"); !eq(got, []string{"M y.go"}) {
+		t.Fatalf("stage claude-a holds %v", got)
+	}
+}

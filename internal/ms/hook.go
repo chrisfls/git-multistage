@@ -92,6 +92,7 @@ type pendingEdit struct {
 	Path   string `json:"path"`
 	Before string `json:"before,omitempty"`
 	Raw    string `json:"raw,omitempty"` // Codex: the file's bytes before the call, unfiltered
+	Tip    string `json:"tip,omitempty"` // the tip of the stage's branch before the call
 }
 
 // runEditHook handles one hook call. It always returns 0, which lets the
@@ -306,6 +307,24 @@ func (h *editHook) indexFile() string {
 	return h.r.IndexPath
 }
 
+// branchTip returns the tip of the stage's branch, or of the branch that
+// HEAD points to before the stage exists; "" when it cannot be read.
+func (h *editHook) branchTip() string {
+	branch := ""
+	if m, err := readMeta(h.stageDir); err == nil {
+		branch = m.Branch
+	}
+	if branch == "" {
+		b, err := h.r.headTarget()
+		if err != nil {
+			return ""
+		}
+		branch = b
+	}
+	tip, _ := h.r.ResolveRef(branch)
+	return tip
+}
+
 func (h *editHook) before(stderr io.Writer) {
 	before, err := h.snapshot()
 	if err != nil {
@@ -319,7 +338,7 @@ func (h *editHook) before(stderr io.Writer) {
 			return
 		}
 	}
-	data, _ := json.Marshal(pendingEdit{Path: h.path, Before: before, Raw: raw})
+	data, _ := json.Marshal(pendingEdit{Path: h.path, Before: before, Raw: raw, Tip: h.branchTip()})
 	if err := os.MkdirAll(editsDir(h.stageDir), 0o777); err != nil {
 		fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
 		return
@@ -365,7 +384,7 @@ func (h *editHook) after(stdout, stderr io.Writer, succeeded bool) {
 	if after == before {
 		return
 	}
-	rec := EditRecord{Path: h.path, Before: before, After: after, Tool: h.in.Tool, Time: time.Now().UTC()}
+	rec := EditRecord{Path: h.path, Before: before, After: after, Tool: h.in.Tool, Tip: p.Tip, Time: time.Now().UTC()}
 	if after != "" {
 		rec.Mode = h.fileMode(h.path)
 	}
@@ -412,13 +431,16 @@ func (h *editHook) recordMove(p pendingEdit, sec codexPatchSection) error {
 		return err
 	}
 	now := time.Now().UTC()
-	if err := writeRecord(h.stageDir, EditRecord{Path: newp, From: h.path, Tool: h.in.Tool, Time: now}); err != nil {
+	if err := writeRecord(h.stageDir, EditRecord{Path: newp, From: h.path, Tool: h.in.Tool, Tip: p.Tip, Time: now}); err != nil {
 		return err
 	}
 	if after == "" || after == p.Before {
 		return nil
 	}
-	rec := EditRecord{Path: newp, Before: p.Before, After: after, Mode: h.fileMode(newp), Tool: h.in.Tool, Time: now.Add(time.Nanosecond)}
+	rec := EditRecord{
+		Path: newp, Before: p.Before, After: after, Mode: h.fileMode(newp), Tool: h.in.Tool, Tip: p.Tip,
+		Time: now.Add(time.Nanosecond),
+	}
 	return writeRecord(h.stageDir, rec)
 }
 

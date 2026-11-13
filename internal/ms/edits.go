@@ -32,6 +32,7 @@ type EditRecord struct {
 	After     string    `json:"after,omitempty"`
 	Mode      string    `json:"mode,omitempty"`
 	Tool      string    `json:"tool,omitempty"`
+	Tip       string    `json:"tip,omitempty"`       // the tip of the stage's branch when the edit was made
 	Uncertain bool      `json:"uncertain,omitempty"` // written by older versions; ignored
 	Time      time.Time `json:"time"`
 
@@ -249,21 +250,81 @@ func (l *Stage) gonePaths(chosen []EditRecord) ([]EditRecord, error) {
 	return gone, nil
 }
 
-// followPath returns the path where the commits since rec moved rec.Path,
-// when the stage's index holds it, or else the commit that deleted it.
+// followPath follows rec.Path through the commits that the branch reached
+// after the record, oldest first: at each commit that removed the path, the
+// commit's Multistage-Moved trailers, or else Git's rename detection, name
+// where it went. It returns the final path when the stage's index holds it,
+// or else the commit that deleted the path. A record without a tip follows
+// the commits since the stage's base.
 func (l *Stage) followPath(rec EditRecord) (string, bool, string, error) {
-	since := fmt.Sprintf("--since=%d", rec.Time.Unix()-1)
-	moves, err := l.r.trailerMoves(since, l.M.Branch)
-	if err != nil {
-		return "", false, "", err
+	from := rec.Tip
+	if from == "" {
+		from = l.M.Base
 	}
-	if n, ok := moves[rec.Path]; ok {
-		_, ok, err := l.r.lsIndex(l.IndexPath(), n)
+	p := rec.Path
+	for {
+		c, desc, err := l.r.removingCommit(p, from, l.M.Branch)
+		if err != nil || c == "" {
+			if err != nil {
+				return "", false, "", err
+			}
+			break
+		}
+		n, err := l.r.movedIn(c, p)
+		if err != nil {
+			return "", false, "", err
+		}
+		if n == "" {
+			return "", false, desc, nil
+		}
+		p, from = n, c
+	}
+	if p != rec.Path {
+		_, ok, err := l.r.lsIndex(l.IndexPath(), p)
 		if err != nil || ok {
-			return n, ok, "", err
+			return p, ok, "", err
 		}
 	}
-	return "", false, l.r.deletingCommit(rec.Path, since, l.M.Branch), nil
+	return "", false, "a commit on the branch", nil
+}
+
+// removingCommit returns the oldest commit of from..branch (of branch when
+// from is "") that removed p, and its "<short> <subject>"; "" when none did.
+func (r *Repo) removingCommit(p, from, branch string) (string, string, error) {
+	revs := branch
+	if from != "" {
+		revs = from + ".." + branch
+	}
+	out, err := r.Run(gitx.Opt{}, cmdLog, "--reverse", "--no-renames", "--diff-filter=D", "--format=%H %h %s", revs, "--", p)
+	if err != nil {
+		return "", "", err
+	}
+	first, _, _ := strings.Cut(string(out), "\n")
+	c, desc, _ := strings.Cut(first, " ")
+	return c, desc, nil
+}
+
+// movedIn returns the path where commit c moved p: the path that its
+// Multistage-Moved trailers name, or else the one that Git's rename
+// detection finds; "" when c deleted p.
+func (r *Repo) movedIn(c, p string) (string, error) {
+	moves, err := r.trailerMoves(c + "^!")
+	if err != nil {
+		return "", err
+	}
+	if n, ok := moves[p]; ok {
+		return n, nil
+	}
+	entries, err := r.DiffTrees(c+"^", c, true)
+	if err != nil {
+		return "", err
+	}
+	for _, e := range entries {
+		if e.Status == 'R' && e.OldPath == p {
+			return e.Path, nil
+		}
+	}
+	return "", nil
 }
 
 // goneRecords collects the records of files that a commit deleted.
