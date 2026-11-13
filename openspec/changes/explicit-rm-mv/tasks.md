@@ -49,3 +49,9 @@
 - [x] 7.2 Make `rm` drop the records that follow a move to a deleted path, and report `edit-conflict` for a record of a path that no commit removed, also on an unborn branch. Verify: "Edit of another stage's new file" passes, and records of a followed path deleted with `rm` and then committed do not block `add --edits`.
 - [x] 7.3 Match journal entries case-insensitively when `core.ignoreCase` is set, compare a symbolic link by its link text, and never drop or roll back a journal entry with a temporary name before the file left that name. Verify: a crash rerun of `rm readme.md` for `README.md` finishes; `rm` of an unchanged symbolic link needs no `-f`; a case-only `mv` stopped between its renames, then `restore --staged` and `mv` again, leaves no temporary file.
 - [x] 7.4 Run the checks of the `git-multistage-development` skill and `mise run ci`. Verify: both pass, and `openspec validate --all --strict` passes.
+
+## 8. Last review fixes
+
+- [ ] 8.1 Make a staged deletion or move follow a rename without a trailer, as "Follow moves onto the tip" requires. Verify: a staged `rm p.go`, then a branch commit `git mv p.go n.go` and a later rewrite of `n.go`, gives a modify/delete conflict instead of an empty stage; without the rewrite, the deletion of `n.go` is committed.
+- [ ] 8.2 Make `rm` forget records that follow another stage's move and then the stage's own `mv` to the deleted path. Verify: record `x.go`, another stage commits `mv x.go y.go`, the stage runs `mv y.go z.go`, `rm -f z.go`, and commits; a later `add --edits` stages the other records.
+- [ ] 8.3 Run `mise run ci` once. Verify: exit code 0.
