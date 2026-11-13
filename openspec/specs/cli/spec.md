@@ -13,7 +13,7 @@ Commands SHALL exit with 0 on success, 1 on an error or nothing to commit, 2 on 
 - **THEN** the command exits with code 2
 
 ### Requirement: JSON output
-With `--json`, `init`, `status`, `hunks`, `add`, `apply`, `restore`, `commit`, `list`, `doctor`, `sync`, and `drop` SHALL print one JSON object to stdout. A failure SHALL print `{"error": {...}, "warnings": ...}` with `kind`, `message`, and optional `paths`, `details`, and `hint`, and exit with its code, except an unknown option, a missing option value, or no repository when `--json` follows the command name. `diff`, `log`, and `add -p` SHALL refuse `--json` with exit code 2.
+With `--json`, `init`, `status`, `hunks`, `add`, `apply`, `restore`, `rm`, `mv`, `commit`, `list`, `doctor`, `sync`, and `drop` SHALL print one JSON object to stdout. A failure SHALL print `{"error": {...}, "warnings": ...}` with `kind`, `message`, and optional `paths`, `details`, and `hint`, and exit with its code, except an unknown option, a missing option value, or no repository when `--json` follows the command name. `diff`, `log`, and `add -p` SHALL refuse `--json` with exit code 2.
 
 #### Scenario: Stale hunk as JSON
 - **WHEN** the user runs `add x.go --hunk <old-id> --json`
@@ -49,11 +49,15 @@ The tool SHALL work on Linux, macOS, and Windows.
 - **THEN** it passes as on Linux and macOS
 
 ### Requirement: Working tree is never written
-git-multistage SHALL NOT write files in the working tree. Git hooks that it runs may.
+git-multistage SHALL NOT write files in the working tree, except `rm` and `mv`, which delete and move the files they name. Git hooks that it runs may.
 
 #### Scenario: Commit leaves files alone
 - **WHEN** stage `a` commits while unstaged edits are on disk
 - **THEN** every file on disk is unchanged
+
+#### Scenario: Move writes only its paths
+- **WHEN** stage `a` runs `mv x.go y.go` while other files have unstaged edits
+- **THEN** only `x.go` and `y.go` change on disk
 
 ### Requirement: Doctor
 `doctor` SHALL NOT change any stage, index, ref, or working-tree file; it only deletes the leftovers of an interrupted `drop`. It SHALL report the Git version, the HEAD state, operations in progress, a leftover `index.lock`, a disabled `multistage.syncIndex`, whether the default index lags the branch, each stage's problems, and files staged in several stages. `--json` SHALL add each stage's base, staged files, and pending commit.

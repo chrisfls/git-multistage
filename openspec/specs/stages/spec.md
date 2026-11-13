@@ -88,7 +88,7 @@ Each worktree SHALL have its own set of stages. The same stage ID in two worktre
 - **THEN** the stage is deleted and no tree ID is printed
 
 ### Requirement: Stage follows the branch tip
-Before `status`, `diff`, `hunks`, `add`, `apply`, and `restore`, a stage whose base is behind its branch tip SHALL be refreshed. With nothing staged, its index SHALL become the tip's tree. With staged changes, they SHALL be replayed onto the tip and the tip SHALL become the base. If the replay conflicts, the stage SHALL stay as it is and the command SHALL warn that its base is behind.
+Before `status`, `diff`, `hunks`, `add`, `apply`, `restore`, `rm`, and `mv`, a stage whose base is behind its branch tip SHALL be refreshed. With nothing staged, its index SHALL become the tip's tree. With staged changes, they SHALL be replayed onto the tip and the tip SHALL become the base. If the replay conflicts, the stage SHALL stay as it is and the command SHALL warn that its base is behind.
 
 #### Scenario: Another stage committed
 - **WHEN** stage `b` commits a change to `x.go` and stage `a` then runs `status`
@@ -97,6 +97,17 @@ Before `status`, `diff`, `hunks`, `add`, `apply`, and `restore`, a stage whose b
 #### Scenario: Refresh conflicts
 - **WHEN** stage `a` staged a change to lines that a newer commit on the branch also changed
 - **THEN** stage `a` keeps its staged changes and `status` warns that its base is behind
+
+### Requirement: Refresh follows moves and deletions
+The refresh SHALL replay staged changes onto the tip following moves, as `commit` does. When a staged path was deleted on the tip, the stage SHALL stay as it is, and the command SHALL warn that its base is behind, naming each deleted path and its deleting commit.
+
+#### Scenario: Refresh follows a move
+- **WHEN** stage `a` staged a change to `x.go`, stage `b` committed `mv x.go y.go`, and stage `a` runs `status`
+- **THEN** stage `a`'s staged change is in `y.go`
+
+#### Scenario: Refresh meets a deletion
+- **WHEN** stage `a` staged a change to `x.go`, stage `b` committed `rm x.go`, and stage `a` runs `status`
+- **THEN** stage `a` keeps its staged change, and `status` warns that `x.go` was deleted by stage `b`'s commit
 
 ### Requirement: HEAD away from the stage's target
 When HEAD points to another branch than the stage's target, or a detached HEAD moved to a commit that does not contain the stage's base, the stage SHALL NOT be refreshed and each refreshing command SHALL warn about it. The stage SHALL be reported as stale when its base differs from its branch tip.
