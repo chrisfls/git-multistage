@@ -1,7 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: Delete files
-`rm <path>...` SHALL delete each file from the working tree and stage its deletion in the stage's own index. A file that is already gone from disk SHALL have its deletion staged. A path that the stage's index does not hold SHALL exit with code 1 and change nothing. An unstaged change on disk SHALL need `-f`; without it the command SHALL exit with code 5 and change nothing.
+`rm <path>...` SHALL delete each file from the working tree and stage its deletion in the stage's own index. A file that is already gone from disk SHALL have its deletion staged. A path that the stage's index does not hold SHALL exit with code 1 and change nothing. An unstaged change on disk SHALL need `-f`; without it the command SHALL exit with code 5 and change nothing. `rm` SHALL forget the stage's recorded edits of the paths it deletes.
+
+#### Scenario: Path the stage does not hold
+- **WHEN** stage `a` ran `mv x.go y.go`, another agent then created a new `x.go`, and stage `a` runs `rm -f x.go`
+- **THEN** the command exits with code 1, and the new `x.go` stays on disk
+
+#### Scenario: Recorded edits of a deleted file
+- **WHEN** stage `a` recorded an edit of `x.go`, runs `rm -f x.go`, then `add --edits`
+- **THEN** `add --edits` stages the other recorded edits and does not report `x.go`
 
 #### Scenario: Delete a file
 - **WHEN** stage `a` runs `rm old.go`
@@ -15,8 +23,19 @@
 - **WHEN** `old.go` on disk differs from stage `a`'s index and stage `a` runs `rm old.go` without `-f`
 - **THEN** the command exits with code 5, and the file and the stage are unchanged
 
+### Requirement: Finish an interrupted rm or mv
+When `rm` or `mv` stops after it changed the stage and before it changed the disk, running the same command again SHALL finish the disk change of that command and change nothing else. It SHALL NOT delete or overwrite a file that another writer created at one of its paths in between.
+
+#### Scenario: Crash during a chained move
+- **WHEN** stage `a` ran `mv x.go y.go`, then `mv y.go z.go` stopped before it moved the file on disk, and stage `a` runs `mv y.go z.go` again
+- **THEN** `z.go` is on disk in place of `y.go`, and stage `a` holds the move of `x.go` to `z.go`
+
 ### Requirement: Move files
-`mv <old> <new>` SHALL move the file in the working tree and stage the move in the stage's own index, with the content that the stage holds for `<old>`. When `<old>` is already gone from disk and `<new>` exists, it SHALL stage the move without touching the disk. The stage SHALL remember the move until it is committed or either path is restored. Recorded edits of `<old>` SHALL follow the move to `<new>`. A `<new>` that the stage's index already holds SHALL exit with code 5 and change nothing.
+`mv <old> <new>` SHALL move the file in the working tree and stage the move in the stage's own index, with the content that the stage holds for `<old>`. When `<old>` is already gone from disk and `<new>` exists, it SHALL stage the move without touching the disk. The stage SHALL remember the move until it is committed or either path is restored. Recorded edits of `<old>` SHALL follow the move to `<new>`. A move of a path that the stage already moved SHALL extend that move, and a move back to the original path SHALL cancel it.
+
+#### Scenario: Chained moves
+- **WHEN** stage `a` runs `mv x.go y.go`, then `mv y.go z.go`, and commits
+- **THEN** the commit carries the one trailer `Multistage-Moved: x.go -> z.go`
 
 #### Scenario: Move a file
 - **WHEN** stage `a` runs `mv x.go y.go`
@@ -29,6 +48,17 @@
 #### Scenario: Recorded edits follow
 - **WHEN** stage `a` has recorded edits of `x.go`, runs `mv x.go y.go`, then `add --edits`
 - **THEN** the edits are staged in `y.go`
+
+### Requirement: Move refusals
+`mv` SHALL never overwrite a file on disk. A `<new>` that the stage's index already holds, or a `<new>` that exists on disk while `<old>` exists too, SHALL exit with code 5 with error kind `path-exists` and change nothing. When neither path exists on disk, `mv` SHALL exit with code 1. On a case-insensitive file system, a move between two spellings of one path SHALL rename the file.
+
+#### Scenario: Target exists
+- **WHEN** `x.go` and `y.go` both exist on disk and stage `a` runs `mv x.go y.go`
+- **THEN** the command exits with code 5 with `path-exists`, and both files are unchanged
+
+#### Scenario: Case-only rename
+- **WHEN** `core.ignoreCase` is set and stage `a` runs `mv Readme.md README.md`
+- **THEN** the file on disk is named `README.md`, and stage `a` holds the move
 
 ## MODIFIED Requirements
 

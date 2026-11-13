@@ -1,21 +1,29 @@
 ## ADDED Requirements
 
 ### Requirement: Move trailers
-A commit whose staged change holds moves made with `mv` SHALL end its message with one `Multistage-Moved: <old> -> <new>` trailer for each move.
+A commit whose staged change holds moves made with `mv` SHALL end its message with one `Multistage-Moved: <old> -> <new>` trailer for each move. A path that holds ` -> `, a double quote, a backslash, or a control character SHALL be written in double quotes with C-style escapes, as `git diff` quotes paths. The moves of one commit's trailers SHALL take effect at the same time.
+
+#### Scenario: Path with an arrow
+- **WHEN** stage `a` runs `mv "p -> q.go" r.go` and commits
+- **THEN** the trailer is `Multistage-Moved: "p -> q.go" -> r.go`, and another stage's later commit of `p -> q.go` lands in `r.go`
 
 #### Scenario: Commit a move
 - **WHEN** stage `a` ran `mv x.go y.go` and commits
 - **THEN** the commit message ends with `Multistage-Moved: x.go -> y.go`
 
 ### Requirement: Follow moves onto the tip
-When the staged change is replayed onto a newer tip, each staged path that a `Multistage-Moved` trailer of a commit since the stage's base moved SHALL be replayed at the new path, following chains of moves. Paths that no trailer names SHALL follow Git's rename detection.
+When the staged change is replayed onto a newer tip, each staged path that the base holds and that a `Multistage-Moved` trailer of a commit since the stage's base moved SHALL be replayed at the new path, following chains of moves across commits. Paths that no trailer names SHALL follow Git's rename detection. A path that the stage added SHALL stay where the stage put it.
+
+#### Scenario: Several moves in one commit
+- **WHEN** stage `b` committed the trailers `a.go -> c.go` and `c.go -> d.go`, and stage `a` then commits its staged change to `a.go`
+- **THEN** stage `a`'s commit changes `c.go`
 
 #### Scenario: Edit after another stage's move
 - **WHEN** stage `b` committed `mv x.go y.go` with heavy edits of the file, and stage `a` then commits its staged change to `x.go`
 - **THEN** stage `a`'s commit changes `y.go` and does not create `x.go`
 
 ### Requirement: Staged change of a deleted file
-When a commit since the stage's base deleted a path that the staged change modifies, `commit` SHALL exit with code 3 and error kind `path-deleted`, commit nothing, and keep the stage. The error SHALL name the path and the deleting commit, and hint at `--recreate <path>` and `restore --staged <path>`. `commit --recreate <path>...` SHALL commit the stage's version of each named path as a new file.
+When a commit since the stage's base deleted a path that the staged change modifies or moves, `commit` SHALL exit with code 3 and error kind `path-deleted`, commit nothing, and keep the stage. The error SHALL name the path and the deleting commit, and hint at `--recreate <path>` and `restore --staged <path>`. `commit --recreate <path>...` SHALL commit the stage's version of each named path as a new file.
 
 #### Scenario: Another stage deleted the file
 - **WHEN** stage `b` committed `rm x.go` and stage `a` then commits its staged change to `x.go`
@@ -24,6 +32,13 @@ When a commit since the stage's base deleted a path that the staged change modif
 #### Scenario: Recreate the file
 - **WHEN** stage `a` then runs `commit --recreate x.go -m "Keep x"`
 - **THEN** the commit adds `x.go` with stage `a`'s version
+
+### Requirement: Two stages move one file
+When a commit since the stage's base moved a path to a new path, and the stage moved the same path to another new path, `commit` SHALL exit with code 3 and error kind `conflict`, commit nothing, and keep the stage.
+
+#### Scenario: Two names for one file
+- **WHEN** stage `b` committed `mv x.go z.go`, and stage `a` staged `mv x.go y.go` and commits
+- **THEN** the command exits with code 3, names `x.go`, and stage `a` keeps its staged move
 
 ## MODIFIED Requirements
 
