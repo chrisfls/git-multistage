@@ -178,6 +178,10 @@ func lostObjectWrite(stderr string) bool {
 	return lostObjectWriteRE.MatchString(stderr)
 }
 
+// renamesObjects reports whether Git creates loose objects by rename, as
+// only Git for Windows does. Tests set it to exercise the rerun.
+var renamesObjects = runtime.GOOS == "windows"
+
 // objectWriteRetries is how many times Run reruns a command whose loose
 // object write lost a race. A rerun finds the object and does not write it.
 const objectWriteRetries = 5
@@ -187,7 +191,7 @@ func (r *Repo) Run(o Opt, args ...string) ([]byte, error) {
 	// Only Git for Windows creates loose objects by rename. A rerun must
 	// read the same stdin and must not repeat streamed output.
 	stdin, rewindable := o.Stdin.(io.Seeker)
-	retry := runtime.GOOS == "windows" && !o.User && o.Stdout == nil && o.Stderr == nil &&
+	retry := renamesObjects && !o.User && o.Stdout == nil && o.Stderr == nil &&
 		(o.Stdin == nil || rewindable)
 	var start int64
 	if retry && rewindable {

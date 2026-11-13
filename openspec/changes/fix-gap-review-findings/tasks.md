@@ -14,7 +14,7 @@
 
 ## 4. Rerun loop tests
 
-- [ ] 4.1 Make the Windows check of `gitx.Run` a package variable, and add tests with a fake `git` on `PATH` for the stdin rewind, the cap of 5 reruns, and no rerun for `User`, streamed output, and stdin that cannot be rewound; verify with `go test -count=1 ./internal/gitx/`
+- [x] 4.1 Make the Windows check of `gitx.Run` a package variable, and add tests with a fake `git` on `PATH` for the stdin rewind, the cap of 5 reruns, and no rerun for `User`, streamed output, and stdin that cannot be rewound; verify with `go test -count=1 ./internal/gitx/`
 
 ## 5. Lease timeout of release builds
 
