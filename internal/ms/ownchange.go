@@ -101,7 +101,7 @@ func (h *editHook) codexChange(p pendingEdit) (orig, written *string) {
 	case sec.kind == "add" && p.Before == "":
 		s := joinLines(sec.added)
 		return nil, &s
-	case sec.kind == "update" && sec.move == "" && p.Raw != "":
+	case sec.kind == codexUpdate && sec.move == "" && p.Raw != "":
 		raw, err := h.r.catBlob(p.Raw)
 		if err != nil || strings.Contains(string(raw), "\r") {
 			return nil, nil
@@ -115,6 +115,9 @@ func (h *editHook) codexChange(p pendingEdit) (orig, written *string) {
 	}
 	return nil, nil
 }
+
+// codexUpdate is the kind of an Update File section.
+const codexUpdate = "update"
 
 type codexHunk struct {
 	context  string
@@ -158,7 +161,7 @@ func codexSection(patch, cwd, file string) (codexPatchSection, bool) {
 // codexHeader parses a line that starts a file section of a patch.
 func codexHeader(line string) (kind, path string, ok bool) {
 	for prefix, kind := range map[string]string{
-		"*** Add File: ": "add", "*** Update File: ": "update", "*** Delete File: ": "delete",
+		"*** Add File: ": "add", "*** Update File: ": codexUpdate, "*** Delete File: ": "delete",
 	} {
 		if p, ok := strings.CutPrefix(line, prefix); ok {
 			return kind, strings.TrimSpace(p), true
@@ -177,7 +180,7 @@ func (sec *codexPatchSection) addLine(line string) {
 		if l, ok := strings.CutPrefix(line, "+"); ok {
 			sec.added = append(sec.added, l)
 		}
-	case sec.kind != "update":
+	case sec.kind != codexUpdate:
 	case strings.HasPrefix(line, "@@"):
 		sec.hunks = append(sec.hunks, codexHunk{context: strings.TrimSpace(strings.TrimPrefix(line, "@@"))})
 	default:

@@ -72,7 +72,8 @@ func editedFiles(kind string, in hookInput) []string {
 		var files []string
 		for _, line := range strings.Split(in.Input.Command, "\n") {
 			line = strings.TrimRight(line, "\r")
-			for _, prefix := range []string{"*** Update File: ", "*** Add File: ", "*** Delete File: ", "*** Move to: "} {
+			// The hook of an Update File section with Move to records the move.
+			for _, prefix := range []string{"*** Update File: ", "*** Add File: ", "*** Delete File: "} {
 				if p, ok := strings.CutPrefix(line, prefix); ok && strings.TrimSpace(p) != "" {
 					p = strings.TrimSpace(p)
 					if !filepath.IsAbs(p) {
@@ -344,6 +345,14 @@ func (h *editHook) after(stdout, stderr io.Writer, succeeded bool) {
 	if !succeeded {
 		return
 	}
+	if sec, ok := h.codexMove(p); ok {
+		if err := h.recordMove(p, sec); err != nil {
+			fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
+			return
+		}
+		h.protectAndAnnounce(stdout)
+		return
+	}
 	after, err := h.snapshot()
 	if err != nil {
 		fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
@@ -358,22 +367,80 @@ func (h *editHook) after(stdout, stderr io.Writer, succeeded bool) {
 	}
 	rec := EditRecord{Path: h.path, Before: before, After: after, Tool: h.in.Tool, Time: time.Now().UTC()}
 	if after != "" {
-		rec.Mode = h.fileMode()
+		rec.Mode = h.fileMode(h.path)
 	}
 	if err := writeRecord(h.stageDir, rec); err != nil {
 		fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
 		return
 	}
-	// Keep the recorded blobs reachable for garbage collection.
+	h.protectAndAnnounce(stdout)
+}
+
+// protectAndAnnounce keeps the recorded blobs reachable for garbage
+// collection, and tells the agent its stage.
+func (h *editHook) protectAndAnnounce(stdout io.Writer) {
 	if st, err := h.r.openStage(h.stage, false, 10*time.Second); err == nil {
 		st.Close()
 	}
 	h.announceStage(stdout)
 }
 
-// fileMode returns the index mode of the edited file on disk.
-func (h *editHook) fileMode() string {
-	if info, err := os.Stat(filepath.Join(h.r.Top, filepath.FromSlash(h.path))); err == nil &&
+// codexMove returns the Codex Update File section of the file when it
+// moves the file.
+func (h *editHook) codexMove(p pendingEdit) (codexPatchSection, bool) {
+	if h.in.Tool != toolApplyPatch || p.Before == "" {
+		return codexPatchSection{}, false
+	}
+	sec, ok := codexSection(h.in.Input.Command, h.in.Cwd, h.file)
+	return sec, ok && sec.kind == codexUpdate && sec.move != ""
+}
+
+// recordMove records a Codex Update File section with Move to: a move of
+// the file to the new path, then the section's change at the new path.
+func (h *editHook) recordMove(p pendingEdit, sec codexPatchSection) error {
+	target := sec.move
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(h.in.Cwd, target)
+	}
+	target = linkTarget(target)
+	newp, err := h.r.RepoPath(h.r.topSpelling(filepath.Dir(target), target))
+	if err != nil {
+		return err
+	}
+	after, err := h.movedContent(p, sec, newp)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	if err := writeRecord(h.stageDir, EditRecord{Path: newp, From: h.path, Tool: h.in.Tool, Time: now}); err != nil {
+		return err
+	}
+	if after == "" || after == p.Before {
+		return nil
+	}
+	rec := EditRecord{Path: newp, Before: p.Before, After: after, Mode: h.fileMode(newp), Tool: h.in.Tool, Time: now.Add(time.Nanosecond)}
+	return writeRecord(h.stageDir, rec)
+}
+
+// movedContent returns the blob of the moved file: the section's hunks
+// applied to the file before the call, or else the file at newp on disk.
+func (h *editHook) movedContent(p pendingEdit, sec codexPatchSection, newp string) (string, error) {
+	if p.Raw != "" {
+		if raw, err := h.r.catBlob(p.Raw); err == nil && !strings.Contains(string(raw), "\r") {
+			if out, ok := applyCodexHunks(string(raw), sec.hunks); ok {
+				return h.r.cleanContent(h.indexFile(), newp, []byte(out))
+			}
+		}
+	}
+	if !exists(h.r.diskPath(newp)) {
+		return "", nil
+	}
+	return h.r.snapshotBlob(h.indexFile(), newp)
+}
+
+// fileMode returns the index mode of the file p on disk.
+func (h *editHook) fileMode(p string) string {
+	if info, err := os.Stat(h.r.diskPath(p)); err == nil &&
 		info.Mode()&0o111 != 0 && h.r.configBool("core.fileMode", true) {
 		return "100755"
 	}

@@ -36,7 +36,8 @@ Commands:
   hunks [--cached] [<path>...] list hunks with IDs (default: unstaged changes)
   add <path>...                stage whole files
   add <path>... --hunk <id>... stage only the listed hunks
-  add --edits [<path>...]      stage the edits that the editor hook recorded
+  add --edits [<path>...] [--recreate <path>]...
+                               stage the edits that the editor hook recorded
   rm [-f] <path>...            delete files and stage their deletions
   mv <old> <new>               move a file and stage the move
   apply [-R] <patch>|-         apply a patch to this stage's index
@@ -473,6 +474,7 @@ var commandSpecs = map[string][]flagSpec{
 		{[]string{"--allow-shared"}, false},
 		{[]string{"--patch", "-p"}, false},
 		{[]string{"--edits"}, false},
+		{[]string{"--recreate"}, true},
 	},
 	"rm":      {{[]string{"--force", "-f"}, false}},
 	"mv":      nil,
@@ -691,6 +693,9 @@ func (a *app) add(l *Stage, p *parsed) error {
 	if p.has("--edits") {
 		return a.addEdits(l, p)
 	}
+	if p.has("--recreate") {
+		return usageErr("--recreate needs --edits")
+	}
 	if len(p.pos) == 0 {
 		return usageErr("usage: git multistage add <path>... [--hunk <id>...]")
 	}
@@ -720,7 +725,11 @@ func (a *app) addEdits(l *Stage, p *parsed) error {
 	if err != nil {
 		return err
 	}
-	staged, err := l.AddEdits(paths, p.has("--force"))
+	recreate, err := a.repo.repoPaths(p.vals["--recreate"])
+	if err != nil {
+		return err
+	}
+	staged, err := l.AddEdits(paths, p.has("--force"), recreate)
 	if err != nil {
 		return err
 	}

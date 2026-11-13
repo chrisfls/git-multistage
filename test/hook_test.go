@@ -382,6 +382,9 @@ func TestCodexHookMultiFilePatch(t *testing.T) {
 			t.Fatalf("commit lacks %q:\n%s", want, out)
 		}
 	}
+	if msg := r.git("log", "-1", "--format=%B"); !strings.Contains(msg, "Multistage-Moved: old.txt -> moved.txt") {
+		t.Fatalf("message:\n%s", msg)
+	}
 	r.checkClean()
 }
 

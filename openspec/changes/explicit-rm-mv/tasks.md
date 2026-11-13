@@ -15,8 +15,8 @@
 
 ## 3. Recorded edits
 
-- [ ] 3.1 Make `add --edits` follow moves and report `path-deleted`, and add `--recreate`. Verify: the scenarios of "Recorded edits follow moves and deletions" and "Recreate a deleted file from its records" pass.
-- [ ] 3.2 Record Codex `Delete File` and `Move to` as a deletion and a move, and stage them in `add --edits`. Verify: "Codex moves a file" passes with the `codex-*-apply-patch` fixtures extended by a `Move to` header.
+- [x] 3.1 Make `add --edits` follow moves and report `path-deleted`, and add `--recreate`. Verify: the scenarios of "Recorded edits follow moves and deletions" and "Recreate a deleted file from its records" pass.
+- [x] 3.2 Record Codex `Delete File` and `Move to` as a deletion and a move, and stage them in `add --edits`. Verify: "Codex moves a file" passes with the `codex-*-apply-patch` fixtures extended by a `Move to` header.
 
 ## 4. Agent guide and checks
 
