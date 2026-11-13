@@ -1,11 +1,18 @@
 ## ADDED Requirements
 
 ### Requirement: Delete files
-`rm <path>...` SHALL delete each file from the working tree and stage its deletion in the stage's own index. A file that is already gone from disk SHALL have its deletion staged. A path that the stage's index does not hold SHALL exit with code 1 and change nothing. An unstaged change on disk SHALL need `-f`; without it the command SHALL exit with code 5 and change nothing. `rm` SHALL forget the stage's recorded edits of the paths it deletes, including records that follow a move to those paths. An unchanged symbolic link SHALL need no `-f`.
+`rm <path>...` SHALL delete each file from the working tree and stage its deletion in the stage's own index. A file that is already gone from disk SHALL have its deletion staged. A path that the stage's index does not hold SHALL exit with code 1 and change nothing. An unstaged change on disk SHALL need `-f`, and an unchanged symbolic link SHALL not; without it the command SHALL exit with code 5 and change nothing.
+
+#### Scenario: Unchanged symbolic link
+- **WHEN** `link` is a committed symbolic link that is unchanged on disk, and stage `a` runs `rm link`
+- **THEN** `link` is gone from disk, and stage `a` holds its deletion
 
 #### Scenario: Path the stage does not hold
 - **WHEN** stage `a` ran `mv x.go y.go`, another agent then created a new `x.go`, and stage `a` runs `rm -f x.go`
 - **THEN** the command exits with code 1, and the new `x.go` stays on disk
+
+### Requirement: rm forgets recorded edits
+`rm` SHALL forget the stage's recorded edits of the paths it deletes, including records that follow a move to those paths.
 
 #### Scenario: Recorded edits of a deleted file
 - **WHEN** stage `a` recorded an edit of `x.go`, runs `rm -f x.go`, then `add --edits`
@@ -28,15 +35,22 @@
 - **THEN** the command exits with code 5, and the file and the stage are unchanged
 
 ### Requirement: Finish an interrupted rm or mv
-When `rm` or `mv` stops after it changed the stage and before it finished the disk change, running the same command again SHALL finish the disk change of that command and change nothing else, also after other `rm` or `mv` commands ran in between, and with the paths spelled in another case on a case-insensitive file system. When the stage no longer holds that change, such as after `restore --staged`, the command SHALL run as new. It SHALL NOT delete or overwrite a file that another writer created at one of its paths in between.
+When `rm` or `mv` stops after it changed the stage and before it finished the disk change, running the same command again SHALL finish the disk change of that command and change nothing else, also after other `rm` or `mv` commands ran in between. It SHALL NOT delete or overwrite a file that another writer created at one of its paths in between.
 
-#### Scenario: Rerun after a restore
-- **WHEN** `mv x.go y.go` stopped before it moved the file on disk, stage `a` runs `restore --staged x.go y.go`, then `mv x.go y.go`
-- **THEN** stage `a` holds the move, and `y.go` is on disk in place of `x.go`
+#### Scenario: Rerun in another case
+- **WHEN** `core.ignoreCase` is set, the index holds `README.md`, `rm readme.md` stopped before it deleted the file, and stage `a` runs `rm readme.md` again
+- **THEN** `README.md` is gone from disk
 
 #### Scenario: Crash during a chained move
 - **WHEN** stage `a` ran `mv x.go y.go`, then `mv y.go z.go` stopped before it moved the file on disk, and stage `a` runs `mv y.go z.go` again
 - **THEN** `z.go` is on disk in place of `y.go`, and stage `a` holds the move of `x.go` to `z.go`
+
+### Requirement: Rerun after the change is gone
+When the stage no longer holds the change of an interrupted `rm` or `mv`, such as after `restore --staged`, running the command again SHALL run it as new.
+
+#### Scenario: Rerun after a restore
+- **WHEN** `mv x.go y.go` stopped before it moved the file on disk, stage `a` runs `restore --staged x.go y.go`, then `mv x.go y.go`
+- **THEN** stage `a` holds the move, and `y.go` is on disk in place of `x.go`
 
 ### Requirement: Move files
 `mv <old> <new>` SHALL move the file in the working tree and stage the move in the stage's own index, with the content that the stage holds for `<old>`. When `<old>` is already gone from disk and `<new>` exists, it SHALL stage the move without touching the disk. The stage SHALL remember the move until it is committed or either path is restored.
