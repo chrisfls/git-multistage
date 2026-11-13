@@ -113,9 +113,10 @@ type Meta struct {
 	AppliedEdits []string `json:"applied_edits,omitempty"`
 	// Moves are the moves that the index stages, made with `mv`, oldest first.
 	Moves []Move `json:"moves,omitempty"`
-	// PendingDisk is the disk change of an rm or mv whose stage change is
-	// adopted; a rerun of the same command finishes it.
-	PendingDisk *DiskChange `json:"pending_disk,omitempty"`
+	// PendingDisk are the disk changes of the rm and mv commands whose
+	// stage change is adopted, one per command; a rerun of the same command
+	// finishes its change while the stage's index still shows it.
+	PendingDisk []DiskChange `json:"pending_disk,omitempty"`
 }
 
 // DiskChange is the working-tree change of one rm or mv.

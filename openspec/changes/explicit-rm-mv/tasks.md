@@ -36,7 +36,7 @@
 ## 6. Second review fixes
 
 - [x] 6.1 Journal the raw bytes of each path (`hash-object --no-filters`) and compare them at the finish. Verify: "File with CRLF line endings" passes for `rm` and `mv` under `core.autocrlf=true` and under `* text=auto`.
-- [ ] 6.2 Keep one journal entry per command, honour an entry only while the stage's index still shows its change, and make the first `mv` roll the stage back when the target appeared after the check. Verify: "Rerun after a restore" passes for `mv` and `rm`, a crashed `rm a.go` finishes after an `rm b.go`, and a target that appears after the check leaves the stage unchanged.
+- [x] 6.2 Keep one journal entry per command, honour an entry only while the stage's index still shows its change, and make the first `mv` roll the stage back when the target appeared after the check. Verify: "Rerun after a restore" passes for `mv` and `rm`, a crashed `rm a.go` finishes after an `rm b.go`, and a target that appears after the check leaves the stage unchanged.
 - [ ] 6.3 Map followed record paths through the stage's own moves and deletions, and follow tip-less records through the commits dated after them. Verify: "Own move after a followed move" passes, `rm -f` of a followed path does not block other records, and a record without a tip follows a pure rename.
 - [ ] 6.4 Rename case-only paths in one call on macOS, and journal the temporary name elsewhere. Verify: "Case-only rename" passes, and a rerun after a stop between the two renames finishes the move.
 - [ ] 6.5 Quote trailer paths that hold `->` or start or end with whitespace. Verify: "Path with surrounding spaces" passes, and paths ending in ` ->` round-trip.

@@ -22,6 +22,8 @@ import (
 const (
 	cmdRm = "rm"
 	cmdMv = "mv"
+
+	kindPathExists = "path-exists"
 )
 
 // diskPath returns the working-tree path of the repository path p.
@@ -31,8 +33,12 @@ func (r *Repo) diskPath(p string) string { return filepath.Join(r.Top, filepath.
 // then deletes the files from the working tree. A file that differs from the
 // stage's index needs force.
 func (l *Stage) RemovePaths(paths []string, force bool) error {
-	if l.pendingDisk(cmdRm, paths) {
-		return l.finishDisk()
+	i, err := l.pendingDisk(cmdRm, paths)
+	if err != nil || i >= 0 {
+		if err != nil {
+			return err
+		}
+		return l.finishPending(i)
 	}
 	if err := l.canonicalPaths(paths); err != nil {
 		return err
@@ -43,7 +49,7 @@ func (l *Stage) RemovePaths(paths []string, force bool) error {
 	}
 	moves, pending := l.M.Moves, l.M.PendingDisk
 	l.M.Moves = dropMoves(moves, paths)
-	l.M.PendingDisk = &DiskChange{Command: cmdRm, Paths: paths, Blobs: blobs}
+	l.M.PendingDisk = append(slices.Clone(pending), DiskChange{Command: cmdRm, Paths: paths, Blobs: blobs})
 	err = l.withNewIndex(func(idx string) error {
 		_, err := l.r.Run(gitx.Opt{Index: idx}, append([]string{"update-index", "--force-remove", "--"}, paths...)...)
 		return err
@@ -52,36 +58,87 @@ func (l *Stage) RemovePaths(paths []string, force bool) error {
 		l.M.Moves, l.M.PendingDisk = moves, pending
 		return err
 	}
-	return l.finishDisk()
+	return l.finishDisk(len(l.M.PendingDisk) - 1)
 }
 
-// pendingDisk reports whether the stage's pending disk change is the one of
-// the command with paths.
-func (l *Stage) pendingDisk(command string, paths []string) bool {
-	d := l.M.PendingDisk
-	return d != nil && d.Command == command && slices.Equal(d.Paths, paths)
-}
-
-// finishDisk makes the stage's pending disk change, then forgets it. It
-// changes only a path that still holds the expected blob, so it never
-// deletes or overwrites what another writer wrote since.
-func (l *Stage) finishDisk() error {
-	d := l.M.PendingDisk
-	var err error
-	if d.Command == cmdRm {
-		_, err = l.DropEdits(d.Paths)
-	} else {
-		err = l.moveRecords(d.Paths[0], d.Paths[1])
+// pendingDisk drops the stage's pending disk changes whose change the
+// stage's index no longer shows, and returns the position of the one of the
+// command with paths; -1 when there is none.
+func (l *Stage) pendingDisk(command string, paths []string) (int, error) {
+	var kept []DiskChange
+	found := -1
+	for _, d := range l.M.PendingDisk {
+		shown, err := l.showsChange(d)
+		if err != nil {
+			return -1, err
+		}
+		if !shown {
+			continue
+		}
+		if d.Command == command && slices.Equal(d.Paths, paths) {
+			found = len(kept)
+		}
+		kept = append(kept, d)
 	}
-	if err != nil {
-		return err
+	l.M.PendingDisk = kept
+	return found, nil
+}
+
+// showsChange reports whether the stage's index still shows the change of
+// d: for rm, each path absent; for mv, the old path absent and the new
+// path present.
+func (l *Stage) showsChange(d DiskChange) (bool, error) {
+	for i, p := range d.Paths {
+		_, held, err := l.r.lsIndex(l.IndexPath(), p)
+		if err != nil {
+			return false, err
+		}
+		if want := d.Command == cmdMv && i == 1; held != want {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// errTargetExists is the error of a move whose target appeared on disk
+// after the check.
+var errTargetExists = errors.New("the target of the move exists")
+
+// finishPending finishes the pending disk change at position i for a rerun
+// of its command. When the target of a move appeared since, the stage keeps
+// the move.
+func (l *Stage) finishPending(i int) error {
+	newp := l.M.PendingDisk[i].Paths[len(l.M.PendingDisk[i].Paths)-1]
+	err := l.finishDisk(i)
+	if errors.Is(err, errTargetExists) {
+		return &Error{
+			Code: ExitRefused, Kind: kindPathExists,
+			Message: newp + " already exists in the working tree; the file was not moved", Paths: []string{newp},
+			Hint: "the stage holds the move; move or delete " + newp + ", then run the command again",
+		}
+	}
+	return err
+}
+
+// finishDisk makes the pending disk change at position i, then forgets it.
+// It changes only a path that still holds the expected bytes, so it never
+// deletes or overwrites what another writer wrote since. A move makes the
+// recorded edits of its old path follow it after the disk change, so a move
+// whose target appeared changes no record.
+func (l *Stage) finishDisk(i int) error {
+	d := l.M.PendingDisk[i]
+	if d.Command == cmdRm {
+		if _, err := l.DropEdits(d.Paths); err != nil {
+			return err
+		}
 	}
 	fault("before-disk-write")
 	var kept []string
+	var err error
 	if d.Command == cmdRm {
 		kept, err = l.removeFiles(d)
-	} else {
-		kept, err = l.moveFile(d)
+	} else if kept, err = l.moveFile(d); err == nil {
+		err = l.moveRecords(d.Paths[0], d.Paths[1])
 	}
 	if err != nil {
 		return err
@@ -89,13 +146,13 @@ func (l *Stage) finishDisk() error {
 	if len(kept) > 0 {
 		l.warn("left %s on disk: another writer changed it since the stage changed", strings.Join(kept, ", "))
 	}
-	l.M.PendingDisk = nil
+	l.M.PendingDisk = slices.Delete(l.M.PendingDisk, i, i+1)
 	return l.save()
 }
 
 // removeFiles deletes the files of d that hold their expected blob, and
 // returns the paths that it kept.
-func (l *Stage) removeFiles(d *DiskChange) ([]string, error) {
+func (l *Stage) removeFiles(d DiskChange) ([]string, error) {
 	var kept []string
 	for i, p := range d.Paths {
 		blob, err := l.r.rawBlob(p)
@@ -114,9 +171,10 @@ func (l *Stage) removeFiles(d *DiskChange) ([]string, error) {
 	return kept, nil
 }
 
-// moveFile moves the file of d when the old path holds its expected blob,
-// and returns the old path when another writer changed it.
-func (l *Stage) moveFile(d *DiskChange) ([]string, error) {
+// moveFile moves the file of d when the old path holds its expected bytes,
+// and returns the old path when another writer changed it. It fails with
+// errTargetExists when the new path exists.
+func (l *Stage) moveFile(d DiskChange) ([]string, error) {
 	oldp, newp := d.Paths[0], d.Paths[1]
 	if d.Blobs[0] == "" {
 		return nil, nil // the disk showed the move already
@@ -131,13 +189,10 @@ func (l *Stage) moveFile(d *DiskChange) ([]string, error) {
 	if err := os.MkdirAll(filepath.Dir(l.r.diskPath(newp)), 0o777); err != nil {
 		return nil, err
 	}
+	testPause("before-rename")
 	err = l.r.renameFile(oldp, newp)
 	if errors.Is(err, fs.ErrExist) {
-		return nil, &Error{
-			Code: ExitRefused, Kind: "path-exists",
-			Message: newp + " already exists in the working tree; the file was not moved", Paths: []string{newp},
-			Hint: "the stage holds the move; move or delete " + newp + ", then run the command again",
-		}
+		return nil, errTargetExists
 	}
 	return nil, err
 }
@@ -273,10 +328,13 @@ func (r *Repo) diskDiffers(idx, p string, entry indexEntry) (bool, error) {
 // file in the working tree. When the disk already shows the move, the disk
 // is left alone.
 func (l *Stage) MovePath(oldp, newp string) error {
-	if l.pendingDisk(cmdMv, []string{oldp, newp}) {
-		return l.finishDisk()
+	i, err := l.pendingDisk(cmdMv, []string{oldp, newp})
+	if err != nil || i >= 0 {
+		if err != nil {
+			return err
+		}
+		return l.finishPending(i)
 	}
-	var err error
 	if oldp, err = l.canonical(oldp); err != nil {
 		return err
 	}
@@ -299,18 +357,33 @@ func (l *Stage) MovePath(oldp, newp string) error {
 	}
 	moves, pending := l.M.Moves, l.M.PendingDisk
 	l.M.Moves = addMove(moves, oldp, newp)
-	l.M.PendingDisk = &DiskChange{Command: cmdMv, Paths: []string{oldp, newp}, Blobs: []string{blob, ""}}
-	err = l.withNewIndex(func(idx string) error {
-		if _, err := l.r.Run(gitx.Opt{Index: idx}, "update-index", "--force-remove", "--", oldp); err != nil {
-			return err
-		}
-		return l.r.setIndexBlob(idx, newp, entry.mode, entry.oid)
-	})
-	if err != nil {
+	l.M.PendingDisk = append(slices.Clone(pending), DiskChange{Command: cmdMv, Paths: []string{oldp, newp}, Blobs: []string{blob, ""}})
+	if err := l.withNewIndex(func(idx string) error { return l.r.indexMove(idx, oldp, newp, entry) }); err != nil {
 		l.M.Moves, l.M.PendingDisk = moves, pending
 		return err
 	}
-	return l.finishDisk()
+	if err := l.finishDisk(len(l.M.PendingDisk) - 1); !errors.Is(err, errTargetExists) {
+		return err
+	}
+	// A file appeared at newp after the check: restore the stage's previous
+	// index and metadata, so the command changes nothing.
+	l.M.Moves, l.M.PendingDisk = moves, pending
+	if err := l.withNewIndex(func(idx string) error { return l.r.indexMove(idx, newp, oldp, entry) }); err != nil {
+		return err
+	}
+	return &Error{
+		Code: ExitRefused, Kind: kindPathExists,
+		Message: newp + " already exists in the working tree; nothing was moved", Paths: []string{newp},
+	}
+}
+
+// indexMove moves the entry of oldp in the index file idx to newp, with the
+// mode and blob of entry.
+func (r *Repo) indexMove(idx, oldp, newp string, entry indexEntry) error {
+	if _, err := r.Run(gitx.Opt{Index: idx}, "update-index", "--force-remove", "--", oldp); err != nil {
+		return err
+	}
+	return r.setIndexBlob(idx, newp, entry.mode, entry.oid)
 }
 
 // checkMoveIndex returns the stage's entry of oldp, and checks that the
@@ -332,7 +405,7 @@ func (l *Stage) checkMoveIndex(oldp, newp string) (indexEntry, error) {
 		}
 	case newInIndex:
 		return entry, &Error{
-			Code: ExitRefused, Kind: "path-exists",
+			Code: ExitRefused, Kind: kindPathExists,
 			Message: "the stage's index already holds " + newp + "; nothing was moved", Paths: []string{newp},
 		}
 	}
@@ -346,7 +419,7 @@ func (r *Repo) checkMoveDisk(oldp, newp string) (bool, error) {
 	switch {
 	case oldOnDisk && newOnDisk && !r.caseOnly(oldp, newp):
 		return false, &Error{
-			Code: ExitRefused, Kind: "path-exists",
+			Code: ExitRefused, Kind: kindPathExists,
 			Message: newp + " already exists in the working tree; nothing was moved", Paths: []string{newp},
 		}
 	case !oldOnDisk && !newOnDisk:

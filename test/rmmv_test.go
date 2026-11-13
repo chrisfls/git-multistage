@@ -2,7 +2,9 @@ package test
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -444,5 +446,87 @@ func TestRmAndMvOfAFileWithCRLFLineEndings(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestRmAndMvRunAsNewAfterARestore(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		args    []string
+		restore []string
+	}{
+		{"mv", []string{"mv", "x.go", "y.go"}, []string{"x.go", "y.go"}},
+		{"rm", []string{"rm", "x.go"}, []string{"x.go"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := committedRepo(t, map[string]string{"x.go": "x\n"})
+			if res := run(r.dir, "a", []string{"GIT_MULTISTAGE_FAULT=before-disk-write"}, tc.args...); res.code != 86 {
+				t.Fatalf("fault did not fire:\n%s", res)
+			}
+			r.mustMS("a", append([]string{"restore", "--staged"}, tc.restore...)...)
+			r.mustMS("a", tc.args...)
+			if !gone(t, r.path("x.go")) {
+				t.Fatal("the rerun left x.go")
+			}
+			if tc.name == "mv" && r.read("y.go") != "x\n" {
+				t.Fatal("the rerun did not move x.go")
+			}
+			if got := r.stagedPaths("a"); len(got) == 0 {
+				t.Fatal("stage a holds nothing")
+			}
+			if moves := r.stageMoves("a"); tc.name == "mv" && !eq(moves, []string{"x.go -> y.go"}) {
+				t.Fatalf("moves %v", moves)
+			}
+		})
+	}
+}
+
+func TestRmFinishesACrashAfterAnotherRm(t *testing.T) {
+	r := committedRepo(t, map[string]string{"a.go": "a\n", "b.go": "b\n"})
+	if res := run(r.dir, "a", []string{"GIT_MULTISTAGE_FAULT=before-disk-write"}, "rm", "a.go"); res.code != 86 {
+		t.Fatalf("fault did not fire:\n%s", res)
+	}
+	r.mustMS("a", "rm", "b.go")
+	if gone(t, r.path("a.go")) || !gone(t, r.path("b.go")) {
+		t.Fatal("rm b.go did not delete only b.go")
+	}
+	r.mustMS("a", "rm", "a.go")
+	if !gone(t, r.path("a.go")) {
+		t.Fatal("the rerun left a.go")
+	}
+	if got := r.stagedStatus("a"); !eq(got, []string{"D a.go", "D b.go"}) {
+		t.Fatalf("stage a holds %v", got)
+	}
+}
+
+func TestMvChangesNothingWhenTheTargetAppearsAfterTheCheck(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": "x\n"})
+	r.mustMS("a", "status")
+	pauses := t.TempDir()
+	at := filepath.Join(pauses, "before-rename")
+	cmd, out := r.startPaused(pauses, []string{"before-rename"}, "--stage", "a", "mv", "x.go", "y.go", "--json")
+	waitPause(t, at)
+	r.write("y.go", "another writer\n")
+	resume(t, at)
+	err := cmd.Wait()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 5 {
+		t.Fatalf("mv: %v\n%s", err, out)
+	}
+	if !strings.Contains(out.String(), `"path-exists"`) || r.read("x.go") != "x\n" || r.read("y.go") != "another writer\n" {
+		t.Fatalf("no path-exists, or a file changed:\n%s", out)
+	}
+	if got := r.stagedStatus("a"); len(got) != 0 {
+		t.Fatalf("stage a holds %v", got)
+	}
+	if got := r.stageMoves("a"); len(got) != 0 {
+		t.Fatalf("moves %v", got)
+	}
+	if err := os.Remove(r.path("y.go")); err != nil {
+		t.Fatal(err)
+	}
+	r.mustMS("a", "mv", "x.go", "y.go")
+	if !gone(t, r.path("x.go")) || r.read("y.go") != "x\n" {
+		t.Fatal("a later mv did not move the file")
 	}
 }
