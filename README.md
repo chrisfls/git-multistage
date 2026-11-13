@@ -220,35 +220,21 @@ Codex asks you to trust the plugin's hooks the next time it starts. Its default 
 prefix_rule(pattern = ["git", "multistage"], decision = "allow")
 ```
 
-This rule also lets the agent run commands that discard work, such as `drop --force`, without asking. To allow single commands instead, use `pattern = ["git", "multistage", "add"]` and similar lines.
+This rule also lets the agent run commands that discard staged changes, such as `drop --force`, without asking. To allow single commands instead, use `pattern = ["git", "multistage", "add"]` and similar lines.
 
 ## Specs
 
-The behavior of every command is specified in [openspec/specs/](openspec/specs/), one spec for each capability:
-
-- [Stages](openspec/specs/stages/spec.md): stage IDs, creation, deletion, and keeping a stage current.
-- [Staging](openspec/specs/staging/spec.md): files, hunks, patches, and inspecting a stage.
-- [Commit](openspec/specs/commit/spec.md): concurrent commits, refusals, messages, and Git hooks.
-- [Default-index sync](openspec/specs/default-index-sync/spec.md): keeping `git status` correct.
-- [Crash recovery](openspec/specs/crash-recovery/spec.md): interrupted commands, locks, and garbage collection.
-- [Editor hooks](openspec/specs/editor-hooks/spec.md): recorded edits for Claude Code and Codex.
-- [Agent stage detection](openspec/specs/agent-stage-detection/spec.md): `--agentic`.
-- [CLI](openspec/specs/cli/spec.md): exit codes, JSON output, supported setups, and `doctor`.
-- [Agent plugins](openspec/specs/agent-plugins/spec.md): the Claude Code and Codex plugins.
-- [Releases](openspec/specs/releases/spec.md): the prebuilt binaries and the tag workflow that publishes them.
-- [Local checks](openspec/specs/local-checks/spec.md): `mise run ci` and the workflows that run on GitHub.
+[openspec/specs/](openspec/specs/) specifies the behavior of every command, one spec for each capability: stages, staging, commits, crash recovery, the agent hooks and plugins, the CLI, releases, and the local checks.
 
 ## Contributing
 
-[RuleSync](https://github.com/dyoshikawa/rulesync) generates `AGENTS.md` and each coding agent's skills from `.rulesync/` and [rulesync.jsonc](rulesync.jsonc). A fresh clone has neither until you install RuleSync, such as with `brew install rulesync`, and run:
+[RuleSync](https://github.com/dyoshikawa/rulesync) generates `AGENTS.md` and each agent's skills, so a fresh clone has neither. Install RuleSync, such as with `brew install rulesync`, and run:
 
 ```bash
 rulesync install && rulesync generate
 ```
 
-Every change starts as an [OpenSpec](https://openspec.dev) change in `openspec/changes/`, as `AGENTS.md` describes.
-
-[mise](https://mise.jdx.dev) installs the Go, golangci-lint, `act`, and OpenSpec versions that [mise.toml](mise.toml) pins, the same ones the manual CI workflow uses:
+Every change starts as an [OpenSpec](https://openspec.dev) change in `openspec/changes/`, as `AGENTS.md` describes. [mise](https://mise.jdx.dev) installs the tool versions that [mise.toml](mise.toml) pins:
 
 ```bash
 mise install
@@ -256,7 +242,7 @@ mise run ci          # format, lint, vet, tests, and OpenSpec validation; run it
 mise run ci:stress   # repeat the concurrency and crash tests
 ```
 
-The tests run real Git in temporary repositories. No workflow runs on push or pull request: the CI workflow starts by hand from the Actions tab and tests on Linux, macOS, and Windows. To run its Linux job locally, run `act` with a Docker engine, such as Docker Desktop, OrbStack, Colima, or Podman.
+The CI workflow runs only when started from the Actions tab, and tests on Linux, macOS, and Windows. `act` runs its Linux job locally with a Docker engine.
 
 ## License
 

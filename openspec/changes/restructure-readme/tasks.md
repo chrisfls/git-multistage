@@ -7,7 +7,7 @@
 - [x] 1.3 Install: lead with the mise command, move the other ways under "Other ways", and show the release archive steps
 - [x] 1.4 Quick start: add the two-command example, move the hunk walkthrough into "Stage part of a file", and reword the `init` sentence
 - [x] 1.5 Coding agents: split what the plugin does from what the agent does, reword the opening sentence, shorten the Codex rule, and state the `drop --force` risk
-- [ ] 1.6 Specs and Contributing: replace the spec list with one link, and shorten the RuleSync and CI prose
+- [x] 1.6 Specs and Contributing: replace the spec list with one link, and shorten the RuleSync and CI prose
 
 ## 2. Check
 
