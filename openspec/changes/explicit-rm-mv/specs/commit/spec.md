@@ -1,7 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Move trailers
-A commit whose staged change holds moves made with `mv` SHALL end its message with one `Multistage-Moved: <old> -> <new>` trailer for each move. A path that holds `->`, a double quote, a backslash, or a control character, or that starts or ends with whitespace, SHALL be written in double quotes with C-style escapes, as `git diff` quotes paths. The moves of one commit's trailers SHALL take effect at the same time.
+A commit whose staged change holds moves made with `mv` SHALL end its message with one `Multistage-Moved: <old> -> <new>` trailer for each move. A path that holds `->`, a double quote, a backslash, or a control character, or that starts or ends with whitespace, SHALL be written in double quotes with C-style escapes, as `git diff` quotes paths. The moves of one commit's trailers SHALL take effect at the same time. A move whose new path the commit adds with `--recreate` SHALL get no trailer.
+
+#### Scenario: Recreated move
+- **WHEN** stage `a` staged `mv x.go y.go`, stage `b` committed `rm x.go`, and stage `a` runs `commit --recreate y.go`
+- **THEN** the commit carries no `Multistage-Moved` trailer for `x.go`, and another stage's later commit of `x.go` fails with `path-deleted`
 
 #### Scenario: Path with an arrow
 - **WHEN** stage `a` runs `mv "p -> q.go" r.go` and commits
