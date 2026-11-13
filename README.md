@@ -4,7 +4,7 @@
 
 git-multistage lets several agents commit from the same Git checkout at the same time.
 
-Each agent gets its own staging area. It commits without waiting for the others, and its commits contain only its own changes. It works without agents too, for example to keep two unrelated changes apart.
+Each agent gets its own staging area. Each agent can commit its changes independently, and its commits contain only its own changes. It works without agents too, for example to keep two unrelated changes apart.
 
 It runs as `git multistage` and writes normal Git history.
 
@@ -90,7 +90,7 @@ git multistage --stage fix-login add src/login.ts
 git multistage --stage fix-login commit -m "Honor returnTo after login"
 ```
 
-The first command creates the stage `fix-login`. The commit holds only what `fix-login` staged. Other changes in the checkout stay in the working tree, or in their own stages.
+The first command creates the stage `fix-login`. The commit contains only changes staged under `fix-login`. Other changes in the checkout stay in the working tree, or in their own stages.
 
 ### Stage part of a file
 
@@ -165,7 +165,7 @@ git multistage --stage <id> commit -m "Add input validation"
 
 `add --edits` stages only the lines that the agent itself changed, even when another agent changed the next line. If another writer overwrote those lines, it stages nothing and fails with `edit-lost`.
 
-The plugin calls the `git-multistage` binary, so [install it](#install) first: the hooks print an error while the binary is not on your `PATH`.
+The plugin calls the `git-multistage` binary, so [install it](#install) first: the hooks report an error while the binary is not on your `PATH`.
 
 Claude Code:
 
@@ -181,7 +181,7 @@ codex plugin marketplace add chrisfls/git-multistage
 codex plugin add git-multistage@git-multistage
 ```
 
-Codex asks you to trust the plugin's hooks the next time it starts. Its default sandbox makes `.git` read-only, so `git multistage` fails there, as `git commit` does. A rule lets Codex run it outside the sandbox. Add it to `.codex/rules/multistage.rules` in a trusted project, or to a file in `~/.codex/rules/`:
+Codex asks you to trust the plugin's hooks the next time it starts. Its default sandbox makes `.git` read-only, so `git multistage` needs a rule to run outside it. Add the rule to `.codex/rules/multistage.rules` in a trusted project, or to a file in `~/.codex/rules/`:
 
 ```python
 prefix_rule(pattern = ["git", "multistage"], decision = "allow")
