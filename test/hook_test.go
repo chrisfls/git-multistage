@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
+	"time"
 )
 
 // hookCall runs `git multistage hook claude` with a Claude Code-style input.
@@ -94,40 +94,34 @@ func TestHookRecordsNewAndDeletedFiles(t *testing.T) {
 	r.checkClean()
 }
 
-func TestHookLeaseBlocksASecondWriter(t *testing.T) {
+// TestHookEditsOfOneFileDoNotWait has two agents edit one file at the same
+// time; neither hook waits, and each record holds only its own change.
+func TestHookEditsOfOneFileDoNotWait(t *testing.T) {
 	r := newRepo(t)
-	file := r.path("README")
-	short := "GIT_MULTISTAGE_LEASE_TIMEOUT_MS=200"
-	if res := r.hookCall("PreToolUse", "Edit", "a", "", file); res.code != 0 {
-		t.Fatalf("first writer:\n%s", res)
+	r.write("f.txt", "1\n2\n3\n4\n5\n6\n7\n8\n9\n")
+	r.git("add", "f.txt")
+	r.git("commit", "-q", "-m", "f")
+	file := r.path("f.txt")
+	orig := r.read("f.txt")
+	start := time.Now()
+	r.claudeEditCall("PreToolUse", "a", file, "", "2\n", "TWO\n")
+	r.claudeEditCall("PreToolUse", "b", file, "", "8\n", "EIGHT\n")
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("the PreToolUse hooks took %v", d)
 	}
-	res := r.hookCall("PreToolUse", "Edit", "b", "", file, short)
-	if res.code != 2 || !strings.Contains(res.err, "claude-a") {
-		t.Fatalf("second writer was not blocked:\n%s", res)
+	r.write("f.txt", "1\nTWO\n3\n4\n5\n6\n7\n8\n9\n")
+	r.write("f.txt", "1\nTWO\n3\n4\n5\n6\n7\nEIGHT\n9\n")
+	r.claudeEditCall("PostToolUse", "b", file, "1\nTWO\n3\n4\n5\n6\n7\n8\n9\n", "8\n", "EIGHT\n")
+	r.claudeEditCall("PostToolUse", "a", file, orig, "2\n", "TWO\n")
+	r.mustMS("", "--stage", "claude-a", "add", "--edits")
+	r.mustMS("", "--stage", "claude-a", "commit", "-m", "a")
+	if got := r.git("show", "main:f.txt"); got != "1\nTWO\n3\n4\n5\n6\n7\n8\n9\n" {
+		t.Fatalf("a committed %q", got)
 	}
-	r.write("README", "edited by a\n")
-	r.hookCall("PostToolUse", "Edit", "a", "", file)
-	if res := r.hookCall("PreToolUse", "Edit", "b", "", file, short); res.code != 0 {
-		t.Fatalf("second writer after release:\n%s", res)
-	}
-}
-
-func TestHookWaitsForTheLease(t *testing.T) {
-	r := newRepo(t)
-	file := r.path("README")
-	r.hookCall("PreToolUse", "Edit", "a", "", file)
-	var wg sync.WaitGroup
-	var b result
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		b = r.hookCall("PreToolUse", "Edit", "b", "", file)
-	}()
-	r.write("README", "a\n")
-	r.hookCall("PostToolUse", "Edit", "a", "", file)
-	wg.Wait()
-	if b.code != 0 {
-		t.Fatalf("the waiting writer failed:\n%s", b)
+	r.mustMS("", "--stage", "claude-b", "add", "--edits")
+	r.mustMS("", "--stage", "claude-b", "commit", "-m", "b")
+	if got := r.git("show", "main:f.txt"); got != "1\nTWO\n3\n4\n5\n6\n7\nEIGHT\n9\n" {
+		t.Fatalf("b committed %q", got)
 	}
 }
 

@@ -1,7 +1,6 @@
 package ms
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,29 +10,20 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
-	"github.com/chrisfls/git-multistage/internal/filelock"
 	"github.com/chrisfls/git-multistage/internal/gitx"
 )
 
 // `git multistage hook claude` runs as a Claude Code PreToolUse and
 // PostToolUse hook on the file tools, and `git multistage hook codex` as a
-// Codex hook on apply_patch. Before an edit it takes a short lease
-// on the file, so that two hooked agents never write one file at the same
-// moment, and snapshots the file. After the edit it records the before and
-// after content in the editing agent's stage. A hook error never blocks the
-// edit; only a lease that another stage keeps holding does.
+// Codex hook on apply_patch. Before an edit it snapshots the file. After the
+// edit it records the tool call's own change in the editing agent's stage,
+// without locking the file. A hook error never blocks the edit.
 
 // toolApplyPatch is the Codex file tool.
 const toolApplyPatch = "apply_patch"
-
-const (
-	leaseTTL     = 15 * time.Second
-	leaseTimeout = 20 * time.Second
-)
 
 // hookInput is the part of a Claude Code or Codex hook input that the hook
 // reads. Both put the editing subagent's ID in agent_id.
@@ -101,20 +91,10 @@ type pendingEdit struct {
 	Path   string `json:"path"`
 	Before string `json:"before,omitempty"`
 	Raw    string `json:"raw,omitempty"` // Codex: the file's bytes before the call, unfiltered
-	Nonce  string `json:"nonce"`
-	// TookOver is set when the lease was taken from another stage whose
-	// lease expired unreleased: that stage's edit may still land.
-	TookOver bool `json:"took_over,omitempty"`
 }
 
-type lease struct {
-	Stage   string `json:"stage"`
-	Nonce   string `json:"nonce"`
-	Expires int64  `json:"expires"` // Unix milliseconds
-}
-
-// runEditHook handles one hook call. It returns the exit code for Claude
-// Code: 0 lets the edit proceed, 2 blocks it with the stderr message.
+// runEditHook handles one hook call. It always returns 0, which lets the
+// edit proceed.
 func runEditHook(kind string, stdin io.Reader, stdout, stderr io.Writer, stageFlag string) int {
 	var in hookInput
 	if err := json.NewDecoder(stdin).Decode(&in); err != nil {
@@ -160,9 +140,7 @@ func hookStageID(kind string, in hookInput, stageFlag string) string {
 	return id
 }
 
-// newEditHooks returns one hook for each edited file in a Git worktree,
-// sorted by lease file, so that two multi-file edits never wait for each
-// other's leases in a cycle.
+// newEditHooks returns one hook for each edited file in a Git worktree.
 func newEditHooks(in hookInput, id string, files []string, stderr io.Writer) []*editHook {
 	var hooks []*editHook
 	seen := map[string]bool{}
@@ -177,7 +155,6 @@ func newEditHooks(in hookInput, id string, files []string, stderr io.Writer) []*
 			hooks = append(hooks, h)
 		}
 	}
-	sort.Slice(hooks, func(i, j int) bool { return hooks[i].leasePath() < hooks[j].leasePath() })
 	return hooks
 }
 
@@ -186,13 +163,8 @@ func newEditHooks(in hookInput, id string, files []string, stderr io.Writer) []*
 func runEvent(event string, hooks []*editHook, stdout, stderr io.Writer) int {
 	switch event {
 	case "PreToolUse":
-		for i, h := range hooks {
-			if code := h.before(stderr); code != 0 {
-				for _, prev := range hooks[:i] {
-					prev.abandon()
-				}
-				return code
-			}
+		for _, h := range hooks {
+			h.before(stderr)
 		}
 	case "PostToolUse":
 		for _, h := range hooks {
@@ -249,7 +221,7 @@ func newEditHook(in hookInput, stage, file string) (*editHook, error) {
 		return nil, nil //nolint:nilerr // the file is outside the repository, so the hook records nothing
 	}
 	// On a case-insensitive file system, use the index's spelling, so that
-	// the lease and the record name one file whatever case the editor used.
+	// the record names one file whatever case the editor used.
 	if r.configBool("core.ignoreCase", false) {
 		out, err := r.Run(gitx.Opt{Env: []string{envLiteralPathspecs, "GIT_ICASE_PATHSPECS=1"}}, "ls-files", "-z", "--", rel)
 		if err == nil {
@@ -312,15 +284,6 @@ func (h *editHook) pendingPath() string {
 	return filepath.Join(editsDir(h.stageDir), "pending-"+h.key+".json")
 }
 
-func (h *editHook) leasePath() string {
-	key := h.path
-	if h.r.configBool("core.ignoreCase", false) {
-		key = strings.ToLower(key) // one file, whatever case the editor used
-	}
-	sum := sha256.Sum256([]byte(key))
-	return filepath.Join(h.r.Dir, "leases", hex.EncodeToString(sum[:8])+".json")
-}
-
 // snapshot stores the file's current content as a blob; "" when the file
 // does not exist.
 func (h *editHook) snapshot() (string, error) {
@@ -342,37 +305,27 @@ func (h *editHook) indexFile() string {
 	return h.r.IndexPath
 }
 
-func (h *editHook) before(stderr io.Writer) int {
-	nonce, holder, tookOver, err := h.takeLease()
-	if err != nil {
-		fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
-		return 0
-	}
-	if nonce == "" {
-		fmt.Fprintf(stderr, "%s is being edited by stage %s. Wait a moment and make the edit again.\n", h.path, holder)
-		return 2
-	}
+func (h *editHook) before(stderr io.Writer) {
 	before, err := h.snapshot()
 	if err != nil {
 		fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
-		return 0
+		return
 	}
 	var raw string
 	if before != "" && h.in.Tool == toolApplyPatch {
 		if raw, err = h.r.Line(gitx.Opt{}, "hash-object", "-w", "--no-filters", "--", h.path); err != nil {
 			fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
-			return 0
+			return
 		}
 	}
-	data, _ := json.Marshal(pendingEdit{Path: h.path, Before: before, Raw: raw, Nonce: nonce, TookOver: tookOver})
+	data, _ := json.Marshal(pendingEdit{Path: h.path, Before: before, Raw: raw})
 	if err := os.MkdirAll(editsDir(h.stageDir), 0o777); err != nil {
 		fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
-		return 0
+		return
 	}
 	if err := writeFileAtomic(h.pendingPath(), data); err != nil {
 		fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
 	}
-	return 0
 }
 
 func (h *editHook) after(stdout, stderr io.Writer, succeeded bool) {
@@ -388,18 +341,14 @@ func (h *editHook) after(stdout, stderr io.Writer, succeeded bool) {
 	if err := json.Unmarshal(data, &p); err != nil {
 		return
 	}
-	defer h.releaseLease(p.Nonce)
 	if !succeeded {
 		return
 	}
-	// Snapshot first: the lease must still be ours after the snapshot, or
-	// another writer may have changed the file before it.
 	after, err := h.snapshot()
 	if err != nil {
 		fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
 		return
 	}
-	held := h.leaseHeld(p.Nonce)
 	before := p.Before
 	if b, a, ok := h.ownChange(p); ok {
 		before, after = b, a
@@ -407,7 +356,7 @@ func (h *editHook) after(stdout, stderr io.Writer, succeeded bool) {
 	if after == before {
 		return
 	}
-	rec := EditRecord{Path: h.path, Before: before, After: after, Tool: h.in.Tool, Uncertain: !held || p.TookOver, Time: time.Now().UTC()}
+	rec := EditRecord{Path: h.path, Before: before, After: after, Tool: h.in.Tool, Time: time.Now().UTC()}
 	if after != "" {
 		rec.Mode = h.fileMode()
 	}
@@ -447,105 +396,6 @@ func (h *editHook) announceStage(stdout io.Writer) {
 		"hookEventName": "PostToolUse", "additionalContext": msg,
 	}})
 	fmt.Fprintln(stdout, string(out))
-}
-
-// abandon releases the lease and pending snapshot of a PreToolUse call
-// whose edit will not happen.
-func (h *editHook) abandon() {
-	data, err := os.ReadFile(h.pendingPath())
-	if err != nil {
-		return
-	}
-	_ = os.Remove(h.pendingPath())
-	var p pendingEdit
-	if json.Unmarshal(data, &p) == nil {
-		h.releaseLease(p.Nonce)
-	}
-}
-
-// withLeaseFile runs f while holding the guard lock of the file's lease.
-func (h *editHook) withLeaseFile(f func(cur *lease) (*lease, error)) error {
-	path := h.leasePath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
-		return err
-	}
-	guard, err := filelock.Acquire(path+".lock", 5*time.Second)
-	if err != nil {
-		return err
-	}
-	defer guard.Release()
-	var cur *lease
-	if data, err := os.ReadFile(path); err == nil {
-		var l lease
-		if json.Unmarshal(data, &l) == nil {
-			cur = &l
-		}
-	}
-	next, err := f(cur)
-	if err != nil {
-		return err
-	}
-	switch {
-	case next == cur:
-		return nil
-	case next == nil:
-		return os.Remove(path)
-	case next != nil:
-		data, _ := json.Marshal(next)
-		return writeFileAtomic(path, data)
-	}
-	return nil
-}
-
-// takeLease waits until no other stage holds the file, then takes it. It
-// returns an empty nonce, and the holder, when the wait times out. tookOver
-// reports that another stage's lease expired without a release.
-func (h *editHook) takeLease() (nonce, holder string, tookOver bool, err error) {
-	b := make([]byte, 8)
-	_, _ = rand.Read(b)
-	mine := hex.EncodeToString(b)
-	deadline := time.Now().Add(testLeaseTimeout(leaseTimeout))
-	for {
-		taken := false
-		err := h.withLeaseFile(func(cur *lease) (*lease, error) {
-			now := time.Now()
-			if cur != nil && cur.Stage != h.stage && cur.Expires > now.UnixMilli() {
-				holder = cur.Stage
-				return cur, nil
-			}
-			taken = true
-			tookOver = cur != nil && cur.Stage != h.stage
-			return &lease{Stage: h.stage, Nonce: mine, Expires: now.Add(leaseTTL).UnixMilli()}, nil
-		})
-		if err != nil {
-			return "", "", false, err
-		}
-		if taken {
-			return mine, "", tookOver, nil
-		}
-		if time.Now().After(deadline) {
-			return "", holder, false, nil
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-}
-
-func (h *editHook) leaseHeld(nonce string) bool {
-	held := false
-	_ = h.withLeaseFile(func(cur *lease) (*lease, error) {
-		held = cur != nil && cur.Nonce == nonce
-		return cur, nil
-	})
-	return held
-}
-
-func (h *editHook) releaseLease(nonce string) {
-	_ = h.withLeaseFile(func(cur *lease) (*lease, error) {
-		if cur != nil && cur.Nonce == nonce {
-			return nil, nil
-		}
-		return cur, nil
-	})
 }
 
 // otherAgentsNote tells an agent what to expect from the other agents in a

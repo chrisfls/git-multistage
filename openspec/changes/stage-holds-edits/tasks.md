@@ -9,7 +9,7 @@
 
 - [x] 2.1 Read `tool_response.originalFile`, `structuredPatch`, and `content` for Claude Code `Edit`, `MultiEdit`, and `Write`, and build the record from them, with the `PreToolUse` snapshot as fallback. Update the fixtures in `test/testdata/hooks/` with the transcript fields. Verify: a test changes another line of the file between the PreToolUse and PostToolUse events and the record holds only the tool's change.
 - [x] 2.2 Apply the Codex `apply_patch` hunks to the `PreToolUse` snapshot in memory, with the disk after the call as fallback. Verify: the "Another writer changes the file during a Codex patch" scenario passes, and a patch that does not match falls back.
-- [ ] 2.3 Remove the leases, the wait, `TookOver`, and exit code 2 from `internal/ms/hook.go`, keep `PostToolUseFailure` deleting the pending record, and delete `internal/ms/lease_test.go` and the lease tests in `test/`. Verify: "Two agents edit one file at the same time" passes with neither hook waiting, and `go test -race ./...` passes.
+- [x] 2.3 Remove the leases, the wait, `TookOver`, and exit code 2 from `internal/ms/hook.go`, keep `PostToolUseFailure` deleting the pending record, and delete `internal/ms/lease_test.go` and the lease tests in `test/`. Verify: "Two agents edit one file at the same time" passes with neither hook waiting, and `go test -race ./...` passes.
 
 ## 3. Agent guide and README
 

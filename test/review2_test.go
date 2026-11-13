@@ -117,7 +117,7 @@ func TestSyncDoesNotUndoANativeUnstage(t *testing.T) {
 	}
 }
 
-func TestHookLeaseIgnoresCase(t *testing.T) {
+func TestHookRecordIgnoresCase(t *testing.T) {
 	r := newRepo(t)
 	if !caseInsensitiveFS(t, r.dir) {
 		t.Skip("case-sensitive file system")
@@ -125,11 +125,6 @@ func TestHookLeaseIgnoresCase(t *testing.T) {
 	r.write("F.txt", "f\n")
 	r.git("add", "F.txt")
 	r.git("commit", "-q", "-m", "F")
-	r.hookCall("PreToolUse", "Edit", "s1", "", r.path("F.txt"))
-	if res := r.hookCall("PreToolUse", "Edit", "s2", "", r.path("f.txt"), "GIT_MULTISTAGE_LEASE_TIMEOUT_MS=100"); res.code != 2 {
-		t.Fatalf("a differently cased path took a second lease:\n%s", res)
-	}
-	r.hookCall("PostToolUse", "Edit", "s1", "", r.path("F.txt"))
 	// A record made under another case stages onto the tracked spelling.
 	r.hookedEdit("s3", "", "f.txt", "f\ng\n")
 	r.mustMS("", "--stage", "claude-s3", "add", "--edits")
