@@ -1,7 +1,9 @@
 package test
 
 import (
+	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -175,6 +177,68 @@ func TestAddEditsFollowsAMoveCommitWithAnOlderDate(t *testing.T) {
 	if res := run(r.dir, "b", []string{"GIT_COMMITTER_DATE=2020-01-01T00:00:00Z"}, "commit", "-m", "move x"); res.code != 0 {
 		t.Fatalf("commit:\n%s", res)
 	}
+	r.mustMS("", "--stage", "claude-a", "add", "--edits")
+	if got := r.stagedStatus("claude-a"); !eq(got, []string{"M y.go"}) {
+		t.Fatalf("stage claude-a holds %v", got)
+	}
+}
+
+func TestAddEditsFollowsTheStagesOwnMoveAfterAFollowedMove(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": twenty})
+	r.recordLineOne("a", "x.go")
+	r.moveAndRewrite("b", "x.go", "y.go", true)
+	r.mustMS("", "--stage", "claude-a", "mv", "y.go", "z.go")
+	var out struct {
+		Staged []string `json:"staged_paths"`
+	}
+	decode(t, r.mustMS("", "--stage", "claude-a", "add", "--edits", "--json"), &out)
+	if !eq(out.Staged, []string{"z.go"}) {
+		t.Fatalf("staged %v", out.Staged)
+	}
+	if d := r.mustMS("", "--stage", "claude-a", "diff", "--cached").out; !strings.Contains(d, "+FIRST") {
+		t.Fatalf("staged diff:\n%s", d)
+	}
+}
+
+func TestAddEditsDropsTheRecordsOfAFollowedPathThatTheStageDeleted(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": twenty, "o.go": "o\n"})
+	r.recordLineOne("a", "x.go")
+	r.hookedEdit("a", "", "o.go", "o\nedited\n")
+	r.moveAndRewrite("b", "x.go", "y.go", true)
+	r.mustMS("", "--stage", "claude-a", "rm", "-f", "y.go")
+	r.mustMS("", "--stage", "claude-a", "add", "--edits")
+	if got := r.stagedStatus("claude-a"); !eq(got, []string{"M o.go", "D y.go"}) {
+		t.Fatalf("stage claude-a holds %v", got)
+	}
+	if st := r.mustMS("", "--stage", "claude-a", "status").out; strings.Contains(st, "recorded edits") {
+		t.Fatalf("records are left:\n%s", st)
+	}
+}
+
+func TestAddEditsFollowsARenameForARecordWithoutTip(t *testing.T) {
+	r := committedRepo(t, map[string]string{"x.go": twenty})
+	r.recordLineOne("a", "x.go")
+	files, err := filepath.Glob(r.path(".git/multistage/stages/claude-a/edits/*.json"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("records %v: %v", files, err)
+	}
+	var rec map[string]any
+	data, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &rec); err != nil {
+		t.Fatal(err)
+	}
+	delete(rec, "tip")
+	if data, err = json.Marshal(rec); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(files[0], data, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	r.git("mv", "x.go", "y.go")
+	r.git("commit", "-q", "-m", "plain rename")
 	r.mustMS("", "--stage", "claude-a", "add", "--edits")
 	if got := r.stagedStatus("claude-a"); !eq(got, []string{"M y.go"}) {
 		t.Fatalf("stage claude-a holds %v", got)

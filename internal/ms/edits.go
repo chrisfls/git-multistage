@@ -187,7 +187,8 @@ func (l *Stage) AddEdits(paths []string, force bool, recreate []string) ([]strin
 // followRecords returns the records to apply. Where each path that the
 // stage's index no longer holds went is worked out once, from its oldest
 // record, and applies to every record of the path: a moved path is applied
-// at its new path, and a deleted path fails with path-deleted. The records
+// at its new path, a path that the stage itself deleted drops its records,
+// and a path that a commit deleted fails with path-deleted. The records
 // of a deleted path of recreate become one record that creates the file
 // with the content of the newest of them.
 func (l *Stage) followRecords(chosen []EditRecord, recreate []string) ([]EditRecord, error) {
@@ -197,7 +198,7 @@ func (l *Stage) followRecords(chosen []EditRecord, recreate []string) ([]EditRec
 	}
 	moved := map[string]string{}
 	g := &goneRecords{newest: map[string]EditRecord{}}
-	recreated := map[string]bool{}
+	recreated, dropped := map[string]bool{}, map[string]bool{}
 	for _, rec := range gone {
 		n, ok, deleting, err := l.followPath(rec)
 		switch {
@@ -205,6 +206,8 @@ func (l *Stage) followRecords(chosen []EditRecord, recreate []string) ([]EditRec
 			return nil, err
 		case ok:
 			moved[rec.Path] = n
+		case deleting == "":
+			dropped[rec.Path] = true
 		case slices.Contains(recreate, rec.Path):
 			recreated[rec.Path] = true
 		default:
@@ -214,6 +217,9 @@ func (l *Stage) followRecords(chosen []EditRecord, recreate []string) ([]EditRec
 	}
 	var out []EditRecord
 	for _, rec := range chosen {
+		if dropped[rec.Path] {
+			continue
+		}
 		if n, ok := moved[rec.Path]; ok {
 			rec.Path = n
 		}
@@ -251,51 +257,72 @@ func (l *Stage) gonePaths(chosen []EditRecord) ([]EditRecord, error) {
 }
 
 // followPath follows rec.Path through the commits that the branch reached
-// after the record, oldest first: at each commit that removed the path, the
-// commit's Multistage-Moved trailers, or else Git's rename detection, name
-// where it went. It returns the final path when the stage's index holds it,
-// or else the commit that deleted the path. A record without a tip follows
-// the commits since the stage's base.
+// after the record, then through the stage's own moves. It returns the final
+// path when the stage's index holds it. Otherwise it returns the commit that
+// deleted the path, or "" when the stage deleted a followed path that its
+// base holds.
 func (l *Stage) followPath(rec EditRecord) (string, bool, string, error) {
-	from := rec.Tip
-	if from == "" {
-		from = l.M.Base
+	p, deleting, err := l.followCommits(rec)
+	if err != nil || deleting != "" {
+		return "", false, deleting, err
 	}
-	p := rec.Path
-	for {
-		c, desc, err := l.r.removingCommit(p, from, l.M.Branch)
-		if err != nil || c == "" {
-			if err != nil {
-				return "", false, "", err
-			}
+	for _, m := range l.M.Moves {
+		if m.Old == p {
+			p = m.New
 			break
 		}
-		n, err := l.r.movedIn(c, p)
-		if err != nil {
-			return "", false, "", err
-		}
-		if n == "" {
-			return "", false, desc, nil
-		}
-		p, from = n, c
 	}
 	if p != rec.Path {
-		_, ok, err := l.r.lsIndex(l.IndexPath(), p)
-		if err != nil || ok {
-			return p, ok, "", err
+		_, held, err := l.r.lsIndex(l.IndexPath(), p)
+		if err != nil || held {
+			return p, held, "", err
+		}
+		_, onBase, err := l.r.lsTree(l.M.Base, p)
+		if err != nil || onBase {
+			return "", false, "", err
 		}
 	}
 	return "", false, "a commit on the branch", nil
 }
 
+// followCommits follows rec.Path through the commits that the branch
+// reached after the record, oldest first: at each commit that removed the
+// path, the commit's Multistage-Moved trailers, or else Git's rename
+// detection, name where it went. It returns the path where the commits
+// left it, or the commit that deleted it. A record without a tip, written
+// by an earlier version, follows the commits dated after the record.
+func (l *Stage) followCommits(rec EditRecord) (string, string, error) {
+	from, since := rec.Tip, ""
+	if from == "" {
+		since = fmt.Sprintf("--since=%d", rec.Time.Unix()-1)
+	}
+	p := rec.Path
+	for {
+		c, desc, err := l.r.removingCommit(p, from, since, l.M.Branch)
+		if err != nil || c == "" {
+			return p, "", err
+		}
+		n, err := l.r.movedIn(c, p)
+		if err != nil || n == "" {
+			return "", desc, err
+		}
+		p, from, since = n, c, ""
+	}
+}
+
 // removingCommit returns the oldest commit of from..branch (of branch when
 // from is "") that removed p, and its "<short> <subject>"; "" when none did.
-func (r *Repo) removingCommit(p, from, branch string) (string, string, error) {
+// A since option, when set, limits the commits by date.
+func (r *Repo) removingCommit(p, from, since, branch string) (string, string, error) {
 	revs := branch
 	if from != "" {
 		revs = from + ".." + branch
 	}
-	out, err := r.Run(gitx.Opt{}, cmdLog, "--reverse", "--no-renames", "--diff-filter=D", "--format=%H %h %s", revs, "--", p)
+	args := []string{cmdLog, "--reverse", "--no-renames", "--diff-filter=D", "--format=%H %h %s"}
+	if since != "" {
+		args = append(args, since)
+	}
+	out, err := r.Run(gitx.Opt{}, append(args, revs, "--", p)...)
 	if err != nil {
 		return "", "", err
 	}
