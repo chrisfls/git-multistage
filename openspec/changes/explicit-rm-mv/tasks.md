@@ -41,4 +41,4 @@
 - [x] 6.4 Rename case-only paths in one call on macOS, and journal the temporary name elsewhere. Verify: "Case-only rename" passes, and a rerun after a stop between the two renames finishes the move.
 - [x] 6.5 Quote trailer paths that hold `->` or start or end with whitespace. Verify: "Path with surrounding spaces" passes, and paths ending in ` ->` round-trip.
 - [x] 6.7 Write no trailer for a move whose new path the commit recreates. Verify: "Recreated move" passes.
-- [ ] 6.6 Run the checks of the `git-multistage-development` skill and `mise run ci`. Verify: both pass, and `openspec validate --all --strict` passes.
+- [x] 6.6 Run the checks of the `git-multistage-development` skill and `mise run ci`. Verify: both pass, and `openspec validate --all --strict` passes.
