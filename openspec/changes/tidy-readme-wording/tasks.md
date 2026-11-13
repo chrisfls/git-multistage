@@ -6,4 +6,4 @@
 
 ## 2. Check
 
-- [ ] 2.1 Check that every README link resolves
+- [x] 2.1 Check that every README link resolves
