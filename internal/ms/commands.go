@@ -152,6 +152,18 @@ type DoctorReport struct {
 	Sync   *SyncResult `json:"index_sync,omitempty"`
 }
 
+// orphanedIndexLocks lists the index lock files in the directory of stage
+// id. Call it only for a stage that no command holds: then no Git child of
+// a running command holds them.
+func (r *Repo) orphanedIndexLocks(id string) []string {
+	var locks []string
+	for _, pattern := range []string{"index-*.lock", "hook-index-*.lock"} {
+		m, _ := filepath.Glob(filepath.Join(r.stagesDir(), id, pattern))
+		locks = append(locks, m...)
+	}
+	return locks
+}
+
 // Doctor inspects the repository, the default index, and every stage, and
 // changes nothing.
 func (r *Repo) Doctor() (*DoctorReport, error) {
@@ -221,6 +233,12 @@ func (r *Repo) Doctor() (*DoctorReport, error) {
 		}
 		for _, p := range li.Problems {
 			add("warning", "stage %s: %s", li.ID, p)
+		}
+		if !li.Busy {
+			for _, lock := range r.orphanedIndexLocks(li.ID) {
+				add("warning", "stage %s: %s exists: a Git process of a killed command left it, or still runs; "+
+					"the stage's next command moves past it, and deletes it once it is an hour old", li.ID, lock)
+			}
 		}
 	}
 	var shared []string

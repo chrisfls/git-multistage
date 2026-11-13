@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -519,4 +520,27 @@ func TestStagedCopyIDIsStaleAfterANewBase(t *testing.T) {
 	}
 	r.mustMS("b", "commit", "-m", "A")
 	r.expectCode(4, "a", "restore", "--staged", "f.txt", "--hunk", first)
+}
+
+// TestDoctorReportsAnOrphanedStageIndexLock leaves the lock file of a stage's
+// index, as a Git child of a killed git-multistage leaves it. doctor must
+// warn with the stage and the path, and leave the file in place.
+func TestDoctorReportsAnOrphanedStageIndexLock(t *testing.T) {
+	r := newRepo(t)
+	r.write("f.txt", "f\n")
+	r.mustMS("a", "add", "f.txt")
+	name := "index-" + strconv.Itoa(r.stageGen("a")) + ".lock"
+	lock := r.path(".git/multistage/stages/a/" + name)
+	if err := os.WriteFile(lock, []byte("half-written"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc := r.mustMS("", "doctor")
+	// The temporary directory can be reached through a symbolic link, such
+	// as /var on macOS, so match the path's end.
+	if !regexp.MustCompile(`warning: stage a: \S*` + regexp.QuoteMeta(filepath.Join("stages", "a", name)) + " exists").MatchString(doc.out) {
+		t.Fatalf("doctor does not report the lock %s:\n%s", lock, doc)
+	}
+	if _, err := os.Stat(lock); err != nil {
+		t.Fatalf("doctor removed the lock: %v", err)
+	}
 }

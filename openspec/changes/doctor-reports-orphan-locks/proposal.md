@@ -17,7 +17,7 @@ None.
 
 ### Modified Capabilities
 
-- `cli`: the requirement "Doctor" also reports a leftover index lock file of a stage.
+- `cli`: a new requirement, "Doctor reports orphaned stage index locks".
 
 ## Impact
 
