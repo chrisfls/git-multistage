@@ -8,10 +8,10 @@
 
 ## 2. Commits follow moves and report deletions
 
-- [ ] 2.1 Write one `Multistage-Moved` trailer for each staged move, and clear `Moves` when the commit lands. Verify: the "Commit a move" scenario passes.
-- [ ] 2.2 In `integrate`, read the trailers of base..tip, rename the matching entries of the base and staged trees, then merge. Verify: "Edit after another stage's move" passes, with a heavy edit that Git's rename detection alone misses, and a chain of two moves passes too.
-- [ ] 2.3 Detect `path-deleted` before the merge, naming the deleting commit, and add `commit --recreate <path>...`. Verify: "Another stage deleted the file" and "Recreate the file" pass, and `commit --recreate` is accepted by the option check.
-- [ ] 2.4 Make the refresh keep the stage on `path-deleted` and name the deleted paths in its warning. Verify: "Refresh follows a move" and "Refresh meets a deletion" pass.
+- [x] 2.1 Write one `Multistage-Moved` trailer for each staged move, and clear `Moves` when the commit lands. Verify: the "Commit a move" scenario passes.
+- [x] 2.2 In `integrate`, read the trailers of base..tip, rename the matching entries of the base and staged trees, then merge. Verify: "Edit after another stage's move" passes, with a heavy edit that Git's rename detection alone misses, and a chain of two moves passes too.
+- [x] 2.3 Detect `path-deleted` before the merge, naming the deleting commit, and add `commit --recreate <path>...`. Verify: "Another stage deleted the file" and "Recreate the file" pass, and `commit --recreate` is accepted by the option check.
+- [x] 2.4 Make the refresh keep the stage on `path-deleted` and name the deleted paths in its warning. Verify: "Refresh follows a move" and "Refresh meets a deletion" pass.
 
 ## 3. Recorded edits
 

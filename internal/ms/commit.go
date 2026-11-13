@@ -141,6 +141,19 @@ func (l *Stage) prepareMessage(raw string, noVerify bool) (string, error) {
 	return msg, nil
 }
 
+// addMoveTrailers ends msg with one Multistage-Moved trailer for each
+// staged move.
+func (l *Stage) addMoveTrailers(msg string) (string, error) {
+	if len(l.M.Moves) == 0 {
+		return msg, nil
+	}
+	args := []string{"interpret-trailers", "--where=end", "--if-exists=addIfDifferent"}
+	for _, m := range l.M.Moves {
+		args = append(args, "--trailer", trailerMoved+": "+m.Old+" -> "+m.New)
+	}
+	return stringOut(l.r.Run(gitx.Opt{Stdin: strings.NewReader(msg)}, args...))
+}
+
 func stringOut(b []byte, err error) (string, error) { return string(b), err }
 
 // hookIndexPath returns a new name for an index that a Git hook may write.
@@ -172,12 +185,15 @@ func (l *Stage) runPreCommit(tree string) (string, error) {
 // Commit commits the stage's staged changes onto the current tip of its
 // branch. Other stages or tools may move the branch at any time: the staged change is
 // replayed onto the newest tip and the branch moves only by compare-and-swap.
-func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
+// Each path of recreate that a commit on the branch deleted is committed as
+// a new file.
+func (l *Stage) Commit(rawMsg string, noVerify bool, recreate []string) (*CommitResult, error) {
 	res := &CommitResult{Branch: l.M.Branch}
 	st, err := l.prepareCommit(res, rawMsg, noVerify)
 	if err != nil {
 		return nil, err
 	}
+	st.recreate = recreate
 	for attempt := 1; attempt <= maxCommitAttempts; attempt++ {
 		res.Attempts = attempt
 		done, err := l.commitAttempt(res, st, attempt)
@@ -196,6 +212,7 @@ func (l *Stage) Commit(rawMsg string, noVerify bool) (*CommitResult, error) {
 type commitState struct {
 	staged, baseTree, msg string
 	noVerify, sign, sync  bool
+	recreate              []string
 	verified              []gitx.Entry // changes that the pre-commit hook accepted
 }
 
@@ -229,6 +246,9 @@ func (l *Stage) prepareCommit(res *CommitResult, rawMsg string, noVerify bool) (
 	if st.msg, err = l.prepareMessage(rawMsg, noVerify); err != nil {
 		return nil, err
 	}
+	if st.msg, err = l.addMoveTrailers(st.msg); err != nil {
+		return nil, err
+	}
 	res.Subject, _, _ = strings.Cut(st.msg, "\n")
 	st.sign = r.configBool("commit.gpgSign", false)
 	st.sync = r.syncEnabled()
@@ -247,7 +267,7 @@ func (l *Stage) commitAttempt(res *CommitResult, st *commitState, attempt int) (
 	if tip == "" && l.M.Base != "" {
 		return false, errorf(ExitRefused, "branch-missing", "branch %s no longer exists; nothing was committed", l.M.Branch)
 	}
-	tree, err := r.integrate(st.baseTree, st.staged, tip)
+	tree, err := r.integrate(l.M.Base, st.baseTree, st.staged, tip, st.recreate)
 	if err != nil {
 		return false, err
 	}

@@ -42,7 +42,7 @@ Commands:
   apply [-R] <patch>|-         apply a patch to this stage's index
   restore --staged <path>... [--hunk <id>...]
                                unstage files or hunks
-  commit -m <msg> [-F <file>] [--no-verify]
+  commit -m <msg> [-F <file>] [--no-verify] [--recreate <path>]...
                                commit this stage's staged changes to the branch
   log [<git log args>]         show commits made by this stage
   list                         list the stages of this worktree
@@ -370,7 +370,7 @@ func (a *app) run(argv []string) error {
 	if a.repo, err = OpenRepo(cwd); err != nil {
 		return &Error{Code: ExitError, Kind: "repository", Message: err.Error()}
 	}
-	if cmd == cmdDiff || cmd == "log" {
+	if cmd == cmdDiff || cmd == cmdLog {
 		return a.passThrough(cmd, args, cwd)
 	}
 	spec, ok := commandSpecs[cmd]
@@ -478,11 +478,16 @@ var commandSpecs = map[string][]flagSpec{
 	"mv":      nil,
 	"apply":   {{[]string{"--reverse", "-R"}, false}},
 	"restore": {{[]string{"--staged", "-S"}, false}, {[]string{"--hunk"}, true}},
-	"commit":  {{[]string{"--message", "-m"}, true}, {[]string{"--file", "-F"}, true}, {[]string{"--no-verify", "-n"}, false}},
-	"list":    nil,
-	"doctor":  nil,
-	"sync":    {{[]string{"--from"}, true}},
-	"drop":    {{[]string{"--force", "-f"}, false}, {[]string{"--edits"}, false}},
+	"commit": {
+		{[]string{"--message", "-m"}, true},
+		{[]string{"--file", "-F"}, true},
+		{[]string{"--no-verify", "-n"}, false},
+		{[]string{"--recreate"}, true},
+	},
+	"list":   nil,
+	"doctor": nil,
+	"sync":   {{[]string{"--from"}, true}},
+	"drop":   {{[]string{"--force", "-f"}, false}, {[]string{"--edits"}, false}},
 }
 
 // runOnStage runs a command that works on one stage.
@@ -888,7 +893,11 @@ func (a *app) commit(l *Stage, p *parsed) error {
 	if err != nil {
 		return err
 	}
-	res, err := l.Commit(msg, p.has("--no-verify"))
+	recreate, err := a.repo.repoPaths(p.vals["--recreate"])
+	if err != nil {
+		return err
+	}
+	res, err := l.Commit(msg, p.has("--no-verify"), recreate)
 	if err != nil {
 		return err
 	}
