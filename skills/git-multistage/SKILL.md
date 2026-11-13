@@ -39,7 +39,7 @@ git multistage --stage <id> diff --cached
 git multistage --stage <id> commit -m "Add input validation"
 ```
 
-`add --edits` stages exactly the edits you made with the file-editing tools (Claude Code's Edit and Write, Codex's apply_patch). Stage files that you changed through shell commands with `add` or `add --hunk`. If an edit is blocked because another agent is editing the file, make the edit again.
+`add --edits` stages exactly the edits you made with the file-editing tools (Claude Code's Edit and Write, Codex's apply_patch). It stages them even when another agent later changed those lines or deleted the file, so your commit holds what you wrote, not what the file holds now. Stage files that you changed through shell commands with `add` or `add --hunk`.
 
 ## Workflow without the hook
 
@@ -76,7 +76,7 @@ Add `--json` to `status`, `hunks`, `add`, and `commit` when you parse the output
 
 | Exit code | What happened | What to do |
 | --- | --- | --- |
-| 3 with `edit-lost` or `edit-conflict` | Another writer erased or overlapped your recorded edit. | Redo the edit, or stage the file with `hunks` and `add --hunk`. |
+| 3 with `edit-conflict` | Your recorded edit changes lines that another stage added and has not committed yet. Your records are kept. | Run `add --edits` again after that stage commits, or stage the file with `hunks` and `add --hunk`. |
 | 3 | Your staged change conflicts with a commit that landed on the branch. Your staged changes are kept. | Read the listed paths. Edit the files so that they include both changes, then `restore --staged <path>`, stage again, and commit. |
 | 4 | A hunk ID is stale: the file changed after you listed the hunks. | Run `hunks <path>` again and use the new IDs. |
 | 5 with `shared-path` | Another stage has staged changes in that file, so a whole-file `add` could take its changes. | Stage your hunks with `--hunk`. |

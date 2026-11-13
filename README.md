@@ -163,7 +163,7 @@ git multistage --stage <id> add --edits
 git multistage --stage <id> commit -m "Add input validation"
 ```
 
-`add --edits` stages only the lines that the agent itself changed, even when another agent changed the next line. If another writer overwrote those lines, it stages nothing and fails with `edit-lost`.
+`add --edits` stages only the lines that the agent itself changed, even when another agent changed the next line. It stages them even after another writer overwrote those lines or deleted the file, so the stage keeps the agent's work.
 
 The plugin calls the `git-multistage` binary, so [install it](#install) first: the hooks report an error while the binary is not on your `PATH`.
 

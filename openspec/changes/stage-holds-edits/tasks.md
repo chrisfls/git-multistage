@@ -13,8 +13,8 @@
 
 ## 3. Agent guide and README
 
-- [ ] 3.1 Replace the `edit-lost` row in `skills/git-multistage/SKILL.md` with an `edit-conflict` row: the edit changes lines that another stage has not committed; commit after it, or use `add --hunk`. Say that `add --edits` stages what the agent wrote even when the file changed later. Verify: `grep -rn edit-lost skills README.md` prints nothing.
-- [ ] 3.2 Rewrite the `add --edits` paragraph in the README "Coding agents" section to match. Verify: the paragraph names no lease and no `edit-lost`.
+- [x] 3.1 Replace the `edit-lost` row in `skills/git-multistage/SKILL.md` with an `edit-conflict` row: the edit changes lines that another stage has not committed; commit after it, or use `add --hunk`. Say that `add --edits` stages what the agent wrote even when the file changed later. Verify: `grep -rn edit-lost skills README.md` prints nothing.
+- [x] 3.2 Rewrite the `add --edits` paragraph in the README "Coding agents" section to match. Verify: the paragraph names no lease and no `edit-lost`.
 
 ## 4. Checks
 
