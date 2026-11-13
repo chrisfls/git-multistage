@@ -219,6 +219,87 @@ func TestAddEditsOfAnotherStagesUncommittedLines(t *testing.T) {
 	}
 }
 
+// claudeEditCall runs the hook for a Claude Code Edit of file that replaces
+// old with repl in orig, with the tool response that Claude Code sends.
+func (r *repo) claudeEditCall(event, session, file, orig, old, repl string) result {
+	in := map[string]any{
+		"hook_event_name": event, "tool_name": "Edit", "session_id": session,
+		"tool_use_id": "toolu_" + session,
+		"tool_input":  map[string]any{"file_path": file, "old_string": old, "new_string": repl},
+	}
+	if event == "PostToolUse" {
+		in["tool_response"] = map[string]any{"filePath": file, "oldString": old, "newString": repl, "originalFile": orig}
+	}
+	data, _ := json.Marshal(in)
+	return runStdin(r.dir, "", nil, string(data), "hook", "claude")
+}
+
+// TestHookRecordsOnlyTheToolsChange changes another line of the file while a
+// Claude Code Edit runs; the record holds only the Edit's change.
+func TestHookRecordsOnlyTheToolsChange(t *testing.T) {
+	r := newRepo(t)
+	r.write("f.txt", "1\n2\n3\n4\n5\n6\n7\n8\n9\n")
+	r.git("add", "f.txt")
+	r.git("commit", "-q", "-m", "f")
+	file := r.path("f.txt")
+	r.claudeEditCall("PreToolUse", "a", file, "", "2\n", "TWO\n")
+	r.write("f.txt", "1\n2\n3\n4\n5\n6\n7\n8\nNINE\n") // another writer
+	orig := r.read("f.txt")
+	r.write("f.txt", "1\nTWO\n3\n4\n5\n6\n7\n8\nNINE\n") // the Edit
+	if res := r.claudeEditCall("PostToolUse", "a", file, orig, "2\n", "TWO\n"); res.code != 0 {
+		t.Fatalf("PostToolUse:\n%s", res)
+	}
+	r.mustMS("", "--stage", "claude-a", "add", "--edits")
+	r.mustMS("", "--stage", "claude-a", "commit", "-m", "a")
+	if got := r.git("show", "main:f.txt"); got != "1\nTWO\n3\n4\n5\n6\n7\n8\n9\n" {
+		t.Fatalf("committed %q", got)
+	}
+}
+
+// TestCodexHookRecordsOnlyThePatch changes another line while a Codex patch
+// runs; the record holds only the patch's change. A patch that does not
+// match the file falls back to the file after the call.
+func TestCodexHookRecordsOnlyThePatch(t *testing.T) {
+	for _, tc := range []struct{ name, patch, want string }{
+		{"patch applies", "*** Begin Patch\n*** Update File: f.txt\n@@\n 1\n-2\n+TWO\n 3\n*** End Patch", "1\nTWO\n3\n4\n5\n6\n7\n8\n9\n"},
+		{"patch does not match", "*** Begin Patch\n*** Update File: f.txt\n@@\n-zz\n+TWO\n*** End Patch", "1\nTWO\n3\n4\n5\n6\n7\n8\nNINE\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRepo(t)
+			r.write("f.txt", "1\n2\n3\n4\n5\n6\n7\n8\n9\n")
+			r.git("add", "f.txt")
+			r.git("commit", "-q", "-m", "f")
+			r.codexEdit("s", "", "exec-1", tc.patch, func() {
+				r.write("f.txt", "1\nTWO\n3\n4\n5\n6\n7\n8\nNINE\n")
+			})
+			r.mustMS("", "--stage", "codex-s", "add", "--edits")
+			r.mustMS("", "--stage", "codex-s", "commit", "-m", "s")
+			if got := r.git("show", "main:f.txt"); got != tc.want {
+				t.Fatalf("committed %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestHookKeepsCRLFOfAnEditFromTheResponse records a Claude Code Edit of a
+// committed CRLF file from its tool response.
+func TestHookKeepsCRLFOfAnEditFromTheResponse(t *testing.T) {
+	r := newRepo(t)
+	r.write("crlf.txt", "one\r\ntwo\r\nthree\r\n")
+	r.git("add", "crlf.txt")
+	r.git("commit", "-q", "-m", "crlf")
+	r.git("config", "core.autocrlf", "true")
+	file := r.path("crlf.txt")
+	r.claudeEditCall("PreToolUse", "a", file, "", "two", "TWO")
+	r.write("crlf.txt", "one\r\nTWO\r\nthree\r\n")
+	r.claudeEditCall("PostToolUse", "a", file, "one\r\ntwo\r\nthree\r\n", "two", "TWO")
+	r.mustMS("", "--stage", "claude-a", "add", "--edits")
+	r.mustMS("", "--stage", "claude-a", "commit", "-m", "two")
+	if got := r.git("cat-file", "blob", "main:crlf.txt"); got != "one\r\nTWO\r\nthree\r\n" {
+		t.Fatalf("crlf.txt = %q", got)
+	}
+}
+
 func TestHookIgnoresOtherToolsAndPaths(t *testing.T) {
 	r := newRepo(t)
 	if res := r.hookCall("PreToolUse", "Bash", "a", "", r.path("README")); res.code != 0 || res.out != "" {

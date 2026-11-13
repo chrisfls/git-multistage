@@ -27,6 +27,9 @@ import (
 // after content in the editing agent's stage. A hook error never blocks the
 // edit; only a lease that another stage keeps holding does.
 
+// toolApplyPatch is the Codex file tool.
+const toolApplyPatch = "apply_patch"
+
 const (
 	leaseTTL     = 15 * time.Second
 	leaseTimeout = 20 * time.Second
@@ -44,7 +47,27 @@ type hookInput struct {
 	Input     struct {
 		FilePath string `json:"file_path"` // Claude Code Edit, MultiEdit, Write
 		Command  string `json:"command"`   // Codex apply_patch: the patch text
+		claudeEdit
+		Content *string      `json:"content"` // Claude Code Write
+		Edits   []claudeEdit `json:"edits"`   // Claude Code MultiEdit
 	} `json:"tool_input"`
+	Response json.RawMessage `json:"tool_response"`
+}
+
+// claudeEdit is one string replacement of a Claude Code Edit or MultiEdit.
+type claudeEdit struct {
+	OldString  string `json:"old_string"`
+	NewString  string `json:"new_string"`
+	ReplaceAll bool   `json:"replace_all"`
+}
+
+// claudeResponse is the part of a Claude Code Edit, MultiEdit, or Write
+// tool response that the hook reads: the file as the tool read it.
+type claudeResponse struct {
+	OriginalFile         *string `json:"originalFile"`
+	OriginalFileContents *string `json:"originalFileContents"`
+	OldString            *string `json:"oldString"` // Edit: the replacement as made, after any change by the user
+	NewString            *string `json:"newString"`
 }
 
 // editedFiles returns the files that the tool call edits, as absolute
@@ -55,7 +78,7 @@ func editedFiles(kind string, in hookInput) []string {
 		if in.Input.FilePath != "" {
 			return []string{in.Input.FilePath}
 		}
-	case kind == agentCodex && in.Tool == "apply_patch":
+	case kind == agentCodex && in.Tool == toolApplyPatch:
 		var files []string
 		for _, line := range strings.Split(in.Input.Command, "\n") {
 			line = strings.TrimRight(line, "\r")
@@ -77,6 +100,7 @@ func editedFiles(kind string, in hookInput) []string {
 type pendingEdit struct {
 	Path   string `json:"path"`
 	Before string `json:"before,omitempty"`
+	Raw    string `json:"raw,omitempty"` // Codex: the file's bytes before the call, unfiltered
 	Nonce  string `json:"nonce"`
 	// TookOver is set when the lease was taken from another stage whose
 	// lease expired unreleased: that stage's edit may still land.
@@ -103,7 +127,7 @@ func runEditHook(kind string, stdin io.Reader, stdout, stderr io.Writer, stageFl
 	}
 	if kind == "" {
 		kind = agentClaude
-		if in.Tool == "apply_patch" {
+		if in.Tool == toolApplyPatch {
 			kind = agentCodex
 		}
 	}
@@ -188,6 +212,7 @@ type editHook struct {
 	stage    string
 	stageDir string
 	path     string // relative to the worktree root
+	file     string // the path that the tool input names
 	key      string
 }
 
@@ -236,7 +261,7 @@ func newEditHook(in hookInput, stage, file string) (*editHook, error) {
 			}
 		}
 	}
-	h := &editHook{r: r, in: in, stage: stage, stageDir: filepath.Join(r.stagesDir(), stage), path: rel}
+	h := &editHook{r: r, in: in, stage: stage, stageDir: filepath.Join(r.stagesDir(), stage), path: rel, file: file}
 	sum := sha256.Sum256([]byte(rel))
 	h.key = sanitizeID(in.ToolUseID + "-" + hex.EncodeToString(sum[:8]))
 	return h, nil
@@ -332,7 +357,14 @@ func (h *editHook) before(stderr io.Writer) int {
 		fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
 		return 0
 	}
-	data, _ := json.Marshal(pendingEdit{Path: h.path, Before: before, Nonce: nonce, TookOver: tookOver})
+	var raw string
+	if before != "" && h.in.Tool == toolApplyPatch {
+		if raw, err = h.r.Line(gitx.Opt{}, "hash-object", "-w", "--no-filters", "--", h.path); err != nil {
+			fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
+			return 0
+		}
+	}
+	data, _ := json.Marshal(pendingEdit{Path: h.path, Before: before, Raw: raw, Nonce: nonce, TookOver: tookOver})
 	if err := os.MkdirAll(editsDir(h.stageDir), 0o777); err != nil {
 		fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
 		return 0
@@ -368,10 +400,14 @@ func (h *editHook) after(stdout, stderr io.Writer, succeeded bool) {
 		return
 	}
 	held := h.leaseHeld(p.Nonce)
-	if after == p.Before {
+	before := p.Before
+	if b, a, ok := h.ownChange(p); ok {
+		before, after = b, a
+	}
+	if after == before {
 		return
 	}
-	rec := EditRecord{Path: h.path, Before: p.Before, After: after, Tool: h.in.Tool, Uncertain: !held || p.TookOver, Time: time.Now().UTC()}
+	rec := EditRecord{Path: h.path, Before: before, After: after, Tool: h.in.Tool, Uncertain: !held || p.TookOver, Time: time.Now().UTC()}
 	if after != "" {
 		rec.Mode = h.fileMode()
 	}

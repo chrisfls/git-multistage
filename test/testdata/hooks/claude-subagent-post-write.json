@@ -12,8 +12,12 @@
     "content": "new file\n"
   },
   "tool_response": {
+    "type": "create",
     "filePath": "{{FILE}}",
-    "type": "create"
+    "content": "new file\n",
+    "structuredPatch": [],
+    "originalFile": null,
+    "userModified": false
   },
   "tool_use_id": "toolu_01WriteZ9y8X7w6V5u4T3s2R1",
   "duration_ms": 12

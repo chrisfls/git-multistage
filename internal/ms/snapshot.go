@@ -34,26 +34,69 @@ func (r *Repo) snapshotBlob(indexFile, path string) (string, error) {
 		// An index stores a symbolic link as its target name; keep the content.
 		return r.Line(gitx.Opt{}, "hash-object", "-w", "--path="+path, "--", path)
 	}
-	entry, ok, err := r.entryIfIndex(indexFile, path)
-	if err != nil {
-		return "", err
-	}
-	tmpDir := filepath.Join(r.Dir, "tmp")
-	if err := os.MkdirAll(tmpDir, 0o777); err != nil {
-		return "", err
-	}
-	dir, err := os.MkdirTemp(tmpDir, "snapshot-")
+	dir, err := r.tempDir("snapshot-")
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	idx := filepath.Join(dir, "index")
+	return r.cleanFile(gitx.Opt{}, indexFile, filepath.Join(dir, "index"), path)
+}
+
+// cleanContent stores content as the blob that snapshotBlob would store if
+// the working-tree file at path held it. The content is written to a
+// temporary work tree that holds the .gitattributes files of path's
+// directories, so attributes and filters apply as in the real work tree.
+func (r *Repo) cleanContent(indexFile, path string, content []byte) (string, error) {
+	dir, err := r.tempDir("clean-")
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	wt := filepath.Join(dir, "wt")
+	file := filepath.Join(wt, filepath.FromSlash(path))
+	if err := os.MkdirAll(filepath.Dir(file), 0o777); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(file, content, 0o666); err != nil {
+		return "", err
+	}
+	for d := filepath.Dir(filepath.FromSlash(path)); ; d = filepath.Dir(d) {
+		if attrs, err := os.ReadFile(filepath.Join(r.Top, d, ".gitattributes")); err == nil {
+			if err := os.WriteFile(filepath.Join(wt, d, ".gitattributes"), attrs, 0o666); err != nil {
+				return "", err
+			}
+		}
+		if d == "." || d == string(filepath.Separator) {
+			break
+		}
+	}
+	o := gitx.Opt{Dir: wt, Env: []string{"GIT_DIR=" + r.GitDir, "GIT_WORK_TREE=" + wt}}
+	return r.cleanFile(o, indexFile, filepath.Join(dir, "index"), path)
+}
+
+// tempDir creates a temporary directory in the repository's tmp directory.
+func (r *Repo) tempDir(prefix string) (string, error) {
+	tmpDir := filepath.Join(r.Dir, "tmp")
+	if err := os.MkdirAll(tmpDir, 0o777); err != nil {
+		return "", err
+	}
+	return os.MkdirTemp(tmpDir, prefix)
+}
+
+// cleanFile adds the file at path of o's work tree to the temporary index
+// idx, after the entry of path in indexFile, and returns the blob ID.
+func (r *Repo) cleanFile(o gitx.Opt, indexFile, idx, path string) (string, error) {
+	entry, ok, err := r.entryIfIndex(indexFile, path)
+	if err != nil {
+		return "", err
+	}
+	o.Index = idx
 	if ok && entry.mode != "120000" && entry.mode != "160000" {
-		if _, err := r.Run(gitx.Opt{Index: idx}, "update-index", "--add", "--cacheinfo", entry.mode, entry.oid, path); err != nil {
+		if _, err := r.Run(o, "update-index", "--add", "--cacheinfo", entry.mode, entry.oid, path); err != nil {
 			return "", err
 		}
 	}
-	if _, err := r.Run(gitx.Opt{Index: idx}, "update-index", "--add", "--", path); err != nil {
+	if _, err := r.Run(o, "update-index", "--add", "--", path); err != nil {
 		return "", err
 	}
 	got, found, err := r.lsIndex(idx, path)
