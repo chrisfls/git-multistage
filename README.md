@@ -207,7 +207,15 @@ The behavior of every command is specified in [openspec/specs/](openspec/specs/)
 
 ## Contributing
 
-[mise](https://mise.jdx.dev) installs the Go, golangci-lint, and `act` versions that [mise.toml](mise.toml) pins, the same ones CI uses:
+[RuleSync](https://github.com/dyoshikawa/rulesync) generates `AGENTS.md` and each coding agent's skills from `.rulesync/` and [rulesync.jsonc](rulesync.jsonc). A fresh clone has neither until you install RuleSync, such as with `brew install rulesync`, and run:
+
+```bash
+rulesync install && rulesync generate
+```
+
+Every change starts as an [OpenSpec](https://openspec.dev) change in `openspec/changes/`, as `AGENTS.md` describes.
+
+[mise](https://mise.jdx.dev) installs the Go, golangci-lint, `act`, and OpenSpec versions that [mise.toml](mise.toml) pins, the same ones CI uses:
 
 ```bash
 mise install
