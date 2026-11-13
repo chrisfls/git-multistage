@@ -2,7 +2,7 @@
 
 ## 1. Validate the plugin in CI
 
-- [ ] 1.1 Pin the Claude Code CLI in `mise.toml`, and add a `plugin` job to `.github/workflows/ci.yml` that installs it with `jdx/mise-action` and runs `claude plugin validate --strict .`; verify that the command passes locally with an empty `HOME` and no API key, and that the workflow file parses as YAML
+- [x] 1.1 Pin the Claude Code CLI in `mise.toml`, and add a `plugin` job to `.github/workflows/ci.yml` that installs it with `jdx/mise-action` and runs `claude plugin validate --strict .`; verify that the command passes locally with an empty `HOME` and no API key, and that the workflow file parses as YAML
 
 ## 2. Replay real hook inputs
 

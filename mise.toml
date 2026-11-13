@@ -5,5 +5,7 @@ golangci-lint = "2.15.0"
 # The OpenSpec CLI that the openspec-* skills run. Bump it with the ref in rulesync.jsonc.
 node = "22"
 "npm:@fission-ai/openspec" = "2.0.0"
+# The Claude Code CLI that CI runs `claude plugin validate` with.
+"npm:@anthropic-ai/claude-code" = "2.1.310"
 # act runs the Linux CI jobs in containers, and needs a Docker engine.
 act = "0.2.97"

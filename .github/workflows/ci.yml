@@ -30,6 +30,17 @@ jobs:
           OPENSPEC_NO_UPDATE_CHECK: "1"
         run: openspec validate --all --strict
 
+  plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: node npm:@anthropic-ai/claude-code
+      # Reads only the plugin files; needs no API key.
+      - name: Validate the plugin
+        run: claude plugin validate --strict .
+
   test:
     strategy:
       fail-fast: false
