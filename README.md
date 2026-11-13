@@ -81,12 +81,23 @@ go build -o "$env:USERPROFILE\bin\git-multistage.exe" .\cmd\git-multistage
 
 ## Quick start
 
+Stage a file in a stage, and commit the stage:
+
+```bash
+git multistage --stage fix-login add src/login.ts
+git multistage --stage fix-login commit -m "Honor returnTo after login"
+```
+
+The first command creates the stage `fix-login`. The commit holds only what `fix-login` staged. Other changes in the checkout stay in the working tree, or in their own stages.
+
+### Stage part of a file
+
 Two changes are in progress in one checkout, each in its own stage:
 
 - `fix-login`: a fix in `src/login.ts`.
 - `validation`: an input check in `src/shared.ts`, which also holds an unrelated edit.
 
-### 1. Stage a whole file
+#### 1. Stage a whole file
 
 `src/login.ts` belongs only to the login fix:
 
@@ -96,7 +107,7 @@ staged: M  src/login.ts
 warning: created stage fix-login on refs/heads/main
 ```
 
-### 2. Stage part of a file
+#### 2. Stage part of a file
 
 Only the first of the two edits in `src/shared.ts` is part of the input check:
 
@@ -119,7 +130,7 @@ $ git multistage --stage validation add src/shared.ts --hunk d94c87b26e90
 staged 1 hunk(s) in src/shared.ts
 ```
 
-### 3. Check a stage
+#### 3. Check a stage
 
 `src/login.ts` shows as not staged here, because it belongs to the other stage. The second `src/shared.ts` entry is the unrelated edit:
 
@@ -133,7 +144,7 @@ not staged:
   M  src/shared.ts
 ```
 
-### 4. Commit
+#### 4. Commit
 
 Commit in any order, or at the same time:
 
@@ -174,7 +185,7 @@ In PowerShell:
 $env:GIT_MULTISTAGE_ID = "fix-login"
 ```
 
-When no ID is at hand, `git multistage init` creates a stage with a random ID and prints it.
+No stage ID yet? `git multistage init` creates a stage with a random ID and prints it.
 
 ## Coding agents
 
