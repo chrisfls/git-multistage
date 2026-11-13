@@ -9,5 +9,5 @@
 
 ## 2. Check
 
-- [ ] 2.1 Check that every README link resolves, and that each command output matches a real run of `git multistage`
-- [ ] 2.2 Check that the README still meets "Install from a release" in the `releases` spec and "Plugin manifests" in the `agent-plugins` spec
+- [x] 2.1 Check that every README link resolves, and that each command output matches a real run of `git multistage`
+- [x] 2.2 Check that the README still meets "Install from a release" in the `releases` spec and "Plugin manifests" in the `agent-plugins` spec
