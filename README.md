@@ -27,19 +27,11 @@ git-multistage keeps one checkout and gives each agent its own index.
 | Commit | `git commit`, which takes the whole shared index | `git multistage --stage a commit -m "Fix login"` |
 | Keep agents apart | One worktree per agent | One stage per agent, in one checkout |
 
-## What else it does
-
-- **Stage part of a file:** pick blocks of changed lines by ID. An ID listed before the file changed is refused. See [the staging spec](openspec/specs/staging/spec.md).
-- **Commit at the same time:** each commit lands on the newest tip of the branch, and none is lost. See [the commit spec](openspec/specs/commit/spec.md).
-- **Record agent edits:** hooks for Claude Code and Codex record each edit, so an agent stages exactly its own edits with one command. See [the editor hooks spec](openspec/specs/editor-hooks/spec.md).
-- **Keep `git status` correct:** Git's normal index follows each commit, and changes a person staged by hand are kept. See [the default-index sync spec](openspec/specs/default-index-sync/spec.md).
-- **Survive crashes:** the next command finishes or cancels a commit that was stopped halfway, so a commit never appears twice. See [the crash recovery spec](openspec/specs/crash-recovery/spec.md).
-
 ## Install
 
-Requires Git 2.45 or newer. Pick one way to get the `git-multistage` binary.
+Requires Git 2.45 or newer. Pick one way to get the `git-multistage` binary, and put it on your `PATH`.
 
-**From a release**, with no Go toolchain. [Releases](https://github.com/chrisfls/git-multistage/releases) hold archives for Linux, macOS, and Windows on amd64 and arm64, and a `checksums.txt`. Download the archive for your system, check it with `shasum -a 256 -c checksums.txt`, and put the binary on your `PATH`. Or let mise do it:
+**From a release**, with no Go toolchain. [Releases](https://github.com/chrisfls/git-multistage/releases) hold archives for Linux, macOS, and Windows on amd64 and arm64, and a `checksums.txt`. Download the archive for your system, check it with `shasum -a 256 -c checksums.txt`, and unpack the binary. Or let mise do it:
 
 ```bash
 mise use -g github:chrisfls/git-multistage
@@ -59,7 +51,7 @@ cd git-multistage
 go build -o "$HOME/.local/bin/git-multistage" ./cmd/git-multistage
 ```
 
-The binary must be on your `PATH`. To build from a clone on Windows:
+To build from a clone on Windows:
 
 ```powershell
 go build -o "$env:USERPROFILE\bin\git-multistage.exe" .\cmd\git-multistage
@@ -109,7 +101,7 @@ staged 1 hunk(s) in src/shared.ts
 
 ### 3. Check a stage
 
-`src/login.ts` shows as not staged here, because it belongs to the other stage:
+`src/login.ts` shows as not staged here, because it belongs to the other stage. The second `src/shared.ts` entry is the unrelated edit:
 
 ```console
 $ git multistage --stage validation status
@@ -162,13 +154,13 @@ In PowerShell:
 $env:GIT_MULTISTAGE_ID = "fix-login"
 ```
 
-`git multistage init` creates a stage with a random ID.
+When no ID is at hand, `git multistage init` creates a stage with a random ID and prints it.
 
 ## Coding agents
 
 Give each agent a stage ID, such as its agent ID, and [the agent guide](skills/git-multistage/SKILL.md).
 
-For Claude Code and Codex, install the plugin. It records each edit an agent makes in that agent's stage and teaches the agent the commands. The plugin calls the `git-multistage` binary, so [install it](#install) first: the hooks print an error until `git multistage` runs.
+For Claude Code and Codex, install the plugin. It records each edit an agent makes in that agent's stage and teaches the agent the commands. The plugin calls the `git-multistage` binary, so [install it](#install) first: the hooks print an error while the binary is not on your `PATH`.
 
 Claude Code:
 
@@ -190,7 +182,7 @@ Codex asks you to trust the plugin's hooks the next time it starts. Its default 
 prefix_rule(pattern = ["git", "multistage"], decision = "allow")
 ```
 
-Project rules load only when the project is trusted. The rule also covers commands that the agent should not run on its own, such as `drop --force`; use `pattern = ["git", "multistage", "add"]` and similar lines to allow single commands instead.
+Project rules load only when the project is trusted. The rule also covers commands that the agent should not run on its own, such as `drop --force`. To allow single commands instead, use `pattern = ["git", "multistage", "add"]` and similar lines.
 
 An agent then commits its own edits with:
 
@@ -212,6 +204,7 @@ The behavior of every command is specified in [openspec/specs/](openspec/specs/)
 - [Agent stage detection](openspec/specs/agent-stage-detection/spec.md): `--agentic`.
 - [CLI](openspec/specs/cli/spec.md): exit codes, JSON output, supported setups, and `doctor`.
 - [Agent plugins](openspec/specs/agent-plugins/spec.md): the Claude Code and Codex plugins.
+- [Releases](openspec/specs/releases/spec.md): the prebuilt binaries and the tag workflow that publishes them.
 
 ## Contributing
 
