@@ -31,4 +31,4 @@
 - [x] 5.4 Apply each commit's trailers as one simultaneous step, move only entries that the base holds, and quote unusual trailer paths. Verify: "Several moves in one commit" and "Path with an arrow" pass, and a stage's new file at a trailer's old path stays in place.
 - [x] 5.5 Report kind `conflict` when a staged move's old path was moved on the tip, and `path-deleted` for a staged move of a path the tip deleted. Verify: "Two names for one file" passes, and a staged move of a deleted file names the deleting commit.
 - [x] 5.6 Make `mv` refuse an existing target at the rename itself, and rename between two spellings of one path on a case-insensitive file system. Verify: "Target exists" and "Case-only rename" pass on macOS.
-- [ ] 5.7 Run the checks of the `git-multistage-development` skill and `mise run ci`. Verify: both pass, and `openspec validate explicit-rm-mv` passes.
+- [x] 5.7 Run the checks of the `git-multistage-development` skill and `mise run ci`. Verify: both pass, and `openspec validate explicit-rm-mv` passes.

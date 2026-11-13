@@ -31,11 +31,7 @@ When `rm` or `mv` stops after it changed the stage and before it changed the dis
 - **THEN** `z.go` is on disk in place of `y.go`, and stage `a` holds the move of `x.go` to `z.go`
 
 ### Requirement: Move files
-`mv <old> <new>` SHALL move the file in the working tree and stage the move in the stage's own index, with the content that the stage holds for `<old>`. When `<old>` is already gone from disk and `<new>` exists, it SHALL stage the move without touching the disk. The stage SHALL remember the move until it is committed or either path is restored. Recorded edits of `<old>` SHALL follow the move to `<new>`. A move of a path that the stage already moved SHALL extend that move, and a move back to the original path SHALL cancel it.
-
-#### Scenario: Chained moves
-- **WHEN** stage `a` runs `mv x.go y.go`, then `mv y.go z.go`, and commits
-- **THEN** the commit carries the one trailer `Multistage-Moved: x.go -> z.go`
+`mv <old> <new>` SHALL move the file in the working tree and stage the move in the stage's own index, with the content that the stage holds for `<old>`. When `<old>` is already gone from disk and `<new>` exists, it SHALL stage the move without touching the disk. The stage SHALL remember the move until it is committed or either path is restored.
 
 #### Scenario: Move a file
 - **WHEN** stage `a` runs `mv x.go y.go`
@@ -44,6 +40,13 @@ When `rm` or `mv` stops after it changed the stage and before it changed the dis
 #### Scenario: Move already made on disk
 - **WHEN** an agent moved `x.go` to `y.go` with a shell command and stage `a` then runs `mv x.go y.go`
 - **THEN** stage `a` holds the move and the disk is unchanged
+
+### Requirement: Moves of moved files
+Recorded edits of `<old>` SHALL follow a move to `<new>`. A move of a path that the stage already moved SHALL extend that move, and a move back to the original path SHALL cancel it.
+
+#### Scenario: Chained moves
+- **WHEN** stage `a` runs `mv x.go y.go`, then `mv y.go z.go`, and commits
+- **THEN** the commit carries the one trailer `Multistage-Moved: x.go -> z.go`
 
 #### Scenario: Recorded edits follow
 - **WHEN** stage `a` has recorded edits of `x.go`, runs `mv x.go y.go`, then `add --edits`
