@@ -29,7 +29,9 @@
 
 ## 3. Known trees and parents
 
-- [ ] 3.1 Record the base tree in `meta.json` and seed the tree cache from it when a stage's metadata is read. Verify: a unit test shows that a seeded `TreeOf` starts no `git` process; `status` and the PostToolUse hook start one process fewer; `go test ./...` passes.
+- [x] 3.1 Record the base tree in `meta.json` and seed the tree cache from it when a stage's metadata is read. Verify: a unit test shows that a seeded `TreeOf` starts no `git` process; `status` and the PostToolUse hook start one process fewer; `go test ./...` passes.
+
+  Result: `status` 10 → 9, PostToolUse 12 → 11, `add --edits` 14 → 13, `status` with staged files 16 → 15, `diff --cached` 9 → 8, `commit` 27 → 26, `add f3.txt` 21 → 19. `go test ./...` passes.
 - [ ] 3.2 Make `commitTree` seed the tree cache and record the parent, and make `IsAncestor` answer a recorded parent without `merge-base`. Verify: a unit test covers a recorded parent and an unknown pair; `commit` starts no `merge-base` and no `rev-parse` of its new commit's tree; `go test ./...` passes.
 
 ## 4. Flat keep tree

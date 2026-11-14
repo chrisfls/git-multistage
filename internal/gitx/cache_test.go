@@ -77,6 +77,26 @@ func TestTreeOfDoesNotKeepAFailure(t *testing.T) {
 	}
 }
 
+func TestRememberTree(t *testing.T) {
+	r, calls := countingGit(t, "read\n")
+	r.RememberTree("c1", "t1")
+	r.RememberTree("c1", "other") // the first tree of a commit stays
+	r.RememberTree("", "t2")
+	r.RememberTree("c3", "")
+	if tree, err := r.TreeOf("c1"); err != nil || tree != "t1" {
+		t.Fatalf("TreeOf of a remembered commit = %q, %v", tree, err)
+	}
+	if got := calls(); len(got) != 0 {
+		t.Fatalf("git calls %v, want none", got)
+	}
+	if r.KnownTree("c1") != "t1" || r.KnownTree("c2") != "" || r.KnownTree("c3") != "" {
+		t.Fatal("KnownTree must return only remembered and read trees")
+	}
+	if tree, _ := r.TreeOf("c2"); tree != "read" || r.KnownTree("c2") != "read" {
+		t.Fatalf("KnownTree after a read = %q", r.KnownTree("c2"))
+	}
+}
+
 func TestConfigBool(t *testing.T) {
 	list := strings.Join([]string{
 		"core.filemode\nfalse", "core.bare\nfalse", "a.yes\nYes", "a.on\non", "a.off\nOFF",

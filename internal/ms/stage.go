@@ -168,6 +168,7 @@ func (r *Repo) stageStagedPaths(dir string) ([]string, error) {
 		if _, err := os.Stat(idx); err != nil {
 			continue
 		}
+		r.RememberTree(m.Base, m.BaseTree)
 		base, err := r.TreeOf(m.Base)
 		if err != nil {
 			return nil, err

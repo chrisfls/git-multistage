@@ -404,6 +404,44 @@ func (r *Repo) TreeOf(commit string) (string, error) {
 	return l.tree, l.err
 }
 
+// RememberTree records tree as the tree of commit, so that TreeOf returns it
+// without Git. A commit's tree never changes.
+func (r *Repo) RememberTree(commit, tree string) {
+	if commit == "" || tree == "" {
+		return
+	}
+	r.treesMu.Lock()
+	defer r.treesMu.Unlock()
+	if _, ok := r.trees[commit]; ok {
+		return
+	}
+	if r.trees == nil {
+		r.trees = map[string]*treeLookup{}
+	}
+	l := &treeLookup{done: make(chan struct{}), tree: tree}
+	close(l.done)
+	r.trees[commit] = l
+}
+
+// KnownTree returns the tree of commit when TreeOf has it without Git, or "".
+func (r *Repo) KnownTree(commit string) string {
+	r.treesMu.Lock()
+	l, ok := r.trees[commit]
+	r.treesMu.Unlock()
+	if !ok {
+		return ""
+	}
+	select {
+	case <-l.done:
+		if l.err != nil {
+			return ""
+		}
+		return l.tree
+	default:
+		return ""
+	}
+}
+
 // ConfigBool reads a boolean Git setting, or returns def when the setting is
 // missing or not a boolean. The first call reads every setting with one
 // `git config --list`; later calls reuse it.

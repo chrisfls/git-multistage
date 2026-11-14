@@ -103,6 +103,9 @@ type Meta struct {
 	// stage change is adopted, one per command; a rerun of the same command
 	// finishes its change while the stage's index still shows it.
 	PendingDisk []DiskChange `json:"pending_disk,omitempty"`
+	// BaseTree is the tree of Base, when the process that saved the
+	// metadata knew it.
+	BaseTree string `json:"base_tree,omitempty"`
 }
 
 // DiskChange is the working-tree change of one rm or mv.
@@ -243,6 +246,7 @@ func (l *Stage) loadMeta() error {
 	if err := json.Unmarshal(data, &l.M); err != nil {
 		return fmt.Errorf("stage %q has unreadable metadata %s: %w", l.ID, filepath.Join(l.Dir, "meta.json"), err)
 	}
+	l.r.RememberTree(l.M.Base, l.M.BaseTree)
 	return nil
 }
 
@@ -544,6 +548,7 @@ func (l *Stage) protect() error {
 }
 
 func (l *Stage) save() error {
+	l.M.BaseTree = l.r.KnownTree(l.M.Base)
 	data, err := json.MarshalIndent(l.M, "", "  ")
 	if err != nil {
 		return err
