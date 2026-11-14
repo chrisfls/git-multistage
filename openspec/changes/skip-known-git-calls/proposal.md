@@ -22,7 +22,7 @@ None.
 
 ### Modified Capabilities
 
-- `commit`: the Git hooks requirement defines an absent hook, which `commit` treats as a hook that does nothing without starting `git hook run`; the message requirement cleans the message after `commit-msg` only when that hook ran.
+- `commit`: a new requirement defines an absent Git hook, which `commit` skips without starting `git hook run`; the message requirement cleans the message after `commit-msg` only when that hook ran.
 
 ## Impact
 

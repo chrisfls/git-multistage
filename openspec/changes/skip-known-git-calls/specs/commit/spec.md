@@ -13,20 +13,10 @@
 - **WHEN** the user runs `commit -m "a" -F msg.txt`
 - **THEN** the commit message is the content of `msg.txt`
 
-### Requirement: Git hooks
-`commit` SHALL run `prepare-commit-msg` and `commit-msg` on the message, then `pre-commit` on a temporary index holding the tip with the staged change applied, then `post-commit`, all through `git hook run`. A hook is absent when the hooks directory has no file of its name and no `hook.*` setting exists; `commit` SHALL skip an absent hook without starting `git hook run`. `--no-verify` (`-n`) SHALL skip `pre-commit` and `commit-msg`. A failing hook other than `post-commit` SHALL exit with code 1. If `pre-commit` changes the tree of its index, `commit` SHALL exit with code 1 and error kind `hook-modified`, and the stage SHALL keep its changes.
+## ADDED Requirements
 
-#### Scenario: Hook re-stages a reformatted file
-- **WHEN** a `pre-commit` hook reformats a staged file and runs `git add` on it
-- **THEN** the commit exits with code 1 with error kind `hook-modified`, nothing is committed, and the stage keeps its staged change
-
-#### Scenario: Hook rewrites only the working tree
-- **WHEN** a `pre-commit` hook reformats a staged file without `git add`
-- **THEN** the commit lands with the staged content, and the working-tree file keeps the hook's change
-
-#### Scenario: Skip hooks
-- **WHEN** the user runs `commit --no-verify -m "x"`
-- **THEN** `pre-commit` and `commit-msg` do not run
+### Requirement: Absent Git hooks
+`commit` SHALL treat a Git hook as absent when the hooks directory (`core.hooksPath`, or `hooks` in the common Git directory) holds no entry of its name and no `hook.*` setting exists. It SHALL skip an absent hook without starting `git hook run`, and SHALL run `git hook run` whenever it cannot tell.
 
 #### Scenario: Hook in core.hooksPath
 - **WHEN** `core.hooksPath` names a relative directory that holds a `pre-commit` hook
