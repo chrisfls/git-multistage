@@ -19,10 +19,11 @@ import (
 // hookCall is a hook input of any supported harness.
 type hookCall struct {
 	hookInput
-	event string // the event name that the harness sent
-	shape string // the editor that the input's shape names, or ""
-	args  any    // the tool input, decoded
-	patch string // an apply_patch patch in the tool input, or ""
+	editor string // the editor of the call, which names its stage and its output format
+	event  string // the event name that the harness sent
+	shape  string // the editor that the input's shape names, or ""
+	args   any    // the tool input, decoded
+	patch  string // an apply_patch patch in the tool input, or ""
 }
 
 // Hook events.
@@ -69,9 +70,12 @@ var fileTools = map[string]bool{
 	"file_editor": true, "fs_write": true, "fs_append": true,
 }
 
-// fieldEventName holds the event name in camelCase hook inputs and in
-// Claude Code's hookSpecificOutput.
-const fieldEventName = "hookEventName"
+// Fields of hook inputs and of Claude Code's hook output.
+const (
+	fieldEventName = "hookEventName"      // the event name in camelCase inputs and in hookSpecificOutput
+	fieldOutput    = "hookSpecificOutput" // Claude Code's output for one event
+	fieldContext   = "additionalContext"  // text for the model
+)
 
 // patchStart begins an apply_patch patch.
 const patchStart = "*** Begin Patch"
@@ -332,4 +336,39 @@ func lowerFirst(s string) string {
 		return s
 	}
 	return strings.ToLower(s[:1]) + s[1:]
+}
+
+// message returns the output that gives msg to the model, in the format
+// that the call's harness reads, or "" when the harness reads no output
+// at the call's event. A harness without a format of its own gets Claude
+// Code's.
+func (c hookCall) message(msg string) string {
+	var v any
+	switch c.editor {
+	case "copilot", "openhands":
+		v = map[string]string{fieldContext: msg}
+	case "cursor":
+		v = map[string]string{"additional_context": msg}
+	case "antigravity": // reads {} after a tool call
+		if c.Event != eventSessionStart {
+			return ""
+		}
+		v = map[string]any{"injectSteps": []any{map[string]any{"systemMessage": map[string]string{"systemMessage": msg}}}}
+	case "vibe":
+		v = map[string]any{"hook_specific_output": map[string]string{"additional_context": msg}}
+	case "kiro":
+		return msg
+	case "cline":
+		v = map[string]string{"contextModification": msg}
+	default:
+		v = map[string]any{fieldOutput: map[string]string{fieldEventName: c.event, fieldContext: msg}}
+	}
+	out, _ := json.Marshal(v)
+	return string(out)
+}
+
+// noticeNamesStage reports whether the session start notice of editor
+// names the stage, because the harness reads no output after a tool call.
+func noticeNamesStage(editor string) bool {
+	return editor == "antigravity" || editor == "kiro"
 }

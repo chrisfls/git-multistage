@@ -232,3 +232,31 @@ func TestValidEditor(t *testing.T) {
 		}
 	}
 }
+
+// TestHookMessage checks the output format of each harness.
+func TestHookMessage(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ editor, event, native, want string }{
+		{"claude", eventPostTool, eventPostTool, `{"hookSpecificOutput":{"additionalContext":"m","hookEventName":"PostToolUse"}}`},
+		{"gemini", eventPostTool, "AfterTool", `{"hookSpecificOutput":{"additionalContext":"m","hookEventName":"AfterTool"}}`},
+		{"copilot", eventPostTool, eventPostTool, `{"additionalContext":"m"}`},
+		{"openhands", eventSessionStart, eventSessionStart, `{"additionalContext":"m"}`},
+		{"cursor", eventPostTool, "postToolUse", `{"additional_context":"m"}`},
+		{"antigravity", eventSessionStart, eventSessionStart, `{"injectSteps":[{"systemMessage":{"systemMessage":"m"}}]}`},
+		{"antigravity", eventPostTool, eventPostTool, ``},
+		{"vibe", eventPostTool, "post_tool", `{"hook_specific_output":{"additional_context":"m"}}`},
+		{"kiro", eventSessionStart, eventSessionStart, `m`},
+		{"cline", eventPostTool, eventPostTool, `{"contextModification":"m"}`},
+	} {
+		c := hookCall{editor: tc.editor, event: tc.native}
+		c.Event = tc.event
+		if got := c.message("m"); got != tc.want {
+			t.Errorf("%s at %s: %s, want %s", tc.editor, tc.native, got, tc.want)
+		}
+	}
+	for editor, want := range map[string]bool{"antigravity": true, "kiro": true, "claude": false, "gemini": false} {
+		if noticeNamesStage(editor) != want {
+			t.Errorf("noticeNamesStage(%q) = %v, want %v", editor, !want, want)
+		}
+	}
+}
