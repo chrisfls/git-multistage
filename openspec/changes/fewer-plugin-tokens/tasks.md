@@ -17,7 +17,7 @@
 ## 4. Integration
 
 - [x] 4.1 In a scratch repository where another stage holds a staged change and an unstaged edit, run `claude -p` with `--plugin-dir` set to this checkout and the new binary on `PATH`, and ask it to change one file and commit. Verify that the commit holds only that change, that the other stage and the unstaged edit stay as they were, and that the reply leaves out the other changes
-- [ ] 4.2 Run `mise run ci` once, and verify that it passes
+- [x] 4.2 Run `mise run ci` once, and verify that it passes. It passed on `0431700` in 97 s, run on an export of that commit, because the shared checkout held another change in progress
 
 ## Results
 
