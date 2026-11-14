@@ -44,7 +44,29 @@
 
 ## 5. Results
 
-- [ ] 5.1 Measure the scenario as in 1.1 and record the numbers. Run `mise run ci`. Verify: CI exits with code 0, and the numbers are in this task.
+- [x] 5.1 Measure the scenario as in 1.1 and record the numbers. Run `mise run ci`. Verify: CI exits with code 0, and the numbers are in this task.
+
+  After, 2026-11-14, master `bed45e4`, one command in flight. The two builds ran interleaved (old, new, old, new), so both saw the same load; the old build's runs here are the "before" columns.
+
+  | Command | git processes (before → after) | Before, runs 1 and 2 | After, runs 1 and 2 |
+  | --- | --- | --- | --- |
+  | `status` (creates the stage) | 15 → 15 | 195, 195 ms | 173, 171 ms |
+  | `status` | 10 → 9 | 101, 106 ms | 85, 84 ms |
+  | hook PreToolUse | 6 → 6 | 88, 82 ms | 77, 71 ms |
+  | hook PostToolUse | 12 → 10 | 166, 163 ms | 145, 140 ms |
+  | hook PreToolUse (second edit) | 6 → 6 | 89, 77 ms | 80, 70 ms |
+  | hook PostToolUse (second edit) | 12 → 10 | 161, 161 ms | 145, 142 ms |
+  | `add --edits` (2 files) | 14 → 13 | 220, 211 ms | 195, 185 ms |
+  | `status`, two files staged | 16 → 15 | 146, 145 ms | 125, 125 ms |
+  | `diff --cached` | 9 → 8 | 117, 114 ms | 101, 95 ms |
+  | `commit -m x` | 35 → 24 | 587, 565 ms | 378, 348 ms |
+  | `add f3.txt` | 21 → 19 | 260, 238 ms | 235, 223 ms |
+  | `commit -m y` | 35 → 24 | 554, 522 ms | 386, 357 ms |
+
+  - A `commit` without Git hooks starts 11 processes fewer and takes about a third less time.
+  - One hooked edit (PreToolUse and PostToolUse) went from 18 to 16 processes, and from 243 to 254 ms to 211 to 222 ms.
+  - `status` of a new stage still reads the tree of its base once, and then records it.
+  - `mise run ci`: every step passed, 123 s wall; the `test` package took 117.8 s. `mise run ci:stress`: exit code 0, 103 s.
 
 ## Workflow follow-up
 
