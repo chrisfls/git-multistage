@@ -6,7 +6,7 @@ Editor hooks record each file edit that a coding agent makes through its editor 
 ## Requirements
 
 ### Requirement: Hook commands
-`hook claude` SHALL handle Claude Code `PreToolUse` and `PostToolUse` events for `Edit`, `MultiEdit`, and `Write`. `hook codex` SHALL handle the same events for Codex `apply_patch` and SHALL take files from its `Update File`, `Add File`, `Delete File`, and `Move to` headers. `hook` without an editor SHALL pick `codex` for `apply_patch` and `claude` otherwise.
+`hook [<editor>]` SHALL take an editor name of lower-case letters, digits, and hyphens, and SHALL handle the `PreToolUse`, `PostToolUse`, and `PostToolUseFailure` events of each supported harness's file tools. It SHALL take a call's files from the path field of the tool input, or from the file headers of an `apply_patch` patch in any field of it. Without an editor name, it SHALL pick one as "Editor without a name" says.
 
 #### Scenario: Codex patch
 - **WHEN** Codex runs `apply_patch` with `Update File: a.go` and `Add File: b.go`
@@ -15,6 +15,18 @@ Editor hooks record each file edit that a coding agent makes through its editor 
 #### Scenario: Other tools
 - **WHEN** the hook receives an event for a tool that edits no file, such as `Bash`
 - **THEN** it records nothing and exits with code 0
+
+#### Scenario: Patch in another harness
+- **WHEN** `hook opencode` receives an `apply_patch` call whose `patchText` holds `Update File: a.go`
+- **THEN** the hook records an edit for `a.go` in the stage `opencode-<session ID>`
+
+#### Scenario: Path field of another harness
+- **WHEN** the hook receives an Antigravity `write_to_file` call whose `TargetFile` names `a.go`
+- **THEN** the hook records an edit for `a.go`
+
+#### Scenario: Editor name with other characters
+- **WHEN** the user runs `git multistage hook Claude.Code`
+- **THEN** the command prints its usage and exits with code 2
 
 ### Requirement: Stage of a recorded edit
 The hook SHALL record into the stage that `--stage` names. Otherwise a subagent SHALL record into `<editor>-<agent_id>`, and a main session SHALL record into `GIT_MULTISTAGE_ID` or `<editor>-<session_id>`. The first recorded edit of a stage SHALL tell the agent its stage ID and the commands to commit.
@@ -128,11 +140,15 @@ The hook SHALL record only the change that the tool call made, without locking t
 - **THEN** the record holds only the line 2 change
 
 ### Requirement: Source of a recorded change
-For Claude Code `Edit`, `MultiEdit`, and `Write`, the hook SHALL record the change from the original content in the tool response to the content that the tool wrote, or from the file before the call when the response holds no original content. For Codex `apply_patch`, it SHALL record the change from the file before the call to that content with the patch applied.
+For Claude Code `Edit`, `MultiEdit`, and `Write`, the hook SHALL record the change from the original content in the tool response to the content that the tool wrote, or from the file before the call when the response holds no original content. For an `apply_patch` patch in any harness, it SHALL record the change from the file before the call to that content with the patch applied. For any other file tool, it SHALL record the change from the file before the call to the file after the call.
 
 #### Scenario: Claude Code edit
 - **WHEN** a Claude Code `Edit` response holds original content `one two three` and a patch that changes `two` to `TWO`
 - **THEN** the record changes `one two three` to `one TWO three`, whatever the file on disk holds after the call
+
+#### Scenario: Edit of another harness
+- **WHEN** a Grok `search_replace` call changes line 2 of `f.txt`
+- **THEN** the record changes `f.txt` from its content before the call to its content after the call
 
 ### Requirement: Recorded edits follow moves and deletions
 `add --edits` SHALL apply each recorded edit of a path that the stage's index moved, through `mv` or a refresh that followed a move, at the new path. A recorded edit of a path that a commit since the record deleted SHALL fail with error kind `path-deleted`, stage nothing, keep the records, and name the deleting commit. A recorded edit of a path that no commit removed and that the stage does not hold SHALL fail with `edit-conflict`.
@@ -176,7 +192,7 @@ For a recorded edit, `add --edits` SHALL follow the moves of the commits that th
 - **THEN** stage `a` holds `x.go` as a new file with the content of its newest record
 
 ### Requirement: Codex deletions and moves
-The hook SHALL record a Codex `apply_patch` `Delete File` as a deletion and a `Move to` as a move. `add --edits` SHALL stage them as `rm` and `mv` would, without touching the disk.
+The hook SHALL record an `apply_patch` `Delete File` as a deletion and a `Move to` as a move, in Codex and in any other harness. `add --edits` SHALL stage them as `rm` and `mv` would, without touching the disk.
 
 #### Scenario: Codex moves a file
 - **WHEN** Codex runs `apply_patch` with `Update File: x.go` and `Move to: y.go`, and the agent runs `add --edits`
@@ -214,3 +230,79 @@ On a `PreToolUse` event of a shell tool in an opted-in checkout, the hook SHALL 
 #### Scenario: Another checkout
 - **WHEN** an agent in an opted-in checkout runs `git -C /tmp/scratch commit -m x`, and `/tmp/scratch` is a repository that did not opt in
 - **THEN** the hook allows the command
+
+### Requirement: Hook input of each harness
+The hook SHALL read the event, the tool name, the tool input, the session ID, the subagent ID, the tool call ID, and the working directory under the field names of each supported harness. It SHALL read each harness's event names as `SessionStart`, `PreToolUse`, `PostToolUse`, or `PostToolUseFailure`, and a post-tool event that reports a failed call as `PostToolUseFailure`. Without a tool call ID, it SHALL pair the events of one call by the tool name and the tool input.
+
+#### Scenario: Antigravity edit
+- **WHEN** the hook receives Antigravity `PreToolUse` and `PostToolUse` inputs with `conversationId` `c1` and `toolCall` `{"id": "t1", "name": "replace_file_content", "args": {"TargetFile": "<file>"}}`
+- **THEN** the edit is recorded in stage `antigravity-c1`
+
+#### Scenario: Event names of other harnesses
+- **WHEN** the hook receives `BeforeTool` and `AfterTool` from Gemini CLI, `pre_tool` and `post_tool` from Mistral Vibe, or `preToolUse` and `postToolUse` from Cursor
+- **THEN** it reads them as `PreToolUse` and `PostToolUse`
+
+#### Scenario: Failed call in Mistral Vibe
+- **WHEN** the hook receives a Vibe `post_tool` input with `tool_status` `failure`
+- **THEN** it records nothing and deletes the pending record of the call
+
+#### Scenario: Cline input
+- **WHEN** the hook receives a Cline `PreToolUse` input with `taskId` `t1` and `preToolUse` `{"toolName": "write_to_file", "parameters": {"path": "<file>"}}`, and the matching `PostToolUse`
+- **THEN** the edit is recorded in stage `cline-t1`
+
+#### Scenario: Input without a tool call ID
+- **WHEN** the hook receives OpenHands `PreToolUse` and `PostToolUse` inputs of one `file_editor` call, without a tool call ID
+- **THEN** the edit is recorded once
+
+### Requirement: Editor without a name
+Without an editor name, the hook SHALL take the editor from, in order: the shape of the hook input; the variables that a harness sets for its hook commands; `codex` for an `apply_patch` call whose patch is in `command`; and `claude`.
+
+#### Scenario: Antigravity input
+- **WHEN** `git multistage hook` receives an input with `conversationId`
+- **THEN** it uses the editor `antigravity`
+
+#### Scenario: Harness variable
+- **WHEN** `git multistage hook` runs with `MINIMAX_PLUGIN_ROOT` set and receives a Claude-shaped input
+- **THEN** it uses the editor `minimax`
+
+#### Scenario: Claude Code input
+- **WHEN** `git multistage hook` receives a Claude Code input and no harness variable is set
+- **THEN** it uses the editor `claude`
+
+### Requirement: Output format of each harness
+The hook SHALL write the session start notice and the first-edit message in the output format that the editor's harness reads. For a harness without a format of its own, it SHALL write `hookSpecificOutput.additionalContext` with the input's event name.
+
+#### Scenario: Copilot and OpenHands
+- **WHEN** a hook of GitHub Copilot CLI or OpenHands records the first edit of a stage
+- **THEN** the hook prints `{"additionalContext": "<message>"}`
+
+#### Scenario: Cursor
+- **WHEN** `hook cursor` records the first edit of a stage
+- **THEN** the hook prints `{"additional_context": "<message>"}`
+
+#### Scenario: Antigravity
+- **WHEN** the hook prints the session start notice for Antigravity
+- **THEN** it prints `{"injectSteps": [{"systemMessage": {"systemMessage": "<notice>"}}]}`, and after a tool call it prints nothing
+
+#### Scenario: Mistral Vibe
+- **WHEN** `hook vibe` records the first edit of a stage
+- **THEN** the hook prints `{"hook_specific_output": {"additional_context": "<message>"}}`
+
+#### Scenario: Kiro CLI and Cline
+- **WHEN** `hook kiro` or `hook cline` prints a message
+- **THEN** Kiro gets the message as plain text, and Cline gets `{"contextModification": "<message>"}`
+
+#### Scenario: Gemini CLI first edit
+- **WHEN** `hook gemini` records the first edit of a stage on `AfterTool`
+- **THEN** the hook prints `hookSpecificOutput` with `hookEventName` `AfterTool` and the message in `additionalContext`
+
+### Requirement: Stage in the session start notice
+In Antigravity and Kiro CLI, whose output after a tool call does not reach the model, the session start notice SHALL also name the stage that the session's edits go to and the commands to commit them.
+
+#### Scenario: Antigravity session start
+- **WHEN** the hook receives an Antigravity `SessionStart` input with `conversationId` `c1` in an opted-in checkout
+- **THEN** the notice in `injectSteps` names the stage `antigravity-c1`
+
+#### Scenario: Claude Code session start
+- **WHEN** the hook receives a Claude Code `SessionStart` input in an opted-in checkout
+- **THEN** the notice names no stage
