@@ -53,7 +53,7 @@ Alternative: move the failure steps to a second file that the agent reads after 
 
 ### Order the stage ID sources
 
-The skill tells the agent to use, in order: the stage that a git-multistage message names, its agent ID, and a stage from `init`. The hook records into the stage that its message names, so `add --edits` with any other ID finds no records.
+The skill tells the agent to use, in order: the stage that a git-multistage message names, its agent ID, and a stage from `init`. The hook records into the stage that its message names, so `add --edits` with any other ID finds no records. The message arrives only after the first edit, so the skill tells the agent to make that edit first. In the smoke runs of task 4.1, agents that chose an ID before their first edit ran `init`, which cost a tool call and left an empty stage behind.
 
 ### Note about other agents in the first-edit message
 

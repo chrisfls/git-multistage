@@ -11,7 +11,7 @@ Other agents edit files and commit to this branch while you work. Commits, file 
 
 Pass your stage ID on every command, because each shell call starts with a fresh environment. Use the first ID that applies:
 
-1. The stage that a git-multistage message names, such as "git-multistage records your file edits in stage claude-1a2b".
+1. The stage that a git-multistage message names, such as "git-multistage records your file edits in stage claude-1a2b". The message comes after your first edit with a file-editing tool, so make that edit before you choose an ID.
 2. Your agent ID from your task, such as `agent-a`.
 3. A new stage. `git multistage init` prints its ID, such as `Created stage stage-1f3a9c2e`. Use that ID from then on.
 

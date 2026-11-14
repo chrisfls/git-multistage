@@ -14,14 +14,18 @@ The Claude Code plugin, its marketplace entry, and the Codex plugin SHALL carry 
 - **THEN** the plugin manifests of that release name version `0.2.0`
 
 ### Requirement: Stage ID in the skill
-The `git-multistage` skill SHALL tell the agent to take its stage ID from the first source that has one: a git-multistage message that names the agent's stage, then the agent ID from its task, then a new stage from `init`.
+The `git-multistage` skill SHALL tell the agent to take its stage ID from the first source that has one: a git-multistage message that names the agent's stage, then the agent ID from its task, then a new stage from `init`. Because the message follows the agent's first edit with a file-editing tool, the skill SHALL tell the agent to make that edit before it chooses an ID.
 
 #### Scenario: Hook stage and task ID
 - **WHEN** a git-multistage message names stage `claude-1a2b`, and the agent's task names agent ID `agent-a`
 - **THEN** the skill tells the agent to stage and commit with `--stage claude-1a2b`
 
+#### Scenario: Before the first edit
+- **WHEN** an agent with the plugin installed has not edited a file yet, and its task names no agent ID
+- **THEN** the skill tells it to make its first edit and take the stage that the message names, not to run `init`
+
 #### Scenario: No ID
-- **WHEN** no message names a stage and the task names no agent ID
+- **WHEN** the agent's first edit brought no message that names a stage, and the task names no agent ID
 - **THEN** the skill tells the agent to run `git multistage init` once and use the printed ID
 
 ### Requirement: Failure steps in the skill
