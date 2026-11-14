@@ -23,6 +23,25 @@ Concurrent commits from several stages SHALL each land on the branch, and none S
 - **WHEN** stages `a` and `b` run `commit` at the same time on different files
 - **THEN** the branch holds both commits, one on top of the other
 
+### Requirement: Concurrent commits take turns
+Commits of stages in one worktree SHALL take turns from the read of the branch tip to the update of the branch, so that a commit that waits for its turn lands without a replay. A commit SHALL give up its turn while its `pre-commit` hook runs. A killed commit SHALL never keep its turn. A commit that waits 10 s for its turn SHALL go on without it.
+
+#### Scenario: Eight stages commit at once
+- **WHEN** eight stages run `commit --json` at the same time on different files, and no other process moves the branch
+- **THEN** the branch holds all eight commits, and each commit reports `attempts` 1
+
+#### Scenario: Turn held too long
+- **WHEN** another process holds the commit turn of the worktree for longer than 10 s while stage `a` runs `commit`
+- **THEN** stage `a`'s commit goes on without the turn and lands
+
+#### Scenario: Killed while holding the turn
+- **WHEN** a commit of stage `a` is killed while it holds its turn, and stage `b` then runs `commit`
+- **THEN** stage `b`'s commit takes the turn at once and lands
+
+#### Scenario: Slow pre-commit hook
+- **WHEN** stage `a`'s `pre-commit` hook is still running and stage `b` runs `commit`
+- **THEN** stage `b`'s commit lands before stage `a`'s hook ends, and stage `a`'s commit then lands on top of it without running the hook again
+
 ### Requirement: Commit carries only the staged change
 The commit's tree SHALL differ from its parent only at the staged paths and at the new names of staged paths that the tip renamed. Each staged path that the tip did not change SHALL hold exactly the staged mode and content. A tree that fails this check SHALL be refused with exit code 3.
 
