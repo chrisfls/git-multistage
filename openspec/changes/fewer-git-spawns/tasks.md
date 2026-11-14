@@ -2,7 +2,26 @@
 
 ## 1. Baseline
 
-- [ ] 1.1 Count the `git` processes of each command of the scenario (five other stages with one staged file each; in stage `claude-w`: two `status`, two hooked edits, `add --edits`, `status`, `diff --cached`, `commit`, `add`, `commit`) from Git's trace2 `start` events, one command in flight. Verify: the counts, the unit, and the concurrency are recorded in this task.
+- [x] 1.1 Count the `git` processes of each command of the scenario (five other stages with one staged file each; in stage `claude-w`: two `status`, two hooked edits, `add --edits`, `status`, `diff --cached`, `commit`, `add`, `commit`) from Git's trace2 `start` events, one command in flight. Verify: the counts, the unit, and the concurrency are recorded in this task.
+
+  Baseline, 2026-11-14, master `644107e`, macOS, 12 cores, Git 2.54 (Apple Git-157) through `git multistage`. Repository of 9 files, `core.hooksPath` naming a missing directory, `core.ignoreCase` true (the default of `git init` on macOS), one command in flight. The counts come from trace2 `start` events and include the `git multistage` process of each command. The times are the wall time of each command, measured by the shell.
+
+  | Command | git processes | Run 1 | Run 2 |
+  | --- | --- | --- | --- |
+  | `status` (creates the stage) | 13 | 68 ms | 67 ms |
+  | `status` | 7 | 35 ms | 34 ms |
+  | hook PreToolUse | 7 | 43 ms | 37 ms |
+  | hook PostToolUse | 9 | 54 ms | 57 ms |
+  | hook PreToolUse (second edit) | 7 | 41 ms | 35 ms |
+  | hook PostToolUse (second edit) | 9 | 56 ms | 55 ms |
+  | `add --edits` (2 files) | 10 | 71 ms | 63 ms |
+  | `status`, two files staged | 9 | 47 ms | 48 ms |
+  | `diff --cached` | 5 | 43 ms | 33 ms |
+  | `commit -m x` | 14 | 90 ms | 86 ms |
+  | `add f3.txt` | 11 | 83 ms | 71 ms |
+  | `commit -m y` | 14 | 91 ms | 83 ms |
+
+  The scenario starts 115 `git` processes.
 
 ## 2. Version check
 
