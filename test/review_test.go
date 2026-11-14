@@ -109,6 +109,62 @@ func TestGarbageCollectionKeepsStagedObjects(t *testing.T) {
 	}
 }
 
+// TestProtectSkipsAnUnchangedKeepTree leaves the keep ref of an unchanged
+// stage alone without mktree, and rewrites a keep commit of an older version
+// once.
+func TestProtectSkipsAnUnchangedKeepTree(t *testing.T) {
+	t.Parallel()
+	r := newRepo(t)
+	r.write("new.txt", "n\n")
+	r.mustMS("agent-a", "add", "new.txt")
+	const keep = "refs/worktree/multistage/agent-a"
+	if msg := r.git("log", "-1", "--format=%B", keep); !strings.Contains(msg, "\nkeep-input ") {
+		t.Fatalf("keep commit message %q has no digest", msg)
+	}
+	// mktrees runs a command with Git's trace on and counts its mktree calls.
+	mktrees := func(args ...string) int {
+		t.Helper()
+		trace := filepath.Join(t.TempDir(), "trace")
+		if res := run(r.dir, "agent-a", []string{"GIT_TRACE2_EVENT=" + trace}, args...); res.code != 0 {
+			t.Fatalf("%v:\n%s", args, res)
+		}
+		data, err := os.ReadFile(trace)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.Contains(line, `"event":"start"`) && strings.Contains(line, `"mktree"`) {
+				n++
+			}
+		}
+		return n
+	}
+	ref := strings.TrimSpace(r.git("rev-parse", keep))
+	for _, args := range [][]string{{"status"}, {"diff", "--cached"}} {
+		if n := mktrees(args...); n != 0 {
+			t.Fatalf("%v on an unchanged stage started %d mktree", args, n)
+		}
+	}
+	if now := strings.TrimSpace(r.git("rev-parse", keep)); now != ref {
+		t.Fatalf("the keep ref moved from %s to %s", ref, now)
+	}
+
+	treeAndBase := r.git("rev-parse", keep+"^{tree}", keep+"^")
+	tree, base, _ := strings.Cut(strings.TrimSpace(treeAndBase), "\n")
+	old := strings.TrimSpace(r.git("commit-tree", tree, "-p", base, "-m", "git-multistage stage agent-a"))
+	r.git("update-ref", keep, old)
+	if n := mktrees("status"); n != 1 {
+		t.Fatalf("status over a keep commit without the digest started %d mktree, want 1", n)
+	}
+	if got := r.git("rev-parse", keep+"^{tree}", keep+"^"); got != treeAndBase {
+		t.Fatalf("the rewritten keep commit holds %q, want %q", got, treeAndBase)
+	}
+	if n := mktrees("status"); n != 0 {
+		t.Fatalf("status after the rewrite started %d mktree", n)
+	}
+}
+
 func caseInsensitiveFS(tb testing.TB, dir string) bool {
 	tb.Helper()
 	p := filepath.Join(dir, "CaseProbe")

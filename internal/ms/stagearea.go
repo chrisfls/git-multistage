@@ -474,11 +474,33 @@ func editBlobEntries(recs []EditRecord) string {
 	return edits.String()
 }
 
-// keepTree writes the tree that the keep ref holds: the staged tree, and
-// beside it the edit blobs that edits names.
-func (r *Repo) keepTree(staged, edits string) (string, error) {
-	entries := fmt.Sprintf("040000 tree %s\tstaged\n", staged) + edits
-	return r.Line(gitx.Opt{Stdin: strings.NewReader(entries)}, "mktree")
+// keepInput returns the mktree input of the tree that the keep ref holds:
+// the staged tree, and beside it the edit blobs that edits names.
+func keepInput(staged, edits string) string {
+	return fmt.Sprintf("040000 tree %s\tstaged\n", staged) + edits
+}
+
+// keepDigestPrefix starts the line of the keep commit's message that holds
+// the SHA-256 of the input of the commit's tree.
+const keepDigestPrefix = "keep-input "
+
+// keepDigest returns the line of the keep commit's message for input.
+func keepDigest(input string) string {
+	sum := sha256.Sum256([]byte(input))
+	return keepDigestPrefix + hex.EncodeToString(sum[:])
+}
+
+// parseKeep reads the output of `show -s --format=%T %P%n%B` of the keep
+// ref: the parents of its commit, and the digest line of its message.
+func parseKeep(out string) (parents, digest string) {
+	first, msg, _ := strings.Cut(out, "\n")
+	_, parents, _ = strings.Cut(first, " ")
+	for _, line := range strings.Split(msg, "\n") {
+		if strings.HasPrefix(line, keepDigestPrefix) {
+			digest = line
+		}
+	}
+	return strings.TrimSpace(parents), digest
 }
 
 func (l *Stage) protect() error {
@@ -497,7 +519,9 @@ func (l *Stage) protect() error {
 			return err
 		},
 		func() error {
-			cur, _ = l.r.Line(gitx.Opt{}, "show", "-s", "--format=%T %P", l.keepRef(), "--")
+			if out, err := l.r.Run(gitx.Opt{}, "show", "-s", "--format=%T %P%n%B", l.keepRef(), "--"); err == nil {
+				cur = string(out)
+			}
 			return nil
 		},
 	)
@@ -516,15 +540,18 @@ func (l *Stage) protect() error {
 		}
 		return err
 	}
-	keepTree, err := l.r.keepTree(tree, edits)
+	// The keep commit records the digest of its tree's input, so an
+	// unchanged stage needs no mktree.
+	input := keepInput(tree, edits)
+	digest := keepDigest(input)
+	if parents, d := parseKeep(cur); parents == l.M.Base && d == digest {
+		return nil
+	}
+	keepTree, err := l.r.Line(gitx.Opt{Stdin: strings.NewReader(input)}, "mktree")
 	if err != nil {
 		return err
 	}
-	want := strings.TrimSpace(keepTree + " " + l.M.Base)
-	if cur == want {
-		return nil
-	}
-	args := []string{"commit-tree", keepTree, "-m", "git-multistage stage " + l.ID}
+	args := []string{"commit-tree", keepTree, "-m", "git-multistage stage " + l.ID, "-m", digest}
 	if l.M.Base != "" {
 		args = append(args, "-p", l.M.Base)
 	}

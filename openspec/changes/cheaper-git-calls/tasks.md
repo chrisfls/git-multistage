@@ -41,7 +41,9 @@
 
 ## 5. Keep input digest
 
-- [ ] 5.1 Record the digest of the keep tree's input in the keep commit, and make `protect` skip `mktree` when it matches. Verify: `status` and `diff --cached` of a stage with staged changes start no `mktree`; a keep ref without the digest is rewritten once with the same tree and parent; the crash-recovery, `git gc`, and hook tests pass.
+- [x] 5.1 Record the digest of the keep tree's input in the keep commit, and make `protect` skip `mktree` when it matches. Verify: `status` and `diff --cached` of a stage with staged changes start no `mktree`; a keep ref without the digest is rewritten once with the same tree and parent; the crash-recovery, `git gc`, and hook tests pass.
+
+  Result: `TestProtectSkipsAnUnchangedKeepTree` covers both checks. In the scenario, `status` with two files staged goes 15 → 14 and `diff --cached` 8 → 7; `mktree` runs only in the hooked edits, `add --edits`, and `add`, which change the stage. The end-to-end tests whose names match garbage, damaged, drop, hook, crash, and kill pass.
 
 ## 6. Results
 
