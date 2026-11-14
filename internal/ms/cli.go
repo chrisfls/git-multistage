@@ -168,6 +168,7 @@ func Main(argv []string, stdout, stderr io.Writer) int {
 	if !errors.As(err, &e) {
 		e = &Error{Code: ExitError, Kind: jsonError, Message: err.Error()}
 	}
+	addCodexHint(e)
 	if a.json {
 		a.flushWarnings()
 		a.emit(map[string]any{jsonError: e, jsonWarnings: a.warnings})

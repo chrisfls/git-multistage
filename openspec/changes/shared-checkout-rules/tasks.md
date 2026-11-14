@@ -14,7 +14,7 @@
 
 ## 4. Hints for agents
 
-- [ ] 4.1 Add the agent hints for `branch-mismatch`, `operation-in-progress`, `index-locked`, `busy`, `shared-path`, and `hook-modified`, and the Codex hint for a read-only `.git`. Verify with tests that run the failing commands with and without `CLAUDE_CODE_SESSION_ID`
+- [x] 4.1 Add the agent hints for `branch-mismatch`, `operation-in-progress`, `index-locked`, `busy`, `shared-path`, and `hook-modified`, and the Codex hint for a read-only `.git`. Verify with tests that run the failing commands with and without `CLAUDE_CODE_SESSION_ID`
 
 ## 5. Skill and README
 

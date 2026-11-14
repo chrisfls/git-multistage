@@ -383,8 +383,8 @@ func (l *Stage) refuseShared(changed []gitx.Entry) error {
 		Code: ExitRefused, Kind: "shared-path",
 		Message: "another stage has staged changes in these files, so the whole file may hold its changes too; nothing was staged",
 		Paths:   shared, Details: details,
-		Hint: "stage only your hunks: `git multistage hunks <path>`, then `git multistage add <path> --hunk <id>`; " +
-			"or pass --allow-shared to stage the whole file anyway",
+		Hint: "stage only your hunks: `git multistage hunks <path>`, then `git multistage add <path> --hunk <id>`" +
+			forAgent("; or pass --allow-shared to stage the whole file anyway", ""),
 	}
 }
 

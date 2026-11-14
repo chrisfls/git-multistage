@@ -231,7 +231,9 @@ func lockStageDir(dir, id string, timeout time.Duration) (*filelock.Lock, error)
 		}
 	}
 	if errors.Is(err, filelock.ErrBusy) {
-		return nil, errorf(ExitBusy, "busy", "stage %q is busy: another git-multistage process is using it", id)
+		e := errorf(ExitBusy, "busy", "stage %q is busy: another git-multistage process is using it", id)
+		e.Hint = forAgent("", hintRetry)
+		return nil, e
 	}
 	return lk, err
 }

@@ -85,7 +85,7 @@ func (r *Repo) checkOperation(parent, commit string, sync bool) error {
 		return &Error{
 			Code: ExitRefused, Kind: "operation-in-progress",
 			Message: op + " is in progress and has changed these paths in the index; nothing was committed",
-			Paths:   res.Kept, Hint: "finish or abort " + op + ", then commit again",
+			Paths:   res.Kept, Hint: forAgent("finish or abort "+op+", then commit again", hintStop),
 		}
 	}
 	return nil
@@ -395,8 +395,10 @@ func (l *Stage) verifyTree(st *commitState, tip, tipTree, tree string) (bool, er
 		return false, &Error{
 			Code: ExitError, Kind: "hook-modified",
 			Message: "the pre-commit hook changed the staged content; nothing was committed and the staged changes are kept",
-			Hint: "the files that the hook re-added may hold unstaged edits that belong to other stages; " +
+			Hint: forAgent("the files that the hook re-added may hold unstaged edits that belong to other stages; "+
 				"check the working tree, stage your changes again, and commit again",
+				"the hook rewrote files on disk, such as by formatting them; stage your changes again "+
+					"with `git multistage hunks <path>` and `add <path> --hunk <id>`, and commit again"),
 		}
 	}
 	st.verified = introduced
@@ -545,7 +547,7 @@ func (l *Stage) checkHead(head, tip string) error {
 		return &Error{
 			Code: ExitRefused, Kind: "branch-mismatch",
 			Message: fmt.Sprintf("HEAD is %s, but this stage targets %s; nothing was committed", describeTarget(head), describeTarget(l.M.Branch)),
-			Hint:    "check out " + strings.TrimPrefix(l.M.Branch, "refs/heads/") + " again, or drop the stage",
+			Hint:    forAgent("check out "+strings.TrimPrefix(l.M.Branch, "refs/heads/")+" again, or drop the stage", hintStop),
 		}
 	}
 	if l.M.Branch == refHEAD && l.M.Base != "" && tip != l.M.Base {
@@ -553,7 +555,7 @@ func (l *Stage) checkHead(head, tip string) error {
 			return &Error{
 				Code: ExitRefused, Kind: "branch-mismatch",
 				Message: "the detached HEAD moved to a commit that does not contain this stage's base; nothing was committed",
-				Hint:    "check out " + short(l.M.Base) + " or a descendant again, or drop the stage",
+				Hint:    forAgent("check out "+short(l.M.Base)+" or a descendant again, or drop the stage", hintStop),
 			}
 		}
 	}

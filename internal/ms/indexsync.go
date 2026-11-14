@@ -130,7 +130,7 @@ func (r *Repo) lockIndex(timeout time.Duration) (*indexLock, error) {
 			return nil, &Error{
 				Code: ExitBusy, Kind: "index-locked",
 				Message: fmt.Sprintf("the default index is locked: %s exists", path),
-				Hint:    "another Git process is running; if none is, delete the lock file and retry",
+				Hint:    forAgent("another Git process is running; if none is, delete the lock file and retry", hintRetry),
 			}
 		}
 		// A check is one open, so a short wait costs nothing and wakes
