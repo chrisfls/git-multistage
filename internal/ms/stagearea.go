@@ -22,8 +22,7 @@ import (
 // Repo is a worktree plus the git-multistage storage inside its Git directory.
 type Repo struct {
 	*gitx.Repo
-	Dir       string // <per-worktree git dir>/multistage
-	IndexPath string // the worktree's default index
+	Dir string // <per-worktree git dir>/multistage
 }
 
 // OpenRepo discovers the repository that contains dir.
@@ -32,11 +31,7 @@ func OpenRepo(dir string) (*Repo, error) {
 	if err != nil {
 		return nil, err
 	}
-	idx, err := g.Line(gitx.Opt{}, "rev-parse", "--path-format=absolute", "--git-path", "index")
-	if err != nil {
-		return nil, err
-	}
-	return &Repo{Repo: g, Dir: filepath.Join(g.GitDir, "multistage"), IndexPath: filepath.Clean(idx)}, nil
+	return &Repo{Repo: g, Dir: filepath.Join(g.GitDir, "multistage")}, nil
 }
 
 func (r *Repo) stagesDir() string { return filepath.Join(r.Dir, "stages") }

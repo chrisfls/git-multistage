@@ -29,6 +29,7 @@ type Repo struct {
 	CommonDir    string // shared Git directory, absolute
 	Prefix       string // current directory relative to Top, slash-separated, "" or ending in "/"
 	ObjectFormat string // "sha1" or "sha256"
+	IndexPath    string // the worktree's default index, absolute
 	ZeroOID      string
 	EmptyTree    string
 	EmptyBlob    string
@@ -128,7 +129,8 @@ func Open(dir string) (*Repo, error) {
 	versionErr := make(chan error, 1)
 	go func() { versionErr <- r.checkVersion() }()
 	out, err := r.Run(Opt{Dir: dir}, "rev-parse", "--path-format=absolute",
-		"--show-toplevel", "--git-dir", "--git-common-dir", "--show-prefix", "--show-object-format")
+		"--show-toplevel", "--git-dir", "--git-common-dir", "--show-prefix", "--show-object-format",
+		"--git-path", "index")
 	if verr := <-versionErr; verr != nil {
 		return nil, verr
 	}
@@ -141,11 +143,11 @@ func Open(dir string) (*Repo, error) {
 	}
 	// The prefix is "" at the top of the worktree, so its line can be empty.
 	lines := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
-	if len(lines) != 5 || lines[0] == "" {
+	if len(lines) != 6 || lines[0] == "" {
 		return nil, errors.New("not inside a Git worktree (bare repositories are not supported)")
 	}
 	r.Top, r.GitDir, r.CommonDir = filepath.Clean(lines[0]), filepath.Clean(lines[1]), filepath.Clean(lines[2])
-	r.Prefix, r.ObjectFormat = lines[3], lines[4]
+	r.Prefix, r.ObjectFormat, r.IndexPath = lines[3], lines[4], filepath.Clean(lines[5])
 	empty, ok := emptyObjects[r.ObjectFormat]
 	if !ok {
 		return nil, fmt.Errorf("unknown object format %q", r.ObjectFormat)
