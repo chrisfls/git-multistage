@@ -51,7 +51,7 @@ Commands:
   sync [--from <commit>]       bring the default index up to the branch tip
   drop [--force]               delete this stage
   drop --edits [<path>...]     forget recorded edits
-  hook [claude|codex]          editor hook that records file edits (Claude Code, Codex)
+  hook [<editor>]              hook of a coding agent that records its file edits
 
 Most commands take --json. Exit codes: 0 ok, 1 error or nothing to commit,
 2 usage, 3 conflict, 4 stale hunk ID, 5 refused, 6 lock timeout.
@@ -1102,17 +1102,17 @@ func (a *app) drop(l *Stage, p *parsed) error {
 	return nil
 }
 
-// hookMain runs `git multistage hook [claude|codex] [--stage <id>]`. Without
-// a kind, the hook input tells: Codex reports apply_patch, Claude Code its
-// Edit, MultiEdit, and Write tools. One hooks file then serves both tools.
+// hookMain runs `git multistage hook [<editor>] [--stage <id>]`. The editor
+// names the stages and the output format. Without one, the hook input and
+// the harness's variables tell, so one hooks file serves many harnesses.
 func hookMain(argv []string, stdout, stderr io.Writer) int {
 	p, err := parseArgs(argv, nil)
 	kind := ""
 	if err == nil && len(p.pos) == 1 {
 		kind = p.pos[0]
 	}
-	if err != nil || len(p.pos) > 1 || kind != "" && kind != agentClaude && kind != agentCodex {
-		fmt.Fprintln(stderr, "usage: git multistage hook [claude|codex] [--stage <id>]")
+	if err != nil || len(p.pos) > 1 || kind != "" && !validEditor(kind) {
+		fmt.Fprintln(stderr, "usage: git multistage hook [<editor>] [--stage <id>]")
 		return ExitUsage
 	}
 	return runEditHook(kind, os.Stdin, stdout, stderr, p.get(flagStage))

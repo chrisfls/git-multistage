@@ -15,9 +15,10 @@ import (
 // tell the change, and the hook then records the snapshots of the file.
 func (h *editHook) ownChange(p pendingEdit) (before, after string, ok bool) {
 	var orig, written *string
-	if h.in.Tool == toolApplyPatch {
+	switch {
+	case h.in.patch != "":
 		orig, written = h.codexChange(p)
-	} else {
+	case h.in.editor == agentClaude: // another harness's tool of the same name may write otherwise
 		orig, written = h.claudeChange()
 	}
 	if written == nil {
@@ -93,7 +94,7 @@ func replaceAll(s string, edits []claudeEdit) (string, bool) {
 // file's bytes before the call. It returns nil when the section is not an
 // update or an addition that applies exactly.
 func (h *editHook) codexChange(p pendingEdit) (orig, written *string) {
-	sec, ok := codexSection(h.in.Input.Command, h.in.Cwd, h.file)
+	sec, ok := codexSection(h.in.patch, h.in.Cwd, h.file)
 	if !ok {
 		return nil, nil
 	}

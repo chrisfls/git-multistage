@@ -22,7 +22,7 @@ import (
 // edit it records the tool call's own change in the editing agent's stage,
 // without locking the file. A hook error never blocks the edit.
 
-// toolApplyPatch is the Codex file tool.
+// toolApplyPatch is the file tool of Codex, and of several other harnesses.
 const toolApplyPatch = "apply_patch"
 
 // hookInput is the part of a Claude Code or Codex hook input that the hook
@@ -60,34 +60,6 @@ type claudeResponse struct {
 	NewString            *string `json:"newString"`
 }
 
-// editedFiles returns the files that the tool call edits, as absolute
-// paths, for the editor family kind.
-func editedFiles(kind string, in hookInput) []string {
-	switch {
-	case kind == agentClaude && (in.Tool == "Edit" || in.Tool == "MultiEdit" || in.Tool == "Write"):
-		if in.Input.FilePath != "" {
-			return []string{in.Input.FilePath}
-		}
-	case kind == agentCodex && in.Tool == toolApplyPatch:
-		var files []string
-		for _, line := range strings.Split(in.Input.Command, "\n") {
-			line = strings.TrimRight(line, "\r")
-			// The hook of an Update File section with Move to records the move.
-			for _, prefix := range []string{"*** Update File: ", "*** Add File: ", "*** Delete File: "} {
-				if p, ok := strings.CutPrefix(line, prefix); ok && strings.TrimSpace(p) != "" {
-					p = strings.TrimSpace(p)
-					if !filepath.IsAbs(p) {
-						p = filepath.Join(in.Cwd, p)
-					}
-					files = append(files, p)
-				}
-			}
-		}
-		return files
-	}
-	return nil
-}
-
 type pendingEdit struct {
 	Path   string `json:"path"`
 	Before string `json:"before,omitempty"`
@@ -97,35 +69,30 @@ type pendingEdit struct {
 
 // runEditHook handles one hook call. It always returns 0, which lets the
 // edit proceed.
-func runEditHook(kind string, stdin io.Reader, stdout, stderr io.Writer, stageFlag string) int {
-	var in hookInput
-	if err := json.NewDecoder(stdin).Decode(&in); err != nil {
+func runEditHook(editor string, stdin io.Reader, stdout, stderr io.Writer, stageFlag string) int {
+	c, err := readHookCall(stdin)
+	if err != nil {
 		fmt.Fprintf(stderr, "git-multistage hook: cannot read the hook input: %v\n", err)
 		return 0
 	}
-	if in.Event == "SessionStart" || in.Event == "SubagentStart" {
-		announceSharedCheckout(in.Event, in.Cwd, stdout)
+	c.editor = pickEditor(editor, c, os.Getenv)
+	if c.Event == eventSessionStart || c.Event == "SubagentStart" {
+		announceSharedCheckout(c, stageFlag, stdout)
 		return 0
 	}
-	if in.Event == "PreToolUse" && shellTools[in.Tool] {
-		guardShellCommand(in, stdout)
+	if c.Event == eventPreTool && shellTools[c.Tool] {
+		guardShellCommand(c.hookInput, stdout)
 		return 0
 	}
-	if kind == "" {
-		kind = agentClaude
-		if in.Tool == toolApplyPatch {
-			kind = agentCodex
-		}
-	}
-	files := editedFiles(kind, in)
+	files := callFiles(c)
 	if len(files) == 0 {
 		return 0
 	}
-	id := hookStageID(kind, in, stageFlag)
+	id := hookStageID(c.editor, c.hookInput, stageFlag)
 	if id == "" {
 		return 0
 	}
-	return runEvent(in.Event, newEditHooks(in, id, files, stderr), stdout, stderr)
+	return runEvent(c.Event, newEditHooks(c, id, files, stderr), stdout, stderr)
 }
 
 // hookStageID returns the stage that the edit is recorded in, or "". --stage
@@ -147,7 +114,7 @@ func hookStageID(kind string, in hookInput, stageFlag string) string {
 }
 
 // newEditHooks returns one hook for each edited file in a Git worktree.
-func newEditHooks(in hookInput, id string, files []string, stderr io.Writer) []*editHook {
+func newEditHooks(in hookCall, id string, files []string, stderr io.Writer) []*editHook {
 	var hooks []*editHook
 	seen := map[string]bool{}
 	for _, f := range files {
@@ -186,7 +153,7 @@ func runEvent(event string, hooks []*editHook, stdout, stderr io.Writer) int {
 
 type editHook struct {
 	r        *Repo
-	in       hookInput
+	in       hookCall
 	stage    string
 	stageDir string
 	path     string // relative to the worktree root
@@ -196,7 +163,7 @@ type editHook struct {
 
 // newEditHook resolves the repository and path of the edited file. It
 // returns nil for a file outside any Git worktree.
-func newEditHook(in hookInput, stage, file string) (*editHook, error) {
+func newEditHook(in hookCall, stage, file string) (*editHook, error) {
 	if err := ValidateStageID(stage); err != nil {
 		return nil, err
 	}
@@ -350,7 +317,7 @@ func (h *editHook) before(stderr io.Writer) {
 		return
 	}
 	var raw string
-	if before != "" && h.in.Tool == toolApplyPatch {
+	if before != "" && h.in.patch != "" {
 		if raw, err = h.r.Line(gitx.Opt{}, "hash-object", "-w", "--no-filters", "--", h.path); err != nil {
 			fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
 			return
@@ -425,10 +392,10 @@ func (h *editHook) protectAndAnnounce(stdout io.Writer) {
 // codexMove returns the Codex Update File section of the file when it
 // moves the file.
 func (h *editHook) codexMove(p pendingEdit) (codexPatchSection, bool) {
-	if h.in.Tool != toolApplyPatch || p.Before == "" {
+	if h.in.patch == "" || p.Before == "" {
 		return codexPatchSection{}, false
 	}
-	sec, ok := codexSection(h.in.Input.Command, h.in.Cwd, h.file)
+	sec, ok := codexSection(h.in.patch, h.in.Cwd, h.file)
 	return sec, ok && sec.kind == codexUpdate && sec.move != ""
 }
 
@@ -496,13 +463,16 @@ func (h *editHook) announceStage(stdout io.Writer) {
 	if os.WriteFile(marker, nil, 0o666) != nil {
 		return
 	}
-	msg := fmt.Sprintf("git-multistage records your file edits in stage %s. To commit them: "+
+	if out := h.in.message(stageMessage(h.stage)); out != "" {
+		fmt.Fprintln(stdout, out)
+	}
+}
+
+// stageMessage tells the agent its stage and the commands to commit.
+func stageMessage(stage string) string {
+	return fmt.Sprintf("git-multistage records your file edits in stage %s. To commit them: "+
 		"`git multistage --stage %s add --edits` then `git multistage --stage %s commit -m \"<message>\"`.",
-		h.stage, h.stage, h.stage)
-	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{
-		"hookEventName": "PostToolUse", "additionalContext": msg,
-	}})
-	fmt.Fprintln(stdout, string(out))
+		stage, stage, stage)
 }
 
 // sharedCheckoutRules tells an agent the rules of a shared checkout: what to
@@ -526,16 +496,20 @@ func (r *Repo) shared() bool { return r.ConfigBool(configShared, false) }
 
 // announceSharedCheckout answers a SessionStart or SubagentStart hook in an
 // opted-in checkout with sharedCheckoutRules, so a session or a subagent
-// knows from its first turn that others work in the same checkout.
-func announceSharedCheckout(event, cwd string, stdout io.Writer) {
-	if cwd == "" {
+// knows from its first turn that others work in the same checkout. In a
+// harness that reads no output after a tool call, it also names the stage.
+func announceSharedCheckout(c hookCall, stageFlag string, stdout io.Writer) {
+	if c.Cwd == "" {
 		return
 	}
-	if r, err := OpenRepo(cwd); err != nil || !r.shared() {
+	if r, err := OpenRepo(c.Cwd); err != nil || !r.shared() {
 		return // not a Git worktree, or one that did not opt in
 	}
-	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{
-		"hookEventName": event, "additionalContext": sharedCheckoutRules,
-	}})
-	fmt.Fprintln(stdout, string(out))
+	msg := sharedCheckoutRules
+	if id := hookStageID(c.editor, c.hookInput, stageFlag); noticeNamesStage(c.editor) && id != "" {
+		msg += " " + stageMessage(id)
+	}
+	if out := c.message(msg); out != "" {
+		fmt.Fprintln(stdout, out)
+	}
 }
