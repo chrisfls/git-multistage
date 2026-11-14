@@ -43,7 +43,30 @@
 
 ## 5. Results
 
-- [ ] 5.1 Measure the scenario as in 1.1 with the old and new builds, interleaved, and time each command; check that both builds write the same commit trees. Run `mise run ci`. Verify: CI exits with code 0, and the counts and times are in this task.
+- [x] 5.1 Measure the scenario as in 1.1 with the old and new builds, interleaved, and time each command; check that both builds write the same commit trees. Run `mise run ci`. Verify: CI exits with code 0, and the counts and times are in this task.
+
+  After, 2026-11-14, master `1e128e5` against the same source with the three code commits of this change reversed (`e56e4e5`, `0cd074b`, `486e333`), macOS, 12 cores, Git 2.54 (Apple Git-157) through `git multistage`, the scenario of 1.1, one command in flight. Five runs of each build, interleaved (old, new, old, new, ...); each time is the median of the five wall times of the command. Other sessions ran builds and tests on the machine at the same time, so single runs varied by up to 40 %.
+
+  | Command | git processes (before → after) | Before | After | Less time |
+  | --- | --- | --- | --- | --- |
+  | `status` (creates the stage) | 13 → 9 | 87 ms | 57 ms | 34 % |
+  | `status` | 7 → 5 | 38 ms | 34 ms | 11 % |
+  | hook PreToolUse | 7 → 4 | 57 ms | 34 ms | 40 % |
+  | hook PostToolUse | 9 → 7 | 61 ms | 59 ms | 3 % |
+  | hook PreToolUse (second edit) | 7 → 4 | 42 ms | 37 ms | 12 % |
+  | hook PostToolUse (second edit) | 9 → 7 | 64 ms | 57 ms | 11 % |
+  | `add --edits` (2 files) | 10 → 7 | 84 ms | 68 ms | 19 % |
+  | `status`, two files staged | 9 → 7 | 52 ms | 51 ms | 2 % |
+  | `diff --cached` | 5 → 3 | 47 ms | 34 ms | 28 % |
+  | `commit -m x` | 14 → 9 | 103 ms | 78 ms | 24 % |
+  | `add f3.txt` | 11 → 8 | 90 ms | 78 ms | 13 % |
+  | `commit -m y` | 14 → 9 | 101 ms | 76 ms | 25 % |
+
+  - The scenario starts 115 `git` processes before and 79 after, 31 % fewer. The sum of the medians falls from 826 ms to 663 ms, 20 % less.
+  - `status` with staged changes and the PostToolUse hook gain the least: the removed `version` call ran beside the setup `rev-parse`, and their other reads already ran at the same time.
+  - Both builds wrote the same commit trees in every run.
+  - `mise run ci` on a clean export of `1e128e5`: format, lint (0 issues), vet with and without `testhooks`, the unit tests, and every end-to-end test but one passed (63 s wall). `TestClineHooks` failed because I had run `git init` in the export, so the test read the file modes of `hooks/cline` from an empty index. With that `.git` removed, `TestClineHooks` and the last CI step, `openspec validate --all --strict`, pass.
+  - A review of the three code commits found three defects, fixed in a fourth commit: a version 4 index whose strip count overflows an `int` made `ReadIndex` panic instead of handing the file to Git; a `git` on `PATH` that runs another Git (a script, a version manager's shim, the Xcode shim) was remembered, though the Git behind it can change; and the cache line did not hold `MinVersion`. Regression tests cover each one and fail without the fix. The `gitx` and `ms` tests pass with `-race`, `go vet` passes for Windows and Linux, and the scenario still starts 79 processes.
 
 ## Workflow follow-up
 
