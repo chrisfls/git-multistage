@@ -25,7 +25,7 @@
 
 - [x] 6.1 Run the seven scenarios with the new plugin in Claude Code and Codex, as many runs as the baseline, and record both in the Results section
 - [x] 6.2 Drop each part whose scenarios do not show better or equal behavior in both agents, and record the decision
-- [ ] 6.3 Run `mise run ci` once, and verify that it passes
+- [x] 6.3 Run `mise run ci` once, and verify that it passes. It passed on `f6cc64d`, run on an export of that commit with a Git repository around it, because `TestClineHooks` reads the Git index
 
 ## Results
 
