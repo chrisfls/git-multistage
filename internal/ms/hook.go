@@ -103,8 +103,8 @@ func runEditHook(kind string, stdin io.Reader, stdout, stderr io.Writer, stageFl
 		fmt.Fprintf(stderr, "git-multistage hook: cannot read the hook input: %v\n", err)
 		return 0
 	}
-	if in.Event == "SessionStart" {
-		announceSharedCheckout(in.Cwd, stdout)
+	if in.Event == "SessionStart" || in.Event == "SubagentStart" {
+		announceSharedCheckout(in.Event, in.Cwd, stdout)
 		return 0
 	}
 	if kind == "" {
@@ -495,22 +495,21 @@ func (h *editHook) announceStage(stdout io.Writer) {
 	msg := fmt.Sprintf("git-multistage records your file edits in stage %s. To commit them: "+
 		"`git multistage --stage %s add --edits` then `git multistage --stage %s commit -m \"<message>\"`.",
 		h.stage, h.stage, h.stage)
-	// A main session received the note at session start; a subagent
-	// receives no session start notice.
-	if h.in.AgentID != "" {
-		msg += " " + otherAgentsNote
-	}
 	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{
 		"hookEventName": "PostToolUse", "additionalContext": msg,
 	}})
 	fmt.Fprintln(stdout, string(out))
 }
 
-// otherAgentsNote tells an agent what to expect from the other agents in a
-// shared checkout, so their work does not surprise it.
-const otherAgentsNote = "Other agents may edit files in this checkout and commit to this branch while you work. " +
+// sharedCheckoutRules tells an agent the rules of a shared checkout: what to
+// expect from the other agents, so their work does not surprise it, and the
+// Git commands that would change their state.
+const sharedCheckoutRules = "Other agents may edit files in this checkout and commit to this branch while you work. " +
 	"Commits, file changes, and stages that you did not make are theirs: do not review, revert, stage, " +
-	"or mention them unless they block your task."
+	"or mention them unless they block your task. Edit files with your file-editing tools, such as Edit, Write, " +
+	"or apply_patch, so that git-multistage records your edits. Do not run `git add`, `git commit`, `git rm`, " +
+	"`git mv`, `git stash`, `git restore`, `git reset`, `git checkout`, or `git switch`: they change state that " +
+	"every agent shares. Stage and commit with `git multistage` (see the git-multistage skill)."
 
 // configShared is the Git setting that opts a checkout in to the hooks.
 const configShared = "multistage.shared"
@@ -519,10 +518,10 @@ const configShared = "multistage.shared"
 // leave every other repository alone, such as one that a single agent uses.
 func (r *Repo) shared() bool { return r.ConfigBool(configShared, false) }
 
-// announceSharedCheckout answers a SessionStart hook in an opted-in
-// checkout with otherAgentsNote, so the agent knows from its first turn that
-// others work in the same checkout.
-func announceSharedCheckout(cwd string, stdout io.Writer) {
+// announceSharedCheckout answers a SessionStart or SubagentStart hook in an
+// opted-in checkout with sharedCheckoutRules, so a session or a subagent
+// knows from its first turn that others work in the same checkout.
+func announceSharedCheckout(event, cwd string, stdout io.Writer) {
 	if cwd == "" {
 		return
 	}
@@ -530,8 +529,7 @@ func announceSharedCheckout(cwd string, stdout io.Writer) {
 		return // not a Git worktree, or one that did not opt in
 	}
 	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{
-		"hookEventName":     "SessionStart",
-		"additionalContext": otherAgentsNote + " Stage and commit your own work with `git multistage` (see the git-multistage skill).",
+		"hookEventName": event, "additionalContext": sharedCheckoutRules,
 	}})
 	fmt.Fprintln(stdout, string(out))
 }

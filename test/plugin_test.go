@@ -26,8 +26,8 @@ func TestPluginFiles(t *testing.T) {
 		}
 	}
 	hooks, _ := os.ReadFile("../hooks/hooks.json")
-	if strings.Count(string(hooks), `"git multistage hook"`) != 3 || !strings.Contains(string(hooks), "SessionStart") {
-		t.Fatalf("hooks.json does not run `git multistage hook` at session start and around edits:\n%s", hooks)
+	if strings.Count(string(hooks), `"git multistage hook"`) != 4 || !strings.Contains(string(hooks), "SubagentStart") {
+		t.Fatalf("hooks.json does not run `git multistage hook` at session and subagent start and around edits:\n%s", hooks)
 	}
 	skill, err := os.ReadFile("../skills/git-multistage/SKILL.md")
 	if err != nil {

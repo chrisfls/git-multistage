@@ -6,7 +6,7 @@
 
 ## 2. Notices
 
-- [ ] 2.1 Rewrite `otherAgentsNote` as the rules notice, print it at `SessionStart` and `SubagentStart`, and drop it from the first-edit message. Add `SubagentStart` to `hooks/hooks.json`. Verify with tests of both events and of the first-edit message, and `go test ./test -run 'TestHook|TestPlugin'`
+- [x] 2.1 Rewrite `otherAgentsNote` as the rules notice, print it at `SessionStart` and `SubagentStart`, and drop it from the first-edit message. Add `SubagentStart` to `hooks/hooks.json`. Verify with tests of both events and of the first-edit message, and `go test ./test -run 'TestHook|TestPlugin'`
 
 ## 3. Guard
 
