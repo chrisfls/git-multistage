@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chrisfls/git-multistage/internal/filelock"
 	"github.com/chrisfls/git-multistage/internal/gitx"
 )
 
@@ -246,7 +247,24 @@ type commitState struct {
 	staged, baseTree, msg string
 	noVerify, sign, sync  bool
 	recreate              []string
-	verified              []gitx.Entry // changes that the pre-commit hook accepted
+	verified              []gitx.Entry   // changes that the pre-commit hook accepted
+	turn                  *filelock.Lock // the commit turn of this attempt, or nil
+}
+
+// commitTurnTimeout bounds the wait for the commit turn.
+const commitTurnTimeout = 10 * time.Second
+
+// takeCommitTurn waits for the commit turn of the worktree. Commits hold it
+// from the read of the tip to the update of the branch, so a commit that
+// waits for it lands without a replay. After the timeout, or when the turn
+// cannot be taken, it returns nil and the commit goes on without the turn:
+// the compare-and-swap of the branch still decides which commit lands.
+func (r *Repo) takeCommitTurn() *filelock.Lock {
+	lk, err := filelock.Acquire(filepath.Join(r.Dir, "commit.lock"), testLockTimeout(commitTurnTimeout))
+	if err != nil {
+		return nil
+	}
+	return lk
 }
 
 // prepareCommit checks that the stage can commit, and reads its staged
@@ -290,6 +308,8 @@ func (l *Stage) prepareCommit(res *CommitResult, rawMsg string, noVerify bool) (
 // another process moved the branch first, so the commit must be tried again.
 func (l *Stage) commitAttempt(res *CommitResult, st *commitState, attempt int) (bool, error) {
 	r := l.r
+	st.turn = r.takeCommitTurn()
+	defer st.turn.Release()
 	tip, err := r.ResolveRef(l.M.Branch)
 	if err != nil {
 		return false, err
@@ -344,6 +364,10 @@ func (l *Stage) verifyTree(st *commitState, tipTree, tree string) error {
 	if sameEntries(introduced, st.verified) {
 		return nil
 	}
+	// A slow hook must not hold the commits of other stages. When one of
+	// them lands meanwhile, this attempt's update fails, and the next
+	// attempt finds the same changes and skips the hook.
+	st.turn.Release()
 	hooked, err := l.runPreCommit(tree)
 	if err != nil {
 		return err
@@ -410,7 +434,11 @@ func (l *Stage) land(res *CommitResult, st *commitState, commit, tip string, att
 		_ = l.save()
 		return false, err
 	}
-	if err := l.updateRef(res, commit, tip, st.sync); err != nil {
+	err := l.updateRef(res, commit, tip, st.sync)
+	// The sync runs after the turn, under index.lock, which the next commit
+	// takes before its update-ref.
+	st.turn.Release()
+	if err != nil {
 		lk.release()
 		return l.afterFailedUpdate(err, tip, attempt)
 	}

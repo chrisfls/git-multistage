@@ -37,7 +37,9 @@
 
 ## 4. Commit turns
 
-- [ ] 4.1 Take the commit turn in each commit attempt, as the design describes, and give it up after `update-ref`, before the `pre-commit` hook, and on an early return; go on without it after 10 s or on a failure to take it. Verify: end-to-end tests cover the four scenarios of the `commit` spec delta (8 commits at once each report `attempts` 1; a turn held from the test past a shortened wait; a commit killed at `before-update-ref`; a slow `pre-commit` hook), and the concurrency, race, crash, and hook tests pass.
+- [x] 4.1 Take the commit turn in each commit attempt, as the design describes, and give it up after `update-ref`, before the `pre-commit` hook, and on an early return; go on without it after 10 s or on a failure to take it. Verify: end-to-end tests cover the four scenarios of the `commit` spec delta (8 commits at once each report `attempts` 1; a turn held from the test past a shortened wait; a commit killed at `before-update-ref`; a slow `pre-commit` hook), and the concurrency, race, crash, and hook tests pass.
+
+  Result: `TestConcurrentCommitsTakeTurns`, `TestCommitGoesOnWithoutAHeldTurn`, `TestKilledCommitGivesUpItsTurn`, and `TestSlowPreCommitHookGivesUpTheTurn` pass. With the turn disabled, the first two fail (an `attempts` of 3; a commit that did not wait), and with the turn kept through the hook, the last one fails (stage b's commit waited 10.2 s). The end-to-end tests whose names match concurrent, many, parallel, race, compare-and-swap, crash, kill, hook, commit, and turn pass (36 s).
 
 ## 5. Results
 
