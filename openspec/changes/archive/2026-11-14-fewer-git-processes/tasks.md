@@ -47,7 +47,7 @@
   | `add f3.txt` | 22 | 18 | 296 ms | 267 ms |
   | `commit -m y` | 43 | 35 | 599 ms | 542 ms |
 
-  - One hooked edit (PreToolUse and PostToolUse, stage exists) went from 26 to 22 processes and from about 371 ms to about 337 ms.
+  - One hooked edit (PreToolUse and PostToolUse, stage exists) went from 26 to 22 processes, and from 371 to 376 ms to 321 to 352 ms.
   - `mise run ci`: exit code 0, 146 s wall; the `test` package took 141.7 s with the default `-parallel` (12).
 
 ## Workflow follow-up
