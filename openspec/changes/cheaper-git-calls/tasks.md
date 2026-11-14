@@ -47,7 +47,28 @@
 
 ## 6. Results
 
-- [ ] 6.1 Measure the scenario as in 1.1, with the old and new builds interleaved, and record the numbers. Run `mise run ci`. Verify: CI exits with code 0, and the numbers are in this task.
+- [x] 6.1 Measure the scenario as in 1.1, with the old and new builds interleaved, and record the numbers. Run `mise run ci`. Verify: CI exits with code 0, and the numbers are in this task.
+
+  After, 2026-11-14, master `ddf6d35` against `3da9762`, macOS, 12 cores, Git 2.54 (Apple Git-157) through `/usr/bin/git`, one command in flight. The times of 1.1 include the counting wrapper's shell on each call, so both builds were timed again here without it, interleaved (old, new, old, new). The process counts come from Git's trace2 `start` events, as in 2.1.
+
+  | Command | git processes (before → after) | Before, runs 1 and 2 | After, runs 1 and 2 |
+  | --- | --- | --- | --- |
+  | `status` (creates the stage) | 15 → 15 | 172, 151 ms | 76, 78 ms |
+  | `status` | 9 → 9 | 78, 75 ms | 42, 44 ms |
+  | hook PreToolUse | 6 → 7 | 79, 70 ms | 51, 52 ms |
+  | hook PostToolUse | 10 → 11 | 122, 124 ms | 75, 71 ms |
+  | hook PreToolUse (second edit) | 6 → 7 | 75, 69 ms | 50, 48 ms |
+  | hook PostToolUse (second edit) | 10 → 11 | 125, 125 ms | 74, 74 ms |
+  | `add --edits` (2 files) | 13 → 13 | 176, 160 ms | 84, 84 ms |
+  | `status`, two files staged | 15 → 14 | 109, 111 ms | 52, 52 ms |
+  | `diff --cached` | 8 → 7 | 84, 82 ms | 55, 48 ms |
+  | `commit -m x` | 24 → 22 | 314, 302 ms | 141, 135 ms |
+  | `add f3.txt` | 19 → 19 | 215, 195 ms | 93, 97 ms |
+  | `commit -m y` | 24 → 22 | 325, 325 ms | 134, 136 ms |
+
+  - Every command takes 35 to 58 % less time. `commit` goes from about 310 ms to about 140 ms, and one hooked edit from about 195 ms to about 125 ms.
+  - The after counts include the one `--exec-path` call that each process makes when `git` is the Xcode shim. With Homebrew's Git 2.53 first on `PATH`, which is no shim, each command starts one process fewer: `status` 8, a hooked edit 6 + 10, `commit` 21. Both builds wrote the same commit trees.
+  - `mise run ci`: every step passed, 73 s wall; the `test` package took 68.9 s. `mise run ci:stress`: exit code 0, 57 s.
 
 ## Workflow follow-up
 
