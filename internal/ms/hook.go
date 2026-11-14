@@ -326,7 +326,18 @@ func (h *editHook) branchTip() string {
 }
 
 func (h *editHook) before(stderr io.Writer) {
-	before, err := h.snapshot()
+	// The snapshot and the branch tip are independent reads.
+	var before, tip string
+	err := parallel(
+		func() (err error) {
+			before, err = h.snapshot()
+			return err
+		},
+		func() error {
+			tip = h.branchTip()
+			return nil
+		},
+	)
 	if err != nil {
 		fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
 		return
@@ -338,7 +349,7 @@ func (h *editHook) before(stderr io.Writer) {
 			return
 		}
 	}
-	data, _ := json.Marshal(pendingEdit{Path: h.path, Before: before, Raw: raw, Tip: h.branchTip()})
+	data, _ := json.Marshal(pendingEdit{Path: h.path, Before: before, Raw: raw, Tip: tip})
 	if err := os.MkdirAll(editsDir(h.stageDir), 0o777); err != nil {
 		fmt.Fprintf(stderr, "git-multistage hook: %v\n", err)
 		return

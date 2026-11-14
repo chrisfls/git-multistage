@@ -488,11 +488,22 @@ func (l *Stage) protect() error {
 	if l.Damaged {
 		return nil
 	}
-	tree, err := l.r.WriteTree(l.IndexPath())
-	if err != nil {
-		return err
-	}
-	base, err := l.r.TreeOf(l.M.Base)
+	// The staged tree, the base tree, and the keep ref are read at once.
+	var tree, base, cur string
+	err := parallel(
+		func() (err error) {
+			tree, err = l.r.WriteTree(l.IndexPath())
+			return err
+		},
+		func() (err error) {
+			base, err = l.r.TreeOf(l.M.Base)
+			return err
+		},
+		func() error {
+			cur, _ = l.r.Line(gitx.Opt{}, "show", "-s", "--format=%T %P", l.keepRef(), "--")
+			return nil
+		},
+	)
 	if err != nil {
 		return err
 	}
@@ -502,7 +513,6 @@ func (l *Stage) protect() error {
 		return err
 	}
 	edits := editBlobsTree(recs)
-	cur, _ := l.r.Line(gitx.Opt{}, "show", "-s", "--format=%T %P", l.keepRef(), "--")
 	if tree == base && edits == "" {
 		if cur != "" {
 			_, err = l.r.Run(gitx.Opt{}, "update-ref", "-d", l.keepRef())

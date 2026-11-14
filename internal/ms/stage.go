@@ -131,16 +131,26 @@ func (l *Stage) otherStagesStaged() (map[string][]string, error) {
 	if err != nil {
 		return res, nil //nolint:nilerr // an unreadable stages directory holds no other stages
 	}
+	var names []string
 	for _, e := range entries {
-		if !e.IsDir() || e.Name() == l.ID || strings.HasPrefix(e.Name(), ".") {
-			continue
+		if e.IsDir() && e.Name() != l.ID && !strings.HasPrefix(e.Name(), ".") {
+			names = append(names, e.Name())
 		}
-		paths, err := l.r.stageStagedPaths(filepath.Join(l.r.stagesDir(), e.Name()))
-		if err != nil {
-			continue // a stage that cannot be read has nothing to compare
+	}
+	// Each stage is read by its own Git process, so they run at once.
+	staged := make([][]string, len(names))
+	reads := make([]func() error, len(names))
+	for i, name := range names {
+		reads[i] = func() error {
+			// A stage that cannot be read has nothing to compare.
+			staged[i], _ = l.r.stageStagedPaths(filepath.Join(l.r.stagesDir(), name))
+			return nil
 		}
-		for _, p := range paths {
-			res[p] = append(res[p], e.Name())
+	}
+	_ = parallel(reads...)
+	for i, name := range names {
+		for _, p := range staged[i] {
+			res[p] = append(res[p], name)
 		}
 	}
 	return res, nil

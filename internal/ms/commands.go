@@ -34,26 +34,37 @@ type SharedPath struct {
 // Status reports the stage's staged, unstaged, and untracked changes.
 func (l *Stage) Status(f Freshness) (*StatusInfo, error) {
 	st := &StatusInfo{ID: l.ID, StageDir: l.Dir, Fresh: f, Staged: []Change{}, Unstaged: []Change{}, Untracked: []string{}}
-	var err error
-	if st.Staged, err = l.stagedChanges(); err != nil {
-		return nil, err
-	}
-	out, err := l.r.Run(gitx.Opt{Index: l.IndexPath()}, cmdDiff, "-z", "--name-status", "--no-renames")
+	// The three reads leave the index alone, so they run at once.
+	var unstaged, untracked []byte
+	err := parallel(
+		func() (err error) {
+			st.Staged, err = l.stagedChanges()
+			return err
+		},
+		func() (err error) {
+			unstaged, err = l.r.Run(gitx.Opt{Index: l.IndexPath()}, cmdDiff, "-z", "--name-status", "--no-renames")
+			return err
+		},
+		func() (err error) {
+			untracked, err = l.r.Run(gitx.Opt{Index: l.IndexPath()}, "ls-files", "-z", "--others", "--exclude-standard")
+			return err
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
-	st.Unstaged = append(st.Unstaged, parseNameStatus(out)...)
-	out, err = l.r.Run(gitx.Opt{Index: l.IndexPath()}, "ls-files", "-z", "--others", "--exclude-standard")
-	if err != nil {
-		return nil, err
-	}
-	for _, p := range strings.Split(string(out), "\x00") {
+	st.Unstaged = append(st.Unstaged, parseNameStatus(unstaged)...)
+	for _, p := range strings.Split(string(untracked), "\x00") {
 		if p != "" {
 			st.Untracked = append(st.Untracked, p)
 		}
 	}
 	if st.Recorded, err = l.RecordedPaths(); err != nil {
 		return nil, err
+	}
+	if len(st.Staged) == 0 {
+		// A stage with nothing staged shares no path with another stage.
+		return st, nil
 	}
 	others, err := l.otherStagesStaged()
 	if err != nil {
