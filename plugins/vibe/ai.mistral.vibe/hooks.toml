@@ -1,0 +1,19 @@
+# Mistral Vibe runs these hooks of the git-multistage plugin. They record
+# each edit of Vibe's file tools in the session's git-multistage stage.
+
+[[hooks]]
+name = "session-start"
+type = "session_start"
+command = "git multistage hook vibe"
+
+[[hooks]]
+name = "before-edit"
+type = "pre_tool"
+match = "re:^(edit|write_file)$"
+command = "git multistage hook vibe"
+
+[[hooks]]
+name = "after-edit"
+type = "post_tool"
+match = "re:^(edit|write_file)$"
+command = "git multistage hook vibe"

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Cline runs this hook after each tool call. git-multistage records the edits of
+# Cline's file tools in the task's stage.
+exec git multistage hook cline

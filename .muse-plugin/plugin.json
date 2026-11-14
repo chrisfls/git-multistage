@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "name": "git-multistage",
+  "displayName": "git-multistage",
+  "version": "0.1.9",
+  "description": "Records each agent's file edits in its own git-multistage stage, so agents that share a checkout commit only their own changes.",
+  "compat": {
+    "source": "native",
+    "manifestDir": ".muse-plugin"
+  },
+  "capabilities": {
+    "skills": [
+      {
+        "id": "git-multistage",
+        "path": "skills/git-multistage/SKILL.md"
+      }
+    ],
+    "commands": [],
+    "hooks": [
+      {
+        "id": "session-start",
+        "event": "SessionStart",
+        "command": [
+          "git",
+          "multistage",
+          "hook",
+          "muse"
+        ],
+        "timeoutMs": 10000
+      },
+      {
+        "id": "before-edit",
+        "event": "PreToolUse",
+        "command": [
+          "git",
+          "multistage",
+          "hook",
+          "muse"
+        ],
+        "timeoutMs": 10000
+      },
+      {
+        "id": "after-edit",
+        "event": "PostToolUse",
+        "command": [
+          "git",
+          "multistage",
+          "hook",
+          "muse"
+        ],
+        "timeoutMs": 10000
+      }
+    ],
+    "mcpServers": [],
+    "reminders": []
+  }
+}

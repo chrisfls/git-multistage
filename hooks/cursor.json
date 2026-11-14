@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "git multistage hook cursor"
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "git multistage hook cursor",
+        "matcher": "Write"
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "git multistage hook cursor",
+        "matcher": "Write"
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "command": "git multistage hook cursor",
+        "matcher": "Write"
+      }
+    ]
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "name": "git-multistage",
+  "version": "0.1.9",
+  "description": "Records each agent's file edits in its own git-multistage stage, so agents that share a checkout commit only their own changes.",
+  "keywords": [
+    "git",
+    "staging",
+    "commits",
+    "parallel-agents",
+    "hooks"
+  ],
+  "author": {
+    "name": "chrisfls",
+    "url": "https://github.com/chrisfls"
+  },
+  "homepage": "https://github.com/chrisfls/git-multistage",
+  "license": "MIT",
+  "skills": "./skills/",
+  "hooks": [
+    {
+      "event": "SessionStart",
+      "command": "git multistage hook kimi"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "^(Write|Edit)$",
+      "command": "git multistage hook kimi"
+    },
+    {
+      "event": "PostToolUse",
+      "matcher": "^(Write|Edit)$",
+      "command": "git multistage hook kimi"
+    },
+    {
+      "event": "PostToolUseFailure",
+      "matcher": "^(Write|Edit)$",
+      "command": "git multistage hook kimi"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "git-multistage",
+  "owner": {
+    "name": "chrisfls",
+    "url": "https://github.com/chrisfls"
+  },
+  "plugins": [
+    {
+      "name": "git-multistage",
+      "description": "Records each agent's file edits in its own git-multistage stage, so agents that share a checkout commit only their own changes.",
+      "version": "0.1.9",
+      "source": "./"
+    }
+  ]
+}
