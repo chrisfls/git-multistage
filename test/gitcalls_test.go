@@ -249,3 +249,25 @@ func TestSyncAfterACommitKeepsItsResults(t *testing.T) {
 		r.checkIndexSynced()
 	})
 }
+
+// TestStageCommandsReadRefsFromFiles checks that status and commit read HEAD
+// and the branch tip from the ref files, and that a command after the first
+// one remembers the version check: they start no rev-parse other than the
+// setup call, no symbolic-ref, and no git version.
+func TestStageCommandsReadRefsFromFiles(t *testing.T) {
+	t.Parallel()
+	r := newRepo(t)
+	r.write("new.txt", "n\n")
+	r.mustMS("agent-a", "add", "new.txt")
+	for _, args := range [][]string{{"status"}, {"commit", "-m", "x"}} {
+		subs := r.traceCalls("agent-a", args...)
+		if n := countCalls(subs, "rev-parse"); n != 1 {
+			t.Errorf("%v started %d rev-parse, want only the setup call: %v", args, n, subs)
+		}
+		for _, name := range []string{"symbolic-ref", "version"} {
+			if n := countCalls(subs, name); n != 0 {
+				t.Errorf("%v started %d %s: %v", args, n, name, subs)
+			}
+		}
+	}
+}

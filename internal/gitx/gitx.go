@@ -447,7 +447,11 @@ func (r *Repo) Line(o Opt, args ...string) (string, error) {
 func (r *Repo) Env() []string { return append([]string{}, r.baseEnv...) }
 
 // ResolveRef returns the object ID of ref, or "" when ref does not exist.
+// It reads HEAD and branches from the ref files when it can.
 func (r *Repo) ResolveRef(ref string) (string, error) {
+	if _, oid, ok := r.readRefFiles(ref); ok {
+		return oid, nil
+	}
 	out, err := r.Run(Opt{}, "rev-parse", "-q", "--verify", ref+"^{commit}")
 	if err != nil {
 		if ExitCode(err) == 1 {
@@ -460,6 +464,9 @@ func (r *Repo) ResolveRef(ref string) (string, error) {
 
 // SymbolicHead returns the branch that HEAD points to, or "" for a detached HEAD.
 func (r *Repo) SymbolicHead() (string, error) {
+	if name, _, ok := r.readRefFiles(headRef); ok {
+		return strings.TrimPrefix(name, headRef), nil
+	}
 	out, err := r.Run(Opt{}, "symbolic-ref", "-q", "HEAD")
 	if err != nil {
 		if ExitCode(err) == 1 {
@@ -471,15 +478,25 @@ func (r *Repo) SymbolicHead() (string, error) {
 }
 
 // TipAndHead returns the commit of ref, or "" when ref does not exist, and
-// the branch that HEAD points to, or "" for a detached HEAD. One rev-parse
-// reads both: --symbolic-full-name applies only to the arguments after it,
-// and the final "--" makes every argument a revision, so a file named HEAD
-// cannot stand in for an unborn HEAD.
+// the branch that HEAD points to, or "" for a detached HEAD. It reads both
+// from the ref files when it can. Otherwise one rev-parse reads both:
+// --symbolic-full-name applies only to the arguments after it, and the final
+// "--" makes every argument a revision, so a file named HEAD cannot stand in
+// for an unborn HEAD.
 func (r *Repo) TipAndHead(ref string) (tip, head string, err error) {
+	if head, headTip, ok := r.readRefFiles(headRef); ok {
+		tip, ok = headTip, head == ref
+		if !ok {
+			_, tip, ok = r.readRefFiles(ref)
+		}
+		if ok {
+			return tip, strings.TrimPrefix(head, headRef), nil
+		}
+	}
 	out, err := r.Run(Opt{}, "rev-parse", ref+"^{commit}", "--symbolic-full-name", "HEAD", "--")
 	if lines := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n"); err == nil &&
 		len(lines) == 3 && lines[0] != "" && lines[1] != "" && lines[2] == "--" {
-		if lines[1] == "HEAD" {
+		if lines[1] == headRef {
 			lines[1] = ""
 		}
 		return lines[0], lines[1], nil
