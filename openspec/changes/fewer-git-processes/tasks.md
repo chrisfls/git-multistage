@@ -25,7 +25,7 @@
 - [x] 2.1 Read the default index path in the setup `rev-parse` of `gitx.Open`, and drop the second `rev-parse` of `OpenRepo`. Verify: every command of the scenario starts one fewer `git` process, and `go test ./...` passes.
 - [x] 2.2 Memoize `TreeOf` per `Repo`. Verify: a unit test shows a second `TreeOf` of one commit starts no `git` process; `status` and `commit` start fewer processes; `go test ./...` passes.
 - [x] 2.3 Read Git settings with one `git config -z --list` per process, with Git's boolean rules. Verify: a unit test covers the boolean values, a key without a value, the last value of a repeated key, mixed-case keys, and an invalid value; `commit` starts fewer processes; `go test ./...` passes.
-- [ ] 2.4 Make `cleanFile` add the index entry and the file with one `update-index` call. Verify: each hooked edit starts fewer processes, and the CRLF and filter tests in `go test ./...` pass.
+- [x] 2.4 Make `cleanFile` add the index entry and the file with one `update-index` call. Verify: each hooked edit starts fewer processes, and the CRLF and filter tests in `go test ./...` pass.
 
 ## 3. Results
 

@@ -100,12 +100,13 @@ func (r *Repo) cleanFile(o gitx.Opt, indexFile, idx, path string) (string, error
 		return "", err
 	}
 	o.Index = idx
+	// update-index applies its arguments in order, so the line-ending check
+	// of the file sees the entry from indexFile.
+	args := []string{"update-index", "--add"}
 	if ok && entry.mode != "120000" && entry.mode != "160000" {
-		if _, err := r.Run(o, "update-index", "--add", "--cacheinfo", entry.mode, entry.oid, path); err != nil {
-			return "", err
-		}
+		args = append(args, "--cacheinfo", entry.mode, entry.oid, path)
 	}
-	if _, err := r.Run(o, "update-index", "--add", "--", path); err != nil {
+	if _, err := r.Run(o, append(args, "--", path)...); err != nil {
 		return "", err
 	}
 	got, found, err := r.lsIndex(idx, path)
