@@ -79,7 +79,7 @@ When the staged change is already on the branch, `commit` SHALL create no commit
 - **THEN** `commit` exits with code 5 and creates no commit
 
 ### Requirement: Commit message
-`commit` SHALL take the message from `-m` (repeatable, parts joined by a blank line) or `-F <file>` (`-F -` reads stdin); with both, `-F` SHALL win. Without either it SHALL exit with code 2 and SHALL NOT open an editor. It SHALL clean the message with `git stripspace` before and after the `commit-msg` hook, SHALL exit with code 1 when the result is empty, and SHALL NOT apply `commit.cleanup` or `commit.template`.
+`commit` SHALL take the message from `-m` (repeatable, parts joined by a blank line) or `-F <file>` (`-F -` reads stdin); with both, `-F` SHALL win. Without either it SHALL exit with code 2 and SHALL NOT open an editor. It SHALL clean the message with `git stripspace` before the `commit-msg` hook, and again after that hook when it ran, SHALL exit with code 1 when the result is empty, and SHALL NOT apply `commit.cleanup` or `commit.template`.
 
 #### Scenario: No message
 - **WHEN** the user runs `commit` without `-m` or `-F`
@@ -103,6 +103,21 @@ When the staged change is already on the branch, `commit` SHALL create no commit
 #### Scenario: Skip hooks
 - **WHEN** the user runs `commit --no-verify -m "x"`
 - **THEN** `pre-commit` and `commit-msg` do not run
+
+### Requirement: Absent Git hooks
+`commit` SHALL treat a Git hook as absent when the hooks directory (`core.hooksPath`, or `hooks` in the common Git directory) holds no entry of its name and no `hook.*` setting exists. It SHALL skip an absent hook without starting `git hook run`, and SHALL run `git hook run` whenever it cannot tell.
+
+#### Scenario: Hook in core.hooksPath
+- **WHEN** `core.hooksPath` names a relative directory that holds a `pre-commit` hook
+- **THEN** `commit` runs that hook
+
+#### Scenario: Hook from a setting
+- **WHEN** no hook file exists and `hook.lint.event` is `pre-commit` with `hook.lint.command` set
+- **THEN** `commit` runs that command as its `pre-commit` hook
+
+#### Scenario: No hooks
+- **WHEN** the hooks directory holds only Git's sample hooks and no `hook.*` setting exists
+- **THEN** `commit` starts no `git hook run` and lands the commit
 
 ### Requirement: Identity, signing, and reflog
 Author and committer SHALL come from Git's configuration and the `GIT_AUTHOR_*` and `GIT_COMMITTER_*` variables. When `commit.gpgSign` is `true`, commits SHALL be signed with Git's signing configuration. The branch reflog entry SHALL read `commit (multistage <stage-id>): <subject>`, or `commit (multistage <stage-id>, index not synced): <subject>` when `multistage.syncIndex` is `false`.
