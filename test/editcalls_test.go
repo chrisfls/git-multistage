@@ -156,3 +156,22 @@ func TestAddEditsChecksIgnoreAfterAnEarlierDeletion(t *testing.T) {
 	}
 	r.mustMS("", "--stage", "claude-a", "add", "--edits", "-f")
 }
+
+// A directory/file clash outranks an edit-conflict in the same run: the exit
+// code is the one of the failed Git call, as when each record wrote the index.
+func TestAddEditsClashOutranksEditConflict(t *testing.T) {
+	t.Parallel()
+	r := committedRepo(t, map[string]string{"d/x": "x\n", "c.txt": twenty})
+	r.recordLineOne("a", "c.txt")
+	// Another stage's commit changes the same line, so the record conflicts.
+	r.write("c.txt", "OTHER\n"+strings.SplitN(twenty, "\n", 2)[1])
+	r.git("commit", "-q", "-am", "other")
+	if err := os.RemoveAll(r.path("d")); err != nil {
+		t.Fatal(err)
+	}
+	r.hookedEdit("a", "", "d", "now a file\n")
+	res := r.expectCode(1, "", "--stage", "claude-a", "add", "--edits")
+	if strings.Contains(res.err, "edit-conflict") || !strings.Contains(res.err, "cacheinfo") {
+		t.Fatalf("error:\n%s", res)
+	}
+}

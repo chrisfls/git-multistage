@@ -451,7 +451,7 @@ func chooseRecords(recs []EditRecord, paths []string) []EditRecord {
 // applyRecords applies the records to the index file idx, and returns the
 // paths it staged. It fails with edit-conflict when any record does not fit.
 // The records' writes reach the index file together, after every record
-// applied.
+// was tried.
 func (r *Repo) applyRecords(idx string, chosen []EditRecord, force bool, reads *indexReads) (map[string]bool, error) {
 	var failed []string
 	staged := map[string]bool{}
@@ -470,11 +470,14 @@ func (r *Repo) applyRecords(idx string, chosen []EditRecord, force bool, reads *
 		}
 		staged[rec.Path] = true
 	}
-	if len(failed) > 0 {
-		return nil, editConflict(failed)
-	}
+	// The writes of the records that applied reach the file even when other
+	// records failed, so that a Git failure outranks edit-conflict, as it did
+	// when each record wrote. The caller discards the file on any error.
 	if err := view.flush(); err != nil {
 		return nil, err
+	}
+	if len(failed) > 0 {
+		return nil, editConflict(failed)
 	}
 	return staged, nil
 }
