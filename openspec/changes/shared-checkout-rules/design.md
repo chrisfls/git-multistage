@@ -25,7 +25,7 @@ Alternatives: the presence of `.git/multistage/` opts in, but the hook itself cr
 
 `otherAgentsNote` becomes the rules notice. The hook prints it at `SessionStart` and at `SubagentStart`, with that event's name. The first-edit message drops the note for every stage, because both kinds of agent now receive it at start.
 
-The notice adds "edit files with your file-editing tools". In the baseline, Codex edited files with `python3` through its shell, which the hook does not record, and then staged the whole file.
+The notice adds "keep their changes in the working tree, even for a moment" with `git worktree add` as the way to run something without them, and "edit files with your file-editing tools". In the baseline, Codex edited files with `python3` through its shell, which the hook does not record, and then staged the whole file.
 
 ### The guard
 
