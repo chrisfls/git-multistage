@@ -105,9 +105,6 @@ func (r *Repo) runHook(index, name string, args ...string) error {
 // `git commit -m` does.
 func (l *Stage) prepareMessage(raw string, noVerify bool) (string, error) {
 	file := filepath.Join(l.Dir, "COMMIT_EDITMSG")
-	clean := func(s string) (string, error) {
-		return stringOut(l.r.Run(gitx.Opt{Stdin: strings.NewReader(s)}, "stripspace"))
-	}
 	data := []byte(raw)
 	if l.r.HasHook("prepare-commit-msg") {
 		if err := os.WriteFile(file, data, 0o666); err != nil {
@@ -121,10 +118,7 @@ func (l *Stage) prepareMessage(raw string, noVerify bool) (string, error) {
 			return "", err
 		}
 	}
-	msg, err := clean(string(data))
-	if err != nil {
-		return "", err
-	}
+	msg := cleanMessage(string(data))
 	// Without a commit-msg hook the message stays clean.
 	if !noVerify && l.r.HasHook("commit-msg") {
 		if err := os.WriteFile(file, []byte(msg), 0o666); err != nil {
@@ -133,17 +127,40 @@ func (l *Stage) prepareMessage(raw string, noVerify bool) (string, error) {
 		if err := l.withIndexCopy(func(idx string) error { return l.r.runHook(idx, "commit-msg", file) }); err != nil {
 			return "", &Error{Code: ExitError, Kind: "hook-failed", Message: "the commit-msg hook failed; nothing was committed and the staged changes are kept"}
 		}
-		if data, err = os.ReadFile(file); err != nil {
+		data, err := os.ReadFile(file)
+		if err != nil {
 			return "", err
 		}
-		if msg, err = clean(string(data)); err != nil {
-			return "", err
-		}
+		msg = cleanMessage(string(data))
 	}
 	if strings.TrimSpace(msg) == "" {
 		return "", &Error{Code: ExitError, Kind: "empty-message", Message: "the commit message is empty"}
 	}
 	return msg, nil
+}
+
+// cleanMessage cleans a commit message as `git stripspace` does. Each line
+// loses its trailing white space, which Git takes to be spaces, tabs, CRs,
+// and LFs. Empty lines at the start and at the end go, a run of empty lines
+// inside becomes one, and each line ends with LF.
+func cleanMessage(s string) string {
+	var b strings.Builder
+	empties := 0
+	for s != "" {
+		var line string
+		line, s, _ = strings.Cut(s, "\n")
+		if line = strings.TrimRight(line, " \t\r"); line == "" {
+			empties++
+			continue
+		}
+		if empties > 0 && b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		empties = 0
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 // addMoveTrailers ends msg with one Multistage-Moved trailer for each

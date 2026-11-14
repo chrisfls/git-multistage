@@ -85,6 +85,23 @@ func TestAddCommitLog(t *testing.T) {
 	}
 }
 
+// TestCommitMessageCleanup cleans the message as `git stripspace` does, and
+// refuses a message that holds only white space.
+func TestCommitMessageCleanup(t *testing.T) {
+	t.Parallel()
+	r := newRepo(t)
+	r.write("a.txt", "a\n")
+	r.mustMS("agent-a", "add", "a.txt")
+	res := r.expectCode(1, "agent-a", "--json", "commit", "-m", " \n\t\r\n")
+	if !strings.Contains(res.out, `"kind": "empty-message"`) {
+		t.Fatalf("white-space message:\n%s", res)
+	}
+	r.mustMS("agent-a", "commit", "-m", "  \n\nsubject  \n\n\n\nbody\t\n\n")
+	if got := r.git("cat-file", "commit", "HEAD"); !strings.HasSuffix(got, "\n\nsubject\n\nbody\n") {
+		t.Fatalf("commit object = %q; want the message %q", got, "subject\n\nbody\n")
+	}
+}
+
 func TestStagesAreIsolated(t *testing.T) {
 	t.Parallel()
 	r := newRepo(t)

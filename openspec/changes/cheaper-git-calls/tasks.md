@@ -35,7 +35,9 @@
 
 ## 4. Message cleanup
 
-- [ ] 4.1 Clean the commit message in the process. Verify: a unit test compares the result with `git stripspace` for empty text, blank lines only, CRLF, tabs, `\v`, `\f`, NUL, text without a final LF, and runs of blank lines; an end-to-end test covers the new scenario of the commit spec; `commit` starts no `git stripspace`.
+- [x] 4.1 Clean the commit message in the process. Verify: a unit test compares the result with `git stripspace` for empty text, blank lines only, CRLF, tabs, `\v`, `\f`, NUL, text without a final LF, and runs of blank lines; an end-to-end test covers the new scenario of the commit spec; `commit` starts no `git stripspace`.
+
+  Result: `TestCleanMessage` compares 14 chosen texts and 200 random ones with `git stripspace`, and all match. `TestCommitMessageCleanup` covers the spec scenario and a message of white space only. `commit` 23 → 22 processes, with no `stripspace`. The hook and message end-to-end tests pass.
 
 ## 5. Keep input digest
 
