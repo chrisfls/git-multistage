@@ -30,13 +30,13 @@ The tasks that change `internal/ms/hook.go`, `hooks/hooks.json`, `skills/git-mul
 
 ## 5. Text
 
-- [ ] 5.1 Change the sentence of `skills/git-multistage/SKILL.md` that names Claude Code's and Codex's file tools so that it names the file tools of the agent's harness, and copy the skill into `plugins/gemini/` and `plugins/vibe/`. Verify that `TestPluginFiles` passes
-- [ ] 5.2 Give the install steps of each supported harness in the README's plugin install section, with the harnesses whose edit recording is untested marked. Verify that each harness of the `agent-plugins` scenario "Every supported harness" has an entry
-- [ ] 5.3 Change the Purpose of `openspec/specs/agent-plugins/spec.md` to name every supported harness
+- [x] 5.1 Change the sentence of `skills/git-multistage/SKILL.md` that names Claude Code's and Codex's file tools so that it names the file tools of the agent's harness, and copy the skill into `plugins/gemini/` and `plugins/vibe/`. Verify that `TestPluginFiles` passes
+- [x] 5.2 Give the install steps of each supported harness in the README's plugin install section, with the harnesses whose edit recording is untested marked. Verify that each harness of the `agent-plugins` scenario "Every supported harness" has an entry
+- [x] 5.3 Change the Purpose of `openspec/specs/agent-plugins/spec.md` to name every supported harness
 
 ## 6. Version and checks
 
-- [ ] 6.1 Set every manifest of design.md to the release version of this change, the next patch version after the newest tag, and make `TestPluginVersion` read them all. Verify that it passes
+- [x] 6.1 Set every manifest of design.md to the release version of this change, the next patch version after the newest tag (0.1.10, after v0.1.9), and make `TestPluginVersion` read them all. Verify that it passes
 - [ ] 6.2 Run `mise run ci` once, and verify that it passes
 
 ## Workflow follow-up

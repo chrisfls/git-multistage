@@ -1,8 +1,11 @@
 package test
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -47,26 +50,33 @@ func TestPluginFiles(t *testing.T) {
 	}
 }
 
-// TestPluginVersion checks that the Claude Code plugin, its marketplace
-// entry, and the Codex plugin carry one version. An installed plugin
-// updates only when that version changes.
+// TestPluginVersion checks that every plugin manifest carries one version.
+// An installed plugin updates only when that version changes.
 func TestPluginVersion(t *testing.T) {
 	t.Parallel()
-	var claude, codex struct{ Version string }
-	var market struct{ Plugins []struct{ Version string } }
-	for f, v := range map[string]any{
-		"../.claude-plugin/plugin.json": &claude, "../.codex-plugin/plugin.json": &codex,
-		"../.claude-plugin/marketplace.json": &market,
+	versions := map[string]string{}
+	for _, f := range []string{
+		"../.claude-plugin/plugin.json", "../.claude-plugin/marketplace.json", "../.codex-plugin/plugin.json",
+		"../.cursor-plugin/plugin.json", "../.cursor-plugin/marketplace.json", "../.kimi-plugin/plugin.json",
+		"../.muse-plugin/plugin.json", "../.muse-plugin/marketplace.json", "../.hermes-plugin/plugin.yaml",
+		"../package.json", "../plugins/vibe/plugin.json", "../plugins/gemini/gemini-extension.json",
 	} {
 		data, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := json.Unmarshal(data, v); err != nil {
-			t.Fatalf("%s: %v", f, err)
+		// A manifest's own version and its marketplace entries' versions.
+		for i, m := range regexp.MustCompile(`(?m)^\s*"?version"?\s*:\s*"?([0-9][^",\s]*)`).FindAllSubmatch(data, -1) {
+			versions[fmt.Sprintf("%s#%d", f, i)] = string(m[1])
+		}
+		if !bytes.Contains(data, []byte("version")) {
+			t.Errorf("%s names no version", f)
 		}
 	}
-	if claude.Version == "" || codex.Version != claude.Version || len(market.Plugins) != 1 || market.Plugins[0].Version != claude.Version {
-		t.Fatalf("the plugin versions differ: Claude Code %q, Codex %q, marketplace %+v", claude.Version, codex.Version, market.Plugins)
+	want := versions["../.claude-plugin/plugin.json#0"]
+	for _, v := range versions {
+		if want == "" || v != want {
+			t.Fatalf("the plugin versions differ: %v", versions)
+		}
 	}
 }

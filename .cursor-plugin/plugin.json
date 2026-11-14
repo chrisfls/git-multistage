@@ -1,7 +1,7 @@
 {
   "name": "git-multistage",
   "displayName": "git-multistage",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Records each agent's file edits in its own git-multistage stage, so agents that share a checkout commit only their own changes.",
   "author": {
     "name": "chrisfls",
