@@ -36,6 +36,8 @@ type Repo struct {
 	ZeroOID      string
 	EmptyTree    string
 	EmptyBlob    string
+	RefFormat    string // "files" or "reftable"
+	TreeCache    string // file of the remembered index trees; "" keeps them in memory only
 	baseEnv      []string
 	git          string // the Git binary of internal calls; "" runs the git on PATH
 
@@ -45,6 +47,8 @@ type Repo struct {
 	treesMu sync.Mutex
 	trees   map[string]*treeLookup // by commit ID; a commit's tree never changes
 	parents map[string][]string    // parents of the commits that RememberCommit recorded
+
+	indexTrees indexTrees
 
 	configOnce sync.Once
 	config     map[string]*string // setting to its last value; nil for a key without "="
@@ -167,7 +171,7 @@ func Open(dir string) (*Repo, error) {
 	go func() { versionErr <- r.checkVersion() }()
 	out, err := r.Run(Opt{Dir: dir}, "rev-parse", "--path-format=absolute",
 		"--show-toplevel", "--git-dir", "--git-common-dir", "--show-prefix", "--show-object-format",
-		"--git-path", "index")
+		"--show-ref-format", "--git-path", "index")
 	if verr := <-versionErr; verr != nil {
 		return nil, verr
 	}
@@ -180,11 +184,11 @@ func Open(dir string) (*Repo, error) {
 	}
 	// The prefix is "" at the top of the worktree, so its line can be empty.
 	lines := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
-	if len(lines) != 6 || lines[0] == "" {
+	if len(lines) != 7 || lines[0] == "" {
 		return nil, errors.New("not inside a Git worktree (bare repositories are not supported)")
 	}
 	r.Top, r.GitDir, r.CommonDir = filepath.Clean(lines[0]), filepath.Clean(lines[1]), filepath.Clean(lines[2])
-	r.Prefix, r.ObjectFormat, r.IndexPath = lines[3], lines[4], filepath.Clean(lines[5])
+	r.Prefix, r.ObjectFormat, r.RefFormat, r.IndexPath = lines[3], lines[4], lines[5], filepath.Clean(lines[6])
 	empty, ok := emptyObjects[r.ObjectFormat]
 	if !ok {
 		return nil, fmt.Errorf("unknown object format %q", r.ObjectFormat)
@@ -660,9 +664,31 @@ func (r *Repo) IsAncestor(a, b string) (bool, error) {
 	return false, err
 }
 
-// WriteTree writes the index at path as a tree object.
+// WriteTree writes the index at path as a tree object. It returns the
+// remembered tree of an index file with the same checksum without starting
+// `git`. After a `write-tree`, it remembers the tree under the checksum from
+// before the call and under the one after it, because `write-tree` rewrites
+// the index when it updates the cache-tree extension.
+//
+// WriteTree may remember a tree only when no other process writes the index
+// during the call, so each caller holds the stage lock or owns a private copy
+// of the index.
 func (r *Repo) WriteTree(index string) (string, error) {
-	return r.Line(Opt{Index: index}, "write-tree")
+	path := index
+	if path == "" {
+		path = r.IndexPath
+	}
+	before := r.IndexChecksum(path)
+	if tree := r.knownTree(before); tree != "" {
+		return tree, nil
+	}
+	tree, err := r.Line(Opt{Index: index}, "write-tree")
+	if err != nil {
+		return tree, err
+	}
+	r.rememberTree(before, tree)
+	r.rememberTree(r.IndexChecksum(path), tree)
+	return tree, nil
 }
 
 // ReadTree replaces the index at path with tree, then refreshes its stat data.

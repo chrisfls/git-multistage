@@ -156,3 +156,14 @@ func TestTipAndHead(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenReadsTheRefFormat(t *testing.T) {
+	t.Parallel()
+	r, err := Open(initRepo(t, "sha1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.RefFormat != "files" {
+		t.Fatalf("RefFormat = %q, want files", r.RefFormat)
+	}
+}
