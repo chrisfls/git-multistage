@@ -31,6 +31,7 @@ None. No requirement changes, so the change sets `skip_specs: true`.
 
 ## Impact
 
-- `internal/ms/stagearea.go`: `setIndexTree` builds the new index generation from a copy; new helpers choose the copy and check its version.
-- New end-to-end tests in `test/`.
+- `internal/ms/stagearea.go`: `setIndexTree` builds the new index generation through `fillIndex`.
+- New `internal/ms/fillindex.go`: `fillIndex`, `statSeed`, `newestStageIndex`, `resetCopy`, and `indexV2` choose the copy, check its version, and fill it.
+- New unit tests in `internal/ms/fillindex_test.go` and end-to-end tests in `test/seed_test.go`.
 - Stage creation and every base move hash only the files whose entries differ from the copy. The measurements before and after go in `tasks.md`.
