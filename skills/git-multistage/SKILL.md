@@ -1,37 +1,25 @@
 ---
 name: git-multistage
-description: Stage and commit with git multistage in a checkout that other agents share, so your commits hold only your own changes. Use before you stage or commit, when a message says git-multistage records your edits in a stage, or when a git multistage command fails.
+description: Stage and commit with git multistage in a checkout that other agents share. Use before you stage or commit, when a git-multistage message names your stage, and when a git multistage command fails.
 ---
 
 # Using git multistage as an agent
 
-Several agents work in this checkout at the same time. Use `git multistage` instead of `git add`, `git commit`, `git restore --staged`, and `git reset` for staging and committing. Each agent stages into its own stage, so other agents' changes stay out of your commits, and you never wait for them.
-
-## Other agents' work
-
-Other agents edit files and commit to this branch while you work. New commits, changed files, and stages that you did not make are theirs. Do not review, revert, stage, or report them, and leave them out of your summaries unless they block your task. `git multistage` keeps them out of your commits.
+Other agents edit files and commit to this branch while you work. Commits, file changes, and stages that you did not make are theirs: do not review, revert, stage, or mention them unless they block your task. Stage and commit your own changes with `git multistage`, so that other agents' changes stay out of your commits.
 
 ## Your stage ID
 
-Use your agent ID as your stage ID, such as `agent-a` from your task. Pass it on every command, because each shell call starts with a fresh environment:
+Pass your stage ID on every command, because each shell call starts with a fresh environment. Use the first ID that applies:
 
-```bash
-git multistage --stage agent-a status
-```
+1. The stage that a git-multistage message names, such as "git-multistage records your file edits in stage claude-1a2b".
+2. Your agent ID from your task, such as `agent-a`.
+3. A new stage. `git multistage init` prints its ID, such as `Created stage stage-1f3a9c2e`. Use that ID from then on.
 
-If your task gives no ID, create a stage once and use its ID from then on:
+A separate agent session can pass `--agentic` instead of `--stage <id>` to take its ID from the environment. A subagent shares its parent's environment, so it must pass `--stage`. Never use another agent's stage ID.
 
-```bash
-git multistage init          # prints: Created stage stage-1f3a9c2e ...
-```
+## Stage and commit
 
-If you run as a separate agent session (not a subagent), `--agentic` can take your ID from the environment instead of `--stage`. Subagents share their parent's environment, so a subagent must use `--stage`.
-
-Never use another agent's stage ID.
-
-## Workflow with the editor hook
-
-When a message says that git-multistage records your file edits in a stage, use that stage ID. Edit files as usual, then:
+When a git-multistage message says that it records your file edits, stage and commit them with:
 
 ```bash
 git multistage --stage <id> add --edits
@@ -39,63 +27,39 @@ git multistage --stage <id> diff --cached
 git multistage --stage <id> commit -m "Add input validation"
 ```
 
-`add --edits` stages exactly the edits you made with the file-editing tools (Claude Code's Edit and Write, Codex's apply_patch). It stages them even when another agent later changed those lines or deleted the file, so your commit holds what you wrote, not what the file holds now. It also stages the deletions and moves of Codex's apply_patch. Stage files that you changed through shell commands with `add` or `add --hunk`.
+`add --edits` stages exactly the edits that you made with the file-editing tools (Claude Code's Edit and Write, Codex's apply_patch), including apply_patch's deletions and moves. It stages what you wrote, even when another agent later changed those lines or deleted the file.
 
-## Delete and move files
-
-Delete and move tracked files with `rm` and `mv`. They change the working tree and stage the change in your stage:
+Before you commit, stage other changes by path: files that you changed through shell commands, and all your edits when no git-multistage message names your stage.
 
 ```bash
-git multistage --stage agent-a rm src/old.ts
-git multistage --stage agent-a mv src/a.ts src/b.ts
+git multistage --stage <id> add src/feature.ts
+git multistage --stage <id> hunks src/shared.ts
+git multistage --stage <id> add src/shared.ts --hunk 3f2a9c1d0e7a --hunk 88b02c4a91d3
 ```
 
-`add` stages no deletions and no moves: a missing file can be another agent's deletion or move. If you already deleted or moved the file with a shell command, run the same `rm` or `mv`; it stages the change and leaves the disk alone. `rm` needs `-f` when the file differs from your stage, because the difference may be another agent's unstaged edit. A commit of a move carries a `Multistage-Moved: <old> -> <new>` trailer, so that other stages' changes of the file follow it.
+Use `add <path>` for a file that only you changed. In a file that other agents also change, list the hunks and stage the hunks whose `+` and `-` lines are your edits. `staged-by=<stage>` marks a hunk that another stage already staged; leave it alone.
 
-## Workflow without the hook
+Delete and move tracked files with `rm` and `mv`, which change the working tree and stage the change:
 
-1. Edit your files.
-2. Stage a file that only you changed:
+```bash
+git multistage --stage <id> rm src/old.ts
+git multistage --stage <id> mv src/a.ts src/b.ts
+```
 
-   ```bash
-   git multistage --stage agent-a add src/feature.ts src/new-file.ts
-   ```
-
-3. Stage only your part of a file that other agents also change:
-
-   ```bash
-   git multistage --stage agent-a hunks src/shared.ts
-   git multistage --stage agent-a add src/shared.ts --hunk 3f2a9c1d0e7a --hunk 88b02c4a91d3
-   ```
-
-   Pick the hunks whose `+` and `-` lines are your edits. `staged-by=<stage>` marks hunks that another stage already staged; leave those alone.
-4. Check what you will commit:
-
-   ```bash
-   git multistage --stage agent-a diff --cached
-   ```
-
-5. Commit:
-
-   ```bash
-   git multistage --stage agent-a commit -m "Add input validation"
-   ```
+`add <path>` stages no deletions and no moves, because a missing file can be another agent's deletion or move. If you already deleted or moved the file with a shell command, run the same `rm` or `mv`: it stages the change and leaves the disk alone. If the file still exists and differs from your stage, `rm` needs `-f`, because the difference may be another agent's unstaged edit.
 
 Add `--json` to `status`, `hunks`, `add`, and `commit` when you parse the output.
 
 ## When a command fails
 
-| Exit code | What happened | What to do |
-| --- | --- | --- |
-| 3 with `edit-conflict` | Your recorded edit changes lines that another stage added and has not committed yet. Your records are kept. | Run `add --edits` again after that stage commits, or stage the file with `hunks` and `add --hunk`. |
-| 3 | Your staged change conflicts with a commit that landed on the branch. Your staged changes are kept. | Read the listed paths. Edit the files so that they include both changes, then `restore --staged <path>`, stage again, and commit. |
-| 3 with `path-deleted` | A commit on the branch deleted a file that your staged change or recorded edit changes. The error names the deleting commit. Your staged changes and records are kept. | Keep your version as a new file with `commit --recreate <path>` or `add --edits --recreate <path>`. Or give up your change with `restore --staged <path>` or `drop --edits <path>`. |
-| 4 | A hunk ID is stale: the file changed after you listed the hunks. | Run `hunks <path>` again and use the new IDs. |
-| 5 with `shared-path` | Another stage has staged changes in that file, so a whole-file `add` could take its changes. | Stage your hunks with `--hunk`. |
-| 5, other | HEAD is detached or on another branch, or a merge or rebase is in progress. | Stop and report it. Do not change branches. |
-| 6 | A lock stayed held, such as another Git process holding `.git/index.lock`. | Retry the command after a few seconds. If it fails again, run `git multistage doctor` and report the output. |
+Most errors print a `hint:` line, or a `hint` field with `--json`, that says how to recover. Follow it, except in these cases:
 
-A commit that fails with `hook-modified` means the pre-commit hook rewrote your files on disk, such as by formatting them. Stage your changes again (`hunks`, then `add --hunk`) and commit again.
+| Failure | What to do |
+| --- | --- |
+| Exit 5: another stage has staged changes in the file (`shared-path`) | Stage your hunks with `hunks` and `add --hunk`. |
+| Exit 5: HEAD is detached or on another branch, or a merge or rebase is in progress | Stop and report it. Do not change branches. |
+| Exit 6: a lock stayed held, such as `.git/index.lock` | Retry after a few seconds. If it fails again, run `git multistage doctor` and report its output. |
+| `hook-modified`: the pre-commit hook rewrote your files on disk, such as by formatting them | Stage your changes again with `hunks` and `add --hunk`, and commit again. |
 
 A commit that prints `nothing new to commit` found your change already on the branch, because another agent made the same edit. That is a success.
 
@@ -103,7 +67,6 @@ In Codex, the default sandbox makes `.git` read-only, so every `git multistage` 
 
 ## Rules
 
-- Delete and move tracked files with `git multistage rm` and `git multistage mv`, not with `git rm`, `git mv`, or `add` of a missing file.
-- Do not run `git add`, `git commit`, `git stash`, `git checkout -- <file>`, `git restore <file>`, `git reset --hard`, or `git switch`. They change state that every agent shares.
-- Do not edit a file at the same moment as another agent. git-multistage separates staging and commits; it cannot merge two simultaneous writes to the same file on disk.
+- Do not run `git add`, `git commit`, `git rm`, `git mv`, `git restore`, `git reset`, `git stash`, `git checkout -- <file>`, or `git switch`. They change state that every agent shares.
+- Do not edit a file at the same moment as another agent. git-multistage cannot merge two simultaneous writes to one file on disk.
 - `git status`, `git log`, `git diff <commit>`, and `git show` are safe to run.

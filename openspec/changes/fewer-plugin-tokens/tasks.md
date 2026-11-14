@@ -2,8 +2,8 @@
 
 ## 1. Skill
 
-- [ ] 1.1 Rewrite `skills/git-multistage/SKILL.md` as design.md says: each instruction once, the stage ID order, and the failure steps that the hints do not give. Verify that each instruction of the current skill is in the new skill or in the CLI hint that the skill defers to, and that `go test ./test -run TestPluginFiles` passes
-- [ ] 1.2 Shorten the skill description with the same triggers, and record the token counts of the description and the body, before and after, in the Results section of this file
+- [x] 1.1 Rewrite `skills/git-multistage/SKILL.md` as design.md says: each instruction once, the stage ID order, and the failure steps that the hints do not give. Verify that each instruction of the current skill is in the new skill or in the CLI hint that the skill defers to, and that `go test ./test -run TestPluginFiles` passes
+- [x] 1.2 Shorten the skill description with the same triggers, and record the token counts of the description and the body, before and after, in the Results section of this file
 
 ## 2. Hook messages
 
@@ -25,9 +25,13 @@ Token counts with the `o200k_base` tokenizer, for a stage ID of 23 characters:
 
 | Text | Before | After |
 | --- | ---: | ---: |
+| Skill description, with its `name` line | 68 | 55 |
+| Skill file, with its front matter | 1,684 | 1,201 |
 | Session start notice | 94 | 73 |
 | First-edit message, main session | 122 | 67 |
 | First-edit message, subagent | 122 | 117 |
+
+A review of the old skill against the new one found each instruction in the new skill or in the hint that it defers to. The new skill drops explanation that asks for no action, such as the `Multistage-Moved` trailer. The review also found four sentences that a model could read two ways, which the skill now words with one reading: `add --edits` under its condition, `add <path>` for the deletion rule, `rm -f` only for a file that still exists, and `--agentic` as the exception to `--stage`.
 
 ## Workflow follow-up
 
