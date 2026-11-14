@@ -76,7 +76,7 @@ The hook SHALL record only the editor's own file tools. Files changed through sh
 - **THEN** no edit is recorded for the files that the formatter changed
 
 ### Requirement: Session start notice
-On a `SessionStart` event whose `cwd` is in a Git worktree, the hook SHALL print `additionalContext` that says other agents may edit and commit in the checkout, that their changes are theirs to leave alone, and that the agent stages and commits with `git multistage`. Outside a Git worktree it SHALL print nothing. The first-edit message SHALL carry the same note about other agents. The hook SHALL exit with code 0.
+On a `SessionStart` event whose `cwd` is in a Git worktree, the hook SHALL print `additionalContext` that says other agents may edit and commit in the checkout, that their changes are theirs to leave alone, and that the agent stages and commits with `git multistage`. Outside a Git worktree it SHALL print nothing. The first-edit message of a subagent's stage SHALL carry the same note about other agents; a main session's SHALL leave it out. The hook SHALL exit with code 0.
 
 #### Scenario: Session starts in a worktree
 - **WHEN** the hook receives `SessionStart` with `cwd` in a Git worktree
@@ -85,6 +85,14 @@ On a `SessionStart` event whose `cwd` is in a Git worktree, the hook SHALL print
 #### Scenario: Session starts outside a worktree
 - **WHEN** the hook receives `SessionStart` with `cwd` outside any Git worktree
 - **THEN** it prints nothing and exits with code 0
+
+#### Scenario: First edit of a subagent
+- **WHEN** a Claude Code subagent with `agent_id` `x1` makes the first recorded edit of stage `claude-x1`
+- **THEN** the first-edit message carries the note about other agents
+
+#### Scenario: First edit of a main session
+- **WHEN** a main session makes the first recorded edit of its stage
+- **THEN** the first-edit message names the stage and the commands, and leaves out the note about other agents
 
 ### Requirement: Session start notice delivery
 In Claude Code and in Codex, the model SHALL receive the session start notice before its first tool call.
