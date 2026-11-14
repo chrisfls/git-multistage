@@ -57,6 +57,47 @@ func TestHooksRunAgainstTheCommittedTree(t *testing.T) {
 	}
 }
 
+// TestHooksFromHooksPathAndSettings runs hooks that are not in .git/hooks:
+// a relative core.hooksPath, read from the worktree top, and a hook.* setting.
+func TestHooksFromHooksPathAndSettings(t *testing.T) {
+	t.Parallel()
+	r := newRepo(t)
+	r.write("my-hooks/prepare-commit-msg", "#!/bin/sh\nprintf '\\nPrepared: yes\\n' >> \"$1\"\n")
+	r.write("my-hooks/pre-commit", "#!/bin/sh\necho hooks-path-hook >&2\nexit 1\n")
+	for _, f := range []string{"my-hooks/prepare-commit-msg", "my-hooks/pre-commit"} {
+		if err := os.Chmod(r.path(f), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.git("config", "core.hooksPath", "my-hooks")
+	r.write("a.txt", "a\n")
+	r.mustMS("agent-a", "add", "a.txt")
+	res := r.expectCode(1, "agent-a", "commit", "-m", "a")
+	if !strings.Contains(res.err, "hooks-path-hook") || !strings.Contains(res.err, "pre-commit hook failed") {
+		t.Fatalf("core.hooksPath pre-commit:\n%s", res)
+	}
+	r.mustMS("agent-a", "commit", "--no-verify", "-m", "a")
+	if !strings.Contains(r.git("log", "-1", "--format=%B"), "Prepared: yes") {
+		t.Fatal("the prepare-commit-msg hook of core.hooksPath did not run")
+	}
+
+	r.git("config", "--unset", "core.hooksPath")
+	r.git("config", "hook.lint.event", "pre-commit")
+	r.git("config", "hook.lint.command", "echo setting-hook >&2; exit 1")
+	r.write("b.txt", "b\n")
+	r.mustMS("agent-a", "add", "b.txt")
+	res = r.expectCode(1, "agent-a", "commit", "-m", "b")
+	if !strings.Contains(res.err, "setting-hook") || !strings.Contains(res.err, "pre-commit hook failed") {
+		t.Fatalf("hook.* pre-commit:\n%s", res)
+	}
+	r.git("config", "--unset", "hook.lint.command")
+	r.git("config", "--unset", "hook.lint.event")
+	r.mustMS("agent-a", "commit", "-m", "b")
+	if got := r.git("log", "-1", "--format=%s"); strings.TrimSpace(got) != "b" {
+		t.Fatalf("commit without hooks: subject %q", got)
+	}
+}
+
 func TestPreCommitHookCannotAddUnstagedPaths(t *testing.T) {
 	t.Parallel()
 	r := newRepo(t)

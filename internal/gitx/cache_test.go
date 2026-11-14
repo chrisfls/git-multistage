@@ -130,3 +130,71 @@ func TestConfigBoolWithoutSettings(t *testing.T) {
 		t.Fatal("a failed read must give the defaults")
 	}
 }
+
+func TestHasHook(t *testing.T) {
+	write := func(t *testing.T, path string, mode os.FileMode) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	abs, empty := filepath.Join(t.TempDir(), "hooks"), filepath.Join(t.TempDir(), "hooks")
+	tests := []struct {
+		name   string
+		config []string
+		files  map[string]os.FileMode // relative to the common dir ("hooks/...") or the top ("top/...")
+		want   bool
+	}{
+		{"nothing", nil, nil, false},
+		{"sample only", nil, map[string]os.FileMode{"hooks/pre-commit.sample": 0o755}, false},
+		{"other hook", nil, map[string]os.FileMode{"hooks/post-commit": 0o755}, false},
+		{"hook file", nil, map[string]os.FileMode{"hooks/pre-commit": 0o755}, true},
+		{"not executable", nil, map[string]os.FileMode{"hooks/pre-commit": 0o644}, true},
+		{"exe", nil, map[string]os.FileMode{"hooks/pre-commit.exe": 0o755}, true},
+		{"hook setting", []string{"hook.lint.command\nmake lint"}, nil, true},
+		{"mixed-case hook setting", []string{"Hook.lint.Event\npre-commit"}, nil, true},
+		{"absolute hooksPath", []string{"core.hooksPath\n" + abs}, map[string]os.FileMode{"abs/pre-commit": 0o755}, true},
+		{"absolute hooksPath without the hook", []string{"core.hooksPath\n" + empty}, map[string]os.FileMode{"hooks/pre-commit": 0o755}, false},
+		{"relative hooksPath", []string{"core.hooksPath\nmy-hooks"}, map[string]os.FileMode{"top/my-hooks/pre-commit": 0o755}, true},
+		{"relative hooksPath without the hook", []string{"core.hooksPath\nmy-hooks"}, nil, false},
+		{"hooksPath of a file", []string{"core.hooksPath\n" + os.DevNull}, map[string]os.FileMode{"hooks/pre-commit": 0o755}, false},
+		{"home hooksPath", []string{"core.hooksPath\n~/hooks"}, nil, true},
+		{"prefix hooksPath", []string{"core.hooksPath\n%(prefix)/hooks"}, nil, true},
+		{"empty hooksPath", []string{"core.hooksPath\n"}, nil, true},
+		{"hooksPath without a value", []string{"core.hooksPath"}, nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			list := strings.Join(tt.config, "\x00")
+			if list != "" {
+				list += "\x00"
+			}
+			r, _ := countingGit(t, list)
+			r.CommonDir = t.TempDir()
+			for f, mode := range tt.files {
+				switch dir, rest, _ := strings.Cut(f, "/"); dir {
+				case "hooks":
+					write(t, filepath.Join(r.CommonDir, f), mode)
+				case "top":
+					write(t, filepath.Join(r.Top, rest), mode)
+				case "abs":
+					write(t, filepath.Join(abs, rest), mode)
+				}
+			}
+			if got := r.HasHook("pre-commit"); got != tt.want {
+				t.Fatalf("HasHook = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHasHookWithoutSettings(t *testing.T) {
+	r := fakeGit(t, "exit 1\n")
+	r.CommonDir = t.TempDir()
+	if !r.HasHook("pre-commit") {
+		t.Fatal("a failed config read must report a hook")
+	}
+}

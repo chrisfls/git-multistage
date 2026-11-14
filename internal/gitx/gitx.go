@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -43,6 +45,7 @@ type Repo struct {
 
 	configOnce sync.Once
 	config     map[string]*string // setting to its last value; nil for a key without "="
+	configErr  error
 }
 
 // ExitError is a Git command that exited with a nonzero status.
@@ -424,6 +427,7 @@ func (r *Repo) readConfig() {
 	r.config = map[string]*string{}
 	out, err := r.Run(Opt{}, "config", "-z", "--list")
 	if err != nil {
+		r.configErr = err
 		return
 	}
 	for _, rec := range strings.Split(string(out), "\x00") {
@@ -437,6 +441,56 @@ func (r *Repo) readConfig() {
 		}
 		r.config[configKey(key)] = &value
 	}
+}
+
+// HasHook reports whether `git hook run` may find a hook called name: an
+// entry of that name, of any kind, in the hooks directory, or any setting of
+// the hook section. It reports true when it cannot tell, so that Git decides.
+func (r *Repo) HasHook(name string) bool {
+	r.configOnce.Do(r.readConfig)
+	if r.configErr != nil {
+		return true
+	}
+	for key := range r.config {
+		if strings.HasPrefix(key, "hook.") {
+			return true
+		}
+	}
+	dir := r.hooksDir()
+	if dir == "" {
+		return true
+	}
+	// Git for Windows also runs <name>.exe. A hooks path that is a file,
+	// such as /dev/null, holds no hook.
+	for _, f := range []string{name, name + ".exe"} {
+		_, err := os.Lstat(filepath.Join(dir, f))
+		if !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR) {
+			return true
+		}
+	}
+	return false
+}
+
+// hooksDir returns the directory that Git looks hooks up in, or "" when only
+// Git can tell.
+func (r *Repo) hooksDir() string {
+	v, ok := r.config["core.hookspath"]
+	if !ok {
+		return filepath.Join(r.CommonDir, "hooks")
+	}
+	// Git expands "~" and "%(prefix)", and roots "/hooks" on the current
+	// drive on Windows.
+	if v == nil || *v == "" || strings.HasPrefix(*v, "~") || strings.HasPrefix(*v, "%(") {
+		return ""
+	}
+	if filepath.IsAbs(*v) {
+		return *v
+	}
+	if strings.HasPrefix(*v, "/") || strings.HasPrefix(*v, `\`) {
+		return ""
+	}
+	// `git hook run` looks the hook up from the worktree top.
+	return filepath.Join(r.Top, *v)
 }
 
 // configKey folds the case of the section and the variable of key, which

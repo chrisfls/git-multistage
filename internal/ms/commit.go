@@ -108,21 +108,25 @@ func (l *Stage) prepareMessage(raw string, noVerify bool) (string, error) {
 	clean := func(s string) (string, error) {
 		return stringOut(l.r.Run(gitx.Opt{Stdin: strings.NewReader(s)}, "stripspace"))
 	}
-	if err := os.WriteFile(file, []byte(raw), 0o666); err != nil {
-		return "", err
-	}
-	if err := l.withIndexCopy(func(idx string) error { return l.r.runHook(idx, "prepare-commit-msg", file, "message") }); err != nil {
-		return "", &Error{Code: ExitError, Kind: "hook-failed", Message: "the prepare-commit-msg hook failed; nothing was committed"}
-	}
-	data, err := os.ReadFile(file)
-	if err != nil {
-		return "", err
+	data := []byte(raw)
+	if l.r.HasHook("prepare-commit-msg") {
+		if err := os.WriteFile(file, data, 0o666); err != nil {
+			return "", err
+		}
+		if err := l.withIndexCopy(func(idx string) error { return l.r.runHook(idx, "prepare-commit-msg", file, "message") }); err != nil {
+			return "", &Error{Code: ExitError, Kind: "hook-failed", Message: "the prepare-commit-msg hook failed; nothing was committed"}
+		}
+		var err error
+		if data, err = os.ReadFile(file); err != nil {
+			return "", err
+		}
 	}
 	msg, err := clean(string(data))
 	if err != nil {
 		return "", err
 	}
-	if !noVerify {
+	// Without a commit-msg hook the message stays clean.
+	if !noVerify && l.r.HasHook("commit-msg") {
 		if err := os.WriteFile(file, []byte(msg), 0o666); err != nil {
 			return "", err
 		}
@@ -312,6 +316,10 @@ func (l *Stage) commitAttempt(res *CommitResult, st *commitState, attempt int) (
 // exactly the changes that the hook already accepted does not run the hook
 // again, so a slow hook cannot starve the commit while other stages commit.
 func (l *Stage) verifyTree(st *commitState, tipTree, tree string) error {
+	if !l.r.HasHook("pre-commit") {
+		// A fresh index that holds tree writes tree back.
+		return nil
+	}
 	introduced, err := l.r.DiffTrees(tipTree, tree, false)
 	if err != nil {
 		return err
@@ -401,7 +409,9 @@ func (l *Stage) land(res *CommitResult, st *commitState, commit, tip string, att
 		return false, err
 	}
 	// Like `git commit`, a failing post-commit hook does not undo the commit.
-	_ = l.withIndexCopy(func(idx string) error { return r.runHook(idx, "post-commit") })
+	if r.HasHook("post-commit") {
+		_ = l.withIndexCopy(func(idx string) error { return r.runHook(idx, "post-commit") })
+	}
 	res.Result, res.Commit, res.Parent = "committed", commit, tip
 	return true, nil
 }

@@ -23,7 +23,9 @@
 
 ## 2. Absent hooks
 
-- [ ] 2.1 Add `HasHook` to `gitx`, with the config read state, and make `commit` skip an absent hook, the temporary index of an absent `pre-commit`, and the second message cleanup of an absent `commit-msg`. Verify: unit tests cover a hook file, `<name>.exe`, a non-executable file, a sample file, an absolute and a relative `core.hooksPath`, a `~` value, a `hook.*` setting, and a failed config read; a new end-to-end test commits with a relative `core.hooksPath` hook and with a `hook.*` setting; the hook tests pass; a `commit` without hooks starts no `git hook run`.
+- [x] 2.1 Add `HasHook` to `gitx`, with the config read state, and make `commit` skip an absent hook, the temporary index of an absent `pre-commit`, and the second message cleanup of an absent `commit-msg`. Verify: unit tests cover a hook file, `<name>.exe`, a non-executable file, a sample file, an absolute and a relative `core.hooksPath`, a `~` value, a `hook.*` setting, and a failed config read; a new end-to-end test commits with a relative `core.hooksPath` hook and with a `hook.*` setting; the hook tests pass; a `commit` without hooks starts no `git hook run`.
+
+  Result: `commit` of the scenario starts 27 processes instead of 35, both with the global `core.hooksPath=/dev/null` of the test machine and with a `HOME` whose config has no hook setting (only Git's sample hooks). Removing the `core.hooksPath` or the `hook.*` handling from `HasHook` makes the new end-to-end test fail.
 
 ## 3. Known trees and parents
 
