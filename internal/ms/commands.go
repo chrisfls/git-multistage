@@ -344,6 +344,7 @@ func (l *Stage) Drop(force bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	_ = os.Remove(l.r.stagedPathsFile(l.ID))
 	if err := os.RemoveAll(trash); err != nil {
 		return "", err
 	}

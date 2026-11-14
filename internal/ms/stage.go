@@ -158,6 +158,8 @@ func (l *Stage) otherStagesStaged() (map[string][]string, error) {
 
 // stageStagedPaths reads another stage's staged paths without locking it or
 // writing its index. A stage that replaces its index meanwhile is read again.
+// The paths of an index and a base tree are remembered in a file by the
+// index's checksum, so an unchanged stage starts no Git.
 func (r *Repo) stageStagedPaths(dir string) ([]string, error) {
 	for range 5 {
 		m, err := readMeta(dir)
@@ -173,6 +175,11 @@ func (r *Repo) stageStagedPaths(dir string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
+		before := r.IndexChecksum(idx)
+		file := r.stagedPathsFile(filepath.Base(dir))
+		if paths, ok := readStagedPaths(file, before, base); ok {
+			return paths, nil
+		}
 		out, err := r.Run(gitx.Opt{Index: idx}, "diff-index", flagCached, "-z", "--name-only", "--no-renames", base)
 		if m2, err2 := readMeta(dir); err2 != nil || m2.Index != m.Index {
 			continue
@@ -186,9 +193,76 @@ func (r *Repo) stageStagedPaths(dir string) ([]string, error) {
 				paths = append(paths, p)
 			}
 		}
+		if before != "" && before == r.IndexChecksum(idx) {
+			writeStagedPaths(file, dir, before, base, paths)
+		}
 		return paths, nil
 	}
 	return nil, fmt.Errorf("stage %s keeps changing", filepath.Base(dir))
+}
+
+// stagedPathsFile is the file that remembers the staged paths of stage id.
+// It lies outside the stage's directory, because a reader writes it.
+func (r *Repo) stagedPathsFile(id string) string {
+	return filepath.Join(r.Dir, "staged-paths", id)
+}
+
+// readStagedPaths returns the paths that file remembers for the index
+// checksum sum and the base tree. A missing or damaged file, another
+// checksum or base, and a path count that differs from the header are a miss.
+func readStagedPaths(file, sum, base string) ([]string, bool) {
+	if sum == "" {
+		return nil, false
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return nil, false
+	}
+	header, rest, ok := strings.Cut(string(data), "\n")
+	f := strings.Fields(header)
+	if !ok || len(f) != 3 || f[0] != sum || f[1] != base {
+		return nil, false
+	}
+	count, err := strconv.Atoi(f[2])
+	if err != nil || count < 0 {
+		return nil, false
+	}
+	var paths []string
+	if rest != "" {
+		rest, ok = strings.CutSuffix(rest, "\x00")
+		if !ok {
+			return nil, false
+		}
+		paths = strings.Split(rest, "\x00")
+	}
+	if len(paths) != count {
+		return nil, false
+	}
+	return paths, true
+}
+
+// writeStagedPaths remembers the staged paths of the stage in dir through a
+// temporary file and a rename, without a flush. The file is only a cache, so
+// a failed write is ignored. A stage dropped meanwhile leaves no file.
+func writeStagedPaths(file, dir, sum, base string, paths []string) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s %s %d\n", sum, base, len(paths))
+	for _, p := range paths {
+		b.WriteString(p)
+		b.WriteByte(0)
+	}
+	if os.MkdirAll(filepath.Dir(file), 0o777) != nil {
+		return
+	}
+	// A stage ID never starts with a dot, so no stage's file has this name.
+	tmp := filepath.Join(filepath.Dir(file), fmt.Sprintf(".tmp-%s-%d", filepath.Base(file), os.Getpid()))
+	if os.WriteFile(tmp, []byte(b.String()), 0o666) != nil || os.Rename(tmp, file) != nil {
+		_ = os.Remove(tmp)
+		return
+	}
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		_ = os.Remove(file)
+	}
 }
 
 // AddPaths stages whole files, like `git add`.
