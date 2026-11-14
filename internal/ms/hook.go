@@ -490,8 +490,13 @@ func (h *editHook) announceStage(stdout io.Writer) {
 		return
 	}
 	msg := fmt.Sprintf("git-multistage records your file edits in stage %s. To commit them: "+
-		"`git multistage --stage %s add --edits` then `git multistage --stage %s commit -m \"<message>\"`. ",
-		h.stage, h.stage, h.stage) + otherAgentsNote
+		"`git multistage --stage %s add --edits` then `git multistage --stage %s commit -m \"<message>\"`.",
+		h.stage, h.stage, h.stage)
+	// A main session received the note at session start; a subagent
+	// receives no session start notice.
+	if h.in.AgentID != "" {
+		msg += " " + otherAgentsNote
+	}
 	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{
 		"hookEventName": "PostToolUse", "additionalContext": msg,
 	}})
@@ -500,9 +505,9 @@ func (h *editHook) announceStage(stdout io.Writer) {
 
 // otherAgentsNote tells an agent what to expect from the other agents in a
 // shared checkout, so their work does not surprise it.
-const otherAgentsNote = "Other agents may edit files and commit to this branch while you work. " +
+const otherAgentsNote = "Other agents may edit files in this checkout and commit to this branch while you work. " +
 	"Commits, file changes, and stages that you did not make are theirs: do not review, revert, stage, " +
-	"or report them, and leave them out of your summaries unless they block your task."
+	"or mention them unless they block your task."
 
 // announceSharedCheckout answers a SessionStart hook in a Git worktree with
 // otherAgentsNote, so the agent knows from its first turn that others work
@@ -515,9 +520,8 @@ func announceSharedCheckout(cwd string, stdout io.Writer) {
 		return // not a Git worktree
 	}
 	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{
-		"hookEventName": "SessionStart",
-		"additionalContext": "This Git checkout may be shared with other agents through git-multistage. " +
-			otherAgentsNote + " Stage and commit your own work with `git multistage` (see the git-multistage skill).",
+		"hookEventName":     "SessionStart",
+		"additionalContext": otherAgentsNote + " Stage and commit your own work with `git multistage` (see the git-multistage skill).",
 	}})
 	fmt.Fprintln(stdout, string(out))
 }

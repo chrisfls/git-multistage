@@ -31,7 +31,9 @@ func (r *repo) replayHook(name, file string) result {
 // TestHookReplay replays Claude Code and Codex hook inputs in their
 // documented shapes through `git multistage hook`, the command that
 // hooks/hooks.json runs, around a real edit. The stage named by the input
-// must record the edit, and add --edits must commit exactly it.
+// must record the edit, and add --edits must commit exactly it. Only a
+// subagent, which receives no session start notice, gets the note about
+// other agents with its first edit.
 func TestHookReplay(t *testing.T) {
 	t.Parallel()
 	hooks, err := os.ReadFile("../hooks/hooks.json")
@@ -43,18 +45,19 @@ func TestHookReplay(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name, pre, post, path, stage, content string
+		note                                  bool
 	}{
 		{
 			"Claude Code Edit", "claude-pre-edit", "claude-post-edit", "f.txt",
-			"claude-8f2c1d3e-5b6a-4c7d-9e0f-1a2b3c4d5e6f", "one\nTWO\nthree\n",
+			"claude-8f2c1d3e-5b6a-4c7d-9e0f-1a2b3c4d5e6f", "one\nTWO\nthree\n", false,
 		},
 		{
 			"Claude Code subagent Write", "claude-subagent-pre-write", "claude-subagent-post-write", "new.txt",
-			"claude-a7c41e9b2d", "new file\n",
+			"claude-a7c41e9b2d", "new file\n", true,
 		},
 		{
 			"Codex apply_patch", "codex-pre-apply-patch", "codex-post-apply-patch", "f.txt",
-			"codex-019a7c2e-4f1b-7d30-9a8e-5c6b7d8e9f01", "one\nTWO\nthree\n",
+			"codex-019a7c2e-4f1b-7d30-9a8e-5c6b7d8e9f01", "one\nTWO\nthree\n", false,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -71,6 +74,9 @@ func TestHookReplay(t *testing.T) {
 			if post.code != 0 || !strings.Contains(post.out, `"hookEventName":"PostToolUse"`) || !strings.Contains(post.out, tc.stage) {
 				t.Fatalf("PostToolUse does not announce stage %s:\n%s", tc.stage, post)
 			}
+			if strings.Contains(post.out, "Other agents may edit files") != tc.note {
+				t.Fatalf("PostToolUse carries the note about other agents: %v, want %v:\n%s", !tc.note, tc.note, post)
+			}
 			r.mustMS("", "--stage", tc.stage, "add", "--edits")
 			r.mustMS("", "--stage", tc.stage, "commit", "-m", tc.name)
 			if got := r.git("show", "HEAD:"+tc.path); got != tc.content {
@@ -78,6 +84,12 @@ func TestHookReplay(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHookReplaySessionStart replays the SessionStart inputs of Claude Code
+// and Codex; each must get the note about other agents.
+func TestHookReplaySessionStart(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"claude-session-start", "codex-session-start"} {
 		t.Run(name, func(t *testing.T) {
 			r := newRepo(t)

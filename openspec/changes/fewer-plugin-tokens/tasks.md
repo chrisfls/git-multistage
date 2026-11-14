@@ -7,8 +7,8 @@
 
 ## 2. Hook messages
 
-- [ ] 2.1 Shorten the session start notice and `otherAgentsNote` in `internal/ms/hook.go`, keeping each instruction, and add the note to the first-edit message only for an input with `agent_id`. Extend `TestHookReplay` to check that the subagent's first-edit message carries the note and the main sessions' messages leave it out, and verify that `go test ./test -run 'TestHookReplay|TestHookAnnounces|TestHookSeparates'` passes
-- [ ] 2.2 Record the token counts of both messages, before and after, in the Results section
+- [x] 2.1 Shorten the session start notice and `otherAgentsNote` in `internal/ms/hook.go`, keeping each instruction, and add the note to the first-edit message only for an input with `agent_id`. Extend `TestHookReplay` to check that the subagent's first-edit message carries the note and the main sessions' messages leave it out, and verify that `go test ./test -run 'TestHookReplay|TestHookAnnounces|TestHookSeparates'` passes
+- [x] 2.2 Record the token counts of both messages, before and after, in the Results section
 
 ## 3. Plugin version
 
@@ -20,6 +20,14 @@
 - [ ] 4.2 Run `mise run ci` once, and verify that it passes
 
 ## Results
+
+Token counts with the `o200k_base` tokenizer, for a stage ID of 23 characters:
+
+| Text | Before | After |
+| --- | ---: | ---: |
+| Session start notice | 94 | 73 |
+| First-edit message, main session | 122 | 67 |
+| First-edit message, subagent | 122 | 117 |
 
 ## Workflow follow-up
 
