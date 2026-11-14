@@ -31,7 +31,7 @@
 
 ## 4. Staged paths of other stages
 
-- [ ] 4.1 Remember the staged paths of each other stage in `<git-dir>/multistage/staged-paths/<id>`, and delete the file in `drop`. Verify: a unit test shows that a second read of an unchanged stage starts no `git`, and that a changed index or base runs `diff-index`; `status` with staged changes and five other stages starts no `diff-index` for them the second time; the shared-path, hunks, and concurrency tests pass.
+- [ ] 4.1 Remember the staged paths of each other stage in `<git-dir>/multistage/staged-paths/<id>`, and delete the file in `drop`. Verify: a unit test shows that a second read of an unchanged stage starts no `git`, that a changed index or base runs `diff-index`, and that a file with the wrong path count runs `diff-index`; `status` with staged changes and five other stages starts no `diff-index` for them the second time; the shared-path, hunks, and concurrency tests pass.
 
 ## 5. Commit
 
@@ -40,7 +40,7 @@
 
 ## 6. add --edits
 
-- [ ] 6.1 Read the index entries of `add --edits` once, and write the records with one `update-index -z --index-info`. Verify: `add --edits` of two files starts one `ls-files` and one `update-index`; the tests of edits, moves, deletions, new files, ignored files, and edit conflicts pass.
+- [ ] 6.1 Read the index entries of `add --edits` once, and write the records with one `update-index --add` of ordered `--cacheinfo` and `--force-remove` options. Verify: `add --edits` of two files starts one `ls-files` and one `update-index`; a new-file record at a path where the stage holds a directory, or the reverse, still fails; the tests of edits, moves, deletions, new files, ignored files, and edit conflicts pass.
 
 ## 7. Results
 
