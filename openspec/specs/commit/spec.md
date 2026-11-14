@@ -79,7 +79,7 @@ When the staged change is already on the branch, `commit` SHALL create no commit
 - **THEN** `commit` exits with code 5 and creates no commit
 
 ### Requirement: Commit message
-`commit` SHALL take the message from `-m` (repeatable, parts joined by a blank line) or `-F <file>` (`-F -` reads stdin); with both, `-F` SHALL win. Without either it SHALL exit with code 2 and SHALL NOT open an editor. It SHALL clean the message with `git stripspace` before the `commit-msg` hook, and again after that hook when it ran, SHALL exit with code 1 when the result is empty, and SHALL NOT apply `commit.cleanup` or `commit.template`.
+`commit` SHALL take the message from `-m` (repeatable, parts joined by a blank line) or `-F <file>` (`-F -` reads stdin); with both, `-F` SHALL win. Without either it SHALL exit with code 2 and SHALL NOT open an editor. It SHALL clean the message as `git stripspace` does before the `commit-msg` hook, and again after that hook when it ran, SHALL exit with code 1 when the result is empty, and SHALL NOT apply `commit.cleanup` or `commit.template`.
 
 #### Scenario: No message
 - **WHEN** the user runs `commit` without `-m` or `-F`
@@ -88,6 +88,10 @@ When the staged change is already on the branch, `commit` SHALL create no commit
 #### Scenario: Both -m and -F
 - **WHEN** the user runs `commit -m "a" -F msg.txt`
 - **THEN** the commit message is the content of `msg.txt`
+
+#### Scenario: Message cleanup
+- **WHEN** the user runs `commit -m "  \n\nsubject  \n\n\n\nbody\t\n\n"`
+- **THEN** the commit message is `subject\n\nbody\n`, the message that `git stripspace` gives for that text
 
 ### Requirement: Git hooks
 `commit` SHALL run `prepare-commit-msg` and `commit-msg` on the message, then `pre-commit` on a temporary index holding the tip with the staged change applied, then `post-commit`, all through `git hook run`. `--no-verify` (`-n`) SHALL skip `pre-commit` and `commit-msg`. A failing hook other than `post-commit` SHALL exit with code 1. If `pre-commit` changes the tree of its index, `commit` SHALL exit with code 1 and error kind `hook-modified`, and the stage SHALL keep its changes.
