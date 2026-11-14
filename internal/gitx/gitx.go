@@ -272,10 +272,13 @@ func (r *Repo) runVersionCheck(cache string) error {
 	return nil
 }
 
-// binaryKey names the file of the Git binary that internal calls run: its
-// size, its modification time in nanoseconds, and its path after symbolic
-// links. An upgrade of Git writes a new file, so the key changes. It returns
-// "" when the binary cannot be found.
+// binaryKey names the file of the Git binary that internal calls run, and
+// the minimum version that it passed: the version, the file's size, its
+// modification time in nanoseconds, and its path after symbolic links. An
+// upgrade of Git writes a new file, so the key changes. It returns "" when
+// the binary cannot be found, and for a file that runs another Git, whose
+// version can change while the file stays the same: a script, a file of
+// another name, such as a version manager's shim, and the Xcode shim.
 func (r *Repo) binaryKey() string {
 	p, err := exec.LookPath(r.binary(Opt{}))
 	if err != nil {
@@ -287,11 +290,27 @@ func (r *Repo) binaryKey() string {
 	if p, err = filepath.EvalSymlinks(p); err != nil {
 		return ""
 	}
-	info, err := os.Stat(p)
-	if err != nil || strings.ContainsAny(p, "\n") {
+	if name := strings.TrimSuffix(strings.ToLower(filepath.Base(p)), ".exe"); name != "git" ||
+		(runtime.GOOS == "darwin" && p == xcodeShim) || strings.ContainsAny(p, "\n") || isScript(p) {
 		return ""
 	}
-	return fmt.Sprintf("%d %d %s", info.Size(), info.ModTime().UnixNano(), p)
+	info, err := os.Stat(p)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d.%d %d %d %s", MinVersion[0], MinVersion[1], info.Size(), info.ModTime().UnixNano(), p)
+}
+
+// isScript reports whether the file at p starts with "#!", or cannot be read.
+func isScript(p string) bool {
+	f, err := os.Open(p)
+	if err != nil {
+		return true
+	}
+	defer func() { _ = f.Close() }()
+	head := make([]byte, 2)
+	n, _ := io.ReadFull(f, head)
+	return string(head[:n]) == "#!"
 }
 
 // writeCacheFile replaces the file at path with data through a temporary
