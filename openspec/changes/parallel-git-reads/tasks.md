@@ -33,7 +33,33 @@
 
 ## 3. Results
 
-- [ ] 3.1 Measure as in 1.1 and record the numbers. Run `mise run ci`. Verify: CI exits with code 0, and the numbers are in this task.
+- [x] 3.1 Measure as in 1.1 and record the numbers. Run `mise run ci`. Verify: CI exits with code 0, and the numbers are in this task.
+
+  After, 2026-11-14, master `8b76868`, one command in flight. The two builds ran interleaved (old, new, old, new), so both saw the same load; the old build's runs here are the "before" columns.
+
+  Five other stages:
+
+  | Command | git processes (before → after) | Before, runs 1 and 2 | After, runs 1 and 2 |
+  | --- | --- | --- | --- |
+  | `status`, nothing staged | 15 → 10 | 206, 200 ms | 106, 100 ms |
+  | `add f1.txt` | 20 → 20 | 329, 309 ms | 264, 236 ms |
+  | `status`, one file staged | 16 → 16 | 229, 222 ms | 147, 133 ms |
+  | `diff --cached` | 9 → 9 | 133, 127 ms | 113, 106 ms |
+  | `commit` | 35 → 35 | 586, 553 ms | 566, 522 ms |
+
+  Scenario script, stage exists:
+
+  | Command | git processes (before → after) | Before, runs 1 and 2 | After, runs 1 and 2 |
+  | --- | --- | --- | --- |
+  | `status` | 11 → 10 | 155, 152 ms | 107, 98 ms |
+  | hook PreToolUse | 6 → 6 | 90, 86 ms | 85, 72 ms |
+  | hook PostToolUse | 12 → 12 | 194, 184 ms | 177, 152 ms |
+  | `add f3.txt` | 18 → 18 | 284, 265 ms | 255, 236 ms |
+  | `commit -m y` | 35 → 35 | 581, 541 ms | 589, 527 ms |
+
+  - `status` of the scenario's empty stage starts one process fewer, because a second stage exists.
+  - `commit` runs its steps in sequence, so it changes within the noise.
+  - `mise run ci`: exit code 0, 135 s wall; the `test` package took 130.1 s. `mise run ci:stress`: exit code 0, 121 s.
 
 ## Workflow follow-up
 
