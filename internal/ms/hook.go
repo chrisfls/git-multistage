@@ -107,6 +107,10 @@ func runEditHook(kind string, stdin io.Reader, stdout, stderr io.Writer, stageFl
 		announceSharedCheckout(in.Event, in.Cwd, stdout)
 		return 0
 	}
+	if in.Event == "PreToolUse" && shellTools[in.Tool] {
+		guardShellCommand(in, stdout)
+		return 0
+	}
 	if kind == "" {
 		kind = agentClaude
 		if in.Tool == toolApplyPatch {

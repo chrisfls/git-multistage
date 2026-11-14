@@ -7,6 +7,7 @@ const (
 	flagJSON       = "--json"
 	flagCached     = "--cached"
 	cmdAdd         = "add"
+	cmdCommit      = "commit"
 	cmdDiff        = "diff"
 	cmdLog         = "log"
 	cmdUpdateIndex = "update-index"

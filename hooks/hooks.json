@@ -22,7 +22,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Edit|MultiEdit|Write|apply_patch",
+        "matcher": "Edit|MultiEdit|Write|apply_patch|Bash",
         "hooks": [
           {
             "type": "command",

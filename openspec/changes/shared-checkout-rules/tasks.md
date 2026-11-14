@@ -10,7 +10,7 @@
 
 ## 3. Guard
 
-- [ ] 3.1 Add the shell command check in `internal/ms/guard.go` and `Bash` to the `PreToolUse` matcher. Verify with unit tests of the parser and an end-to-end hook test of a denied and an allowed command
+- [x] 3.1 Add the shell command check in `internal/ms/guard.go` and `Bash` to the `PreToolUse` matcher. Verify with unit tests of the parser and an end-to-end hook test of a denied and an allowed command
 
 ## 4. Hints for agents
 

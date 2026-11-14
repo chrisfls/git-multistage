@@ -538,3 +538,34 @@ func TestHookCleansThroughAFilter(t *testing.T) {
 		t.Fatalf("committed e.up %q", got)
 	}
 }
+
+// TestHookGuardsSharedStateGitCommands runs the PreToolUse hook on shell
+// commands: it denies a Git command that changes shared state in an
+// opted-in checkout, and allows the rest.
+func TestHookGuardsSharedStateGitCommands(t *testing.T) {
+	t.Parallel()
+	r := newRepo(t)
+	other := newRepo(t)
+	other.git("config", "--unset", "multistage.shared")
+	bash := func(command string) result {
+		data, _ := json.Marshal(map[string]any{
+			"hook_event_name": "PreToolUse", "tool_name": "Bash", "session_id": "s", "cwd": r.dir,
+			"tool_input": map[string]any{"command": command},
+		})
+		return runStdin(r.dir, "", nil, string(data), "hook")
+	}
+	for _, command := range []string{"git stash", "git status && git commit -m x", "cd sub/.. && git checkout -- README"} {
+		res := bash(command)
+		if res.code != 0 || !strings.Contains(res.out, `"permissionDecision":"deny"`) || !strings.Contains(res.out, "git-multistage blocked") {
+			t.Fatalf("%s is not denied:\n%s", command, res)
+		}
+	}
+	for _, command := range []string{
+		"git status && git stash list && git log -1", "git multistage --stage a add --edits",
+		"git -C " + other.dir + " commit -m x", "ls",
+	} {
+		if res := bash(command); res.code != 0 || res.out != "" {
+			t.Fatalf("%s is not allowed:\n%s", command, res)
+		}
+	}
+}

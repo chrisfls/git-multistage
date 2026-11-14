@@ -480,7 +480,7 @@ var commandSpecs = map[string][]flagSpec{
 	"mv":      nil,
 	"apply":   {{[]string{"--reverse", "-R"}, false}},
 	"restore": {{[]string{"--staged", "-S"}, false}, {[]string{"--hunk"}, true}},
-	"commit": {
+	cmdCommit: {
 		{[]string{"--message", "-m"}, true},
 		{[]string{"--file", "-F"}, true},
 		{[]string{"--no-verify", "-n"}, false},
@@ -519,7 +519,7 @@ func (a *app) runOnStage(cmd string, p *parsed) error {
 	if stage.Damaged {
 		return stage.errDamaged()
 	}
-	if cmd == "commit" {
+	if cmd == cmdCommit {
 		return a.commit(stage, p)
 	}
 	f, err := stage.refresh()
