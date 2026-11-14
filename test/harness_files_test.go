@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -139,31 +141,58 @@ func TestSkillCopies(t *testing.T) {
 	}
 }
 
-// TestClineHooks checks that Cline's hook files run the hook and are
-// executable in the Git index, so a checkout on macOS or Linux can run them.
-func TestClineHooks(t *testing.T) {
-	t.Parallel()
+// clineModes returns the mode of each file in hooks/cline: from the Git
+// index, or from the disk in an export without .git.
+func clineModes(t *testing.T) map[string]string {
+	t.Helper()
+	modes := map[string]string{}
 	out, err := exec.CommandContext(context.Background(), "git", "-C", "..", "ls-files", "-s", "--", "hooks/cline").Output()
+	if err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if f := strings.Fields(line); len(f) == 4 {
+				modes[path.Base(f[3])] = f[0]
+			}
+		}
+		return modes
+	}
+	entries, err := os.ReadDir("../hooks/cline")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var names []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) != 4 || fields[0] != "100755" {
-			t.Errorf("hooks/cline file is not executable in the index: %q", line)
-			continue
-		}
-		names = append(names, fields[3][strings.LastIndexByte(fields[3], '/')+1:])
-		data, err := os.ReadFile("../" + fields[3])
+	for _, e := range entries {
+		info, err := e.Info()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.HasPrefix(string(data), "#!/bin/sh\n") || !strings.Contains(string(data), "\nexec git multistage hook cline\n") {
-			t.Errorf("%s does not run `git multistage hook cline`", fields[3])
+		modes[e.Name()] = "100644"
+		if info.Mode()&0o111 != 0 || runtime.GOOS == "windows" {
+			modes[e.Name()] = "100755"
 		}
 	}
+	return modes
+}
+
+// TestClineHooks checks that Cline's hook files run the hook and are
+// executable, so a checkout on macOS or Linux can run them.
+func TestClineHooks(t *testing.T) {
+	t.Parallel()
+	modes := clineModes(t)
+	names := make([]string, 0, len(modes))
+	for name := range modes {
+		names = append(names, name)
+	}
+	slices.Sort(names)
 	if !slices.Equal(names, []string{"PostToolUse", "PreToolUse", "TaskStart"}) {
 		t.Errorf("hooks/cline holds %q, want PostToolUse, PreToolUse, and TaskStart", names)
+	}
+	for _, name := range names {
+		data, err := os.ReadFile("../hooks/cline/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if modes[name] != "100755" || !strings.HasPrefix(string(data), "#!/bin/sh\n") ||
+			!strings.Contains(string(data), "\nexec git multistage hook cline\n") {
+			t.Errorf("hooks/cline/%s is not an executable script that runs `git multistage hook cline`", name)
+		}
 	}
 }
