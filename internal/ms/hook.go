@@ -510,7 +510,9 @@ func (h *editHook) announceStage(stdout io.Writer) {
 // Git commands that would change their state.
 const sharedCheckoutRules = "Other agents may edit files in this checkout and commit to this branch while you work. " +
 	"Commits, file changes, and stages that you did not make are theirs: do not review, revert, stage, " +
-	"or mention them unless they block your task. Edit files with your file-editing tools, such as Edit, Write, " +
+	"or mention them unless they block your task, and keep their changes in the working tree, even for a moment. " +
+	"To run something without them, use a separate worktree from `git worktree add`. " +
+	"Edit files with your file-editing tools, such as Edit, Write, " +
 	"or apply_patch, so that git-multistage records your edits. Do not run `git add`, `git commit`, `git rm`, " +
 	"`git mv`, `git stash`, `git restore`, `git reset`, `git checkout`, or `git switch`: they change state that " +
 	"every agent shares. Stage and commit with `git multistage` (see the git-multistage skill)."
