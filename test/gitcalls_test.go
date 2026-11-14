@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -115,4 +116,136 @@ func TestCommitJSONListsStagedFilesWithRenames(t *testing.T) {
 	if !eq(gotLines, want) || len(want) != 5 {
 		t.Fatalf("commit --json files %q, git show -M %q", gotLines, want)
 	}
+}
+
+// TestCommitStartsNoReadsAfterTheBranchMoves checks that a commit whose tree
+// is the staged tree starts no rev-parse after update-ref, and no diff-tree,
+// read-tree, write-tree, or diff-index at all, once the stage and the default
+// index have remembered trees.
+func TestCommitStartsNoReadsAfterTheBranchMoves(t *testing.T) {
+	t.Parallel()
+	r := newRepo(t)
+	r.write("f1.txt", "a\nb\nc\n")
+	r.write("f2.txt", "a\nb\nc\n")
+	r.git("add", ".")
+	r.git("commit", "-q", "-m", "files")
+	for i, content := range []string{"x\n", "y\n"} {
+		r.write("f1.txt", content)
+		r.mustMS("agent-a", "add", "f1.txt")
+		r.mustMS("agent-a", "status")
+		subs := r.traceCalls("agent-a", "commit", "-m", "c"+string(rune('0'+i)))
+		moved := slices.Index(subs, "update-ref")
+		if moved < 0 {
+			t.Fatalf("commit %d started no update-ref: %v", i, subs)
+		}
+		for _, name := range []string{"read-tree", "write-tree", "diff-index"} {
+			if n := countCalls(subs, name); n != 0 {
+				t.Errorf("commit %d started %d %s: %v", i, n, name, subs)
+			}
+		}
+		if n := countCalls(subs, "diff-tree"); n != 1 {
+			t.Errorf("commit %d started %d diff-tree, want the one of the staged changes: %v", i, n, subs)
+		}
+		for _, name := range []string{"rev-parse", "diff-tree", "symbolic-ref"} {
+			if slices.Contains(subs[moved+1:], name) {
+				t.Errorf("commit %d started %s after update-ref: %v", i, name, subs)
+			}
+		}
+		r.checkIndexSynced()
+		r.checkHealthy()
+		if staged := r.stagedPaths("agent-a"); len(staged) != 0 {
+			t.Errorf("commit %d left %v staged", i, staged)
+		}
+	}
+}
+
+// TestSyncAfterACommitKeepsItsResults checks the default index after a commit
+// whose sync derives the tree of the index: an entry that someone staged by
+// hand is kept, an intent-to-add entry for an empty file that the commit
+// adds stays, and an intent-to-add entry at another path stays out of the
+// commit.
+func TestSyncAfterACommitKeepsItsResults(t *testing.T) {
+	t.Parallel()
+	t.Run("entry staged by hand", func(t *testing.T) {
+		t.Parallel()
+		r := newRepo(t)
+		r.write("f1.txt", "a\nb\nc\n")
+		r.write("f2.txt", "a\nb\nc\n")
+		r.git("add", ".")
+		r.git("commit", "-q", "-m", "files")
+		r.write("f1.txt", "a\nX\nc\n")
+		r.write("f2.txt", "a\nY\nc\n")
+		r.mustMS("agent-a", "add", "f1.txt", "f2.txt")
+		r.write("f1.txt", "a\nNATIVE\nc\n")
+		r.git("add", "f1.txt")
+		r.write("f1.txt", "a\nX\nc\n")
+		res := r.mustMS("agent-a", "commit", "--json", "-m", "one")
+		var got struct {
+			Commit struct {
+				Sync struct {
+					Updated, Kept []string
+				} `json:"index_sync"`
+			} `json:"commit"`
+		}
+		decode(t, res, &got)
+		if !eq(got.Commit.Sync.Updated, []string{"f2.txt"}) || !eq(got.Commit.Sync.Kept, []string{"f1.txt"}) {
+			t.Fatalf("sync updated %v and kept %v", got.Commit.Sync.Updated, got.Commit.Sync.Kept)
+		}
+		if got := r.git("status", "--porcelain"); got != "MM f1.txt\n" {
+			t.Fatalf("status after the commit: %q", got)
+		}
+		if got := r.git("show", ":f1.txt"); got != "a\nNATIVE\nc\n" {
+			t.Fatalf("the hand-staged entry holds %q", got)
+		}
+		if got := r.git("show", ":f2.txt"); got != "a\nY\nc\n" {
+			t.Fatalf("the synced entry holds %q", got)
+		}
+	})
+	t.Run("intent-to-add entry of an empty file that the commit adds", func(t *testing.T) {
+		t.Parallel()
+		r := newRepo(t)
+		r.write("empty.txt", "")
+		r.git("add", "-N", "empty.txt")
+		r.mustMS("agent-a", "add", "empty.txt")
+		r.write("f.txt", "f\n")
+		r.mustMS("agent-a", "add", "f.txt")
+		r.mustMS("agent-a", "commit", "-m", "two")
+		if got := r.git("status", "--porcelain"); got != "DA empty.txt\n" {
+			t.Fatalf("status after the commit: %q", got)
+		}
+		if got := r.git("ls-tree", "-r", "--name-only", "HEAD"); got != "README\nempty.txt\nf.txt\n" {
+			t.Fatalf("the commit holds %q", got)
+		}
+	})
+	t.Run("intent-to-add entry at another path", func(t *testing.T) {
+		t.Parallel()
+		r := newRepo(t)
+		r.write("other.txt", "n\n")
+		r.git("add", "-N", "other.txt")
+		r.write("f.txt", "f\n")
+		r.mustMS("agent-a", "add", "f.txt")
+		r.mustMS("agent-a", "commit", "-m", "three")
+		if got := r.git("status", "--porcelain"); got != " A other.txt\n" {
+			t.Fatalf("status after the commit: %q", got)
+		}
+	})
+	t.Run("sparse checkout", func(t *testing.T) {
+		t.Parallel()
+		r := newRepo(t)
+		r.write("in/a.txt", "a\n")
+		r.write("out/b.txt", "b\n")
+		r.git("add", ".")
+		r.git("commit", "-q", "-m", "dirs")
+		r.git("sparse-checkout", "set", "--cone", "in")
+		r.write("in/a.txt", "a2\n")
+		r.mustMS("agent-a", "add", "in/a.txt")
+		r.mustMS("agent-a", "commit", "-m", "sparse")
+		if got := r.git("ls-files", "-t", "out/b.txt"); got != "S out/b.txt\n" {
+			t.Fatalf("out/b.txt in the default index: %q", got)
+		}
+		if got := r.git("status", "--porcelain"); got != "" {
+			t.Fatalf("status after the commit: %q", got)
+		}
+		r.checkIndexSynced()
+	})
 }

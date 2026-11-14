@@ -699,6 +699,11 @@ func (r *Repo) ReadTree(index, tree string) error {
 	if _, err := r.Run(Opt{Index: index}, "read-tree", tree); err != nil {
 		return err
 	}
+	return r.RefreshIndex(index)
+}
+
+// RefreshIndex updates the stat data of the entries of the index at path.
+func (r *Repo) RefreshIndex(index string) error {
 	// Exit status 1 only means that some files differ from the index.
 	if _, err := r.Run(Opt{Index: index}, "update-index", "-q", "--refresh"); err != nil && ExitCode(err) != 1 {
 		return err

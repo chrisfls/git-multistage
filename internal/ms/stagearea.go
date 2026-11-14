@@ -310,7 +310,16 @@ func (l *Stage) setIndex(base string) error {
 func (l *Stage) setIndexTree(tree, base string) error {
 	name, gen := l.newIndexFile()
 	path := filepath.Join(l.Dir, name)
-	if err := l.r.ReadTree(path, tree); err != nil {
+	if l.M.Index != "" && l.r.KnownIndexTree(l.IndexPath()) == tree {
+		// The current index holds tree already, as after a commit whose tree
+		// is the staged tree: a copy needs only the refresh.
+		if err := copyFile(l.IndexPath(), path); err != nil {
+			return err
+		}
+		if err := l.r.RefreshIndex(path); err != nil {
+			return err
+		}
+	} else if err := l.r.ReadTree(path, tree); err != nil {
 		return err
 	}
 	if err := l.r.copySkipWorktree(path, nil, false); err != nil {

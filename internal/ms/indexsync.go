@@ -204,6 +204,20 @@ func (r *Repo) syncAfterCommit(branch, parent string) (SyncResult, error) {
 	if err != nil {
 		return SyncResult{}, err
 	}
+	return r.syncMoved(head, tip, parent)
+}
+
+// syncLanded is syncAfterCommit for a commit that this process just moved
+// branch to, from parent, while it held index.lock and HEAD pointed to
+// branch. It starts the sync with that commit and that branch, so that it
+// reads neither the tip nor HEAD again.
+func (r *Repo) syncLanded(branch, commit, parent string) (SyncResult, error) {
+	return r.syncMoved(branch, commit, parent)
+}
+
+// syncMoved synchronizes the default index with tip, the tip of head, after
+// head moved from parent.
+func (r *Repo) syncMoved(head, tip, parent string) (SyncResult, error) {
 	rec, err := r.validRecord(head)
 	if err != nil {
 		return SyncResult{}, err
@@ -417,7 +431,7 @@ func (r *Repo) syncIndexLocked(head, tip, from string, keepRecord, dryRun bool) 
 	if err != nil {
 		return res, err
 	}
-	tree, err := r.applyIndexChanges(changes, &res, dryRun)
+	tree, err := r.applyIndexChanges(changes, &res, dryRun, r.syncTreesOf(from, tip))
 	if err != nil || dryRun {
 		return res, err
 	}
@@ -433,13 +447,35 @@ func (r *Repo) syncIndexLocked(head, tip, from string, keepRecord, dryRun bool) 
 	return res, r.writeSyncRecord(syncRecord{head, tip, tree})
 }
 
+// syncTrees holds the trees of the commits of a sync: the tree that the
+// default index matches before it, and the tree of the tip. Both are "" when
+// the process does not know the trees of both commits.
+type syncTrees struct{ from, tip string }
+
+// syncTreesOf returns the trees of from and tip, or the zero value unless the
+// process knows both without Git.
+func (r *Repo) syncTreesOf(from, tip string) syncTrees {
+	fromTree := r.KnownTree(from)
+	if from == r.EmptyTree {
+		fromTree = r.EmptyTree
+	}
+	tipTree := r.KnownTree(tip)
+	if fromTree == "" || tipTree == "" {
+		return syncTrees{}
+	}
+	return syncTrees{fromTree, tipTree}
+}
+
 type stagedEntry struct{ mode, oid string }
 
 // applyIndexChanges rewrites a copy of the default index and renames it into
 // place. The caller holds index.lock, so no Git process writes the index
 // meanwhile.
-// It returns the tree of the new index, or "" when it wrote nothing.
-func (r *Repo) applyIndexChanges(changes []gitx.Entry, res *SyncResult, dryRun bool) (string, error) {
+// It returns the tree of the new index, or "" when it wrote nothing. When the
+// copy of the index has the remembered tree trees.from, the sync wrote every
+// change, and it kept none, the new index holds trees.tip, so its tree is
+// neither read nor written.
+func (r *Repo) applyIndexChanges(changes []gitx.Entry, res *SyncResult, dryRun bool, trees syncTrees) (string, error) {
 	if len(changes) == 0 {
 		return "", nil
 	}
@@ -461,10 +497,12 @@ func (r *Repo) applyIndexChanges(changes []gitx.Entry, res *SyncResult, dryRun b
 	_ = os.Remove(tmp + ".lock")
 	_ = os.Remove(tmp)
 	defer func() { _ = os.Remove(tmp) }()
+	derive := false
 	if !missing {
 		if err := copyFile(r.IndexPath, tmp); err != nil {
 			return "", err
 		}
+		derive = r.holdsTree(tmp, trees)
 	}
 
 	input, err := r.planIndexChanges(tmp, changes, res)
@@ -482,11 +520,29 @@ func (r *Repo) applyIndexChanges(changes []gitx.Entry, res *SyncResult, dryRun b
 	if err := r.copySkipWorktree(tmp, res.written, true); err != nil {
 		return "", err
 	}
-	tree, err := r.indexTree(tmp)
+	tree, err := r.syncedIndexTree(tmp, trees, derive, len(changes), res)
 	if err != nil {
 		return "", err
 	}
 	return tree, rename(tmp, r.IndexPath)
+}
+
+// holdsTree reports whether the index file at path has the remembered tree
+// trees.from, so that a sync can derive the tree that it writes.
+func (r *Repo) holdsTree(path string, trees syncTrees) bool {
+	return trees.tip != "" && r.KnownIndexTree(path) == trees.from
+}
+
+// syncedIndexTree returns the tree of the synced index at path: trees.tip,
+// which it remembers, when the index held trees.from before the sync (derive)
+// and the sync wrote every one of its n changes and kept none; otherwise the
+// tree that Git writes for the index.
+func (r *Repo) syncedIndexTree(path string, trees syncTrees, derive bool, n int, res *SyncResult) (string, error) {
+	if !derive || len(res.Kept) != 0 || len(res.Updated) != n {
+		return r.indexTree(path)
+	}
+	r.RememberIndexTree(path, trees.tip)
+	return trees.tip, nil
 }
 
 // planIndexChanges reads the entries of the changed paths from index and

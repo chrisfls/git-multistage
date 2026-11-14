@@ -464,7 +464,7 @@ func (l *Stage) land(res *CommitResult, st *commitState, commit, tip string, att
 	fault("after-update-ref")
 	if lk != nil {
 		var err error
-		res.Sync, err = r.syncAfterCommit(l.M.Branch, tip)
+		res.Sync, err = r.syncLanded(l.M.Branch, commit, tip)
 		lk.release()
 		if err != nil {
 			res.Sync.Warnings = append(res.Sync.Warnings, fmt.Sprintf("default index not synchronized: %v; run `git multistage sync`", err))
