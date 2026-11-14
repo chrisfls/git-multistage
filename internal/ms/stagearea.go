@@ -493,17 +493,81 @@ func keepDigest(input string) string {
 	return keepDigestPrefix + hex.EncodeToString(sum[:])
 }
 
-// parseKeep reads the output of `show -s --format=%T %P%n%B` of the keep
-// ref: the parents of its commit, and the digest line of its message.
-func parseKeep(out string) (parents, digest string) {
+// keepCommit holds what protect needs of a keep commit: its ID, its parents
+// as `%P` prints them, and the digest line of its message. The commit is
+// immutable, so the facts never change; the ref says which commit is current.
+type keepCommit struct{ commit, parents, digest string }
+
+// parseKeep reads the output of `show -s --format=%H %P%n%B` of the keep
+// ref: the commit, its parents, and the digest line of its message.
+func parseKeep(out string) keepCommit {
 	first, msg, _ := strings.Cut(out, "\n")
-	_, parents, _ = strings.Cut(first, " ")
+	commit, parents, _ := strings.Cut(first, " ")
+	k := keepCommit{commit: commit, parents: strings.TrimSpace(parents)}
 	for _, line := range strings.Split(msg, "\n") {
 		if strings.HasPrefix(line, keepDigestPrefix) {
-			digest = line
+			k.digest = line
 		}
 	}
-	return strings.TrimSpace(parents), digest
+	return k
+}
+
+// keepRecordPath is the file of the keep record: the commit, its parents, and
+// its digest line, one for each line. The stage writes it after each keep
+// commit it makes, so that the next protect needs no `show`.
+func (l *Stage) keepRecordPath() string { return filepath.Join(l.Dir, "keep") }
+
+// readKeepRecord returns the keep record, or false when the file is missing
+// or damaged.
+func (l *Stage) readKeepRecord() (keepCommit, bool) {
+	data, err := os.ReadFile(l.keepRecordPath())
+	if err != nil {
+		return keepCommit{}, false
+	}
+	f := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	if len(f) != 3 || len(f[0]) != len(l.r.EmptyTree) {
+		return keepCommit{}, false
+	}
+	return keepCommit{f[0], f[1], f[2]}, true
+}
+
+// writeKeepRecord replaces the file through a temporary file and a rename,
+// without a flush. The file only saves a `show`, so a failed write is ignored.
+func (l *Stage) writeKeepRecord(k keepCommit) {
+	path := l.keepRecordPath()
+	tmp := fmt.Sprintf("%s.tmp-%d", path, os.Getpid())
+	data := k.commit + "\n" + k.parents + "\n" + k.digest + "\n"
+	if os.WriteFile(tmp, []byte(data), 0o666) != nil || rename(tmp, path) != nil {
+		_ = os.Remove(tmp)
+	}
+}
+
+// readKeep returns the commit that the keep ref names, with its parents and
+// digest; commit is "" when the ref does not exist. With the files ref
+// storage it reads the ref's loose file, which Git never packs for a
+// per-worktree ref, and a file that names the commit of the keep record gives
+// the rest without `show`. A missing file means no keep ref; any other case
+// runs `show`.
+func (l *Stage) readKeep() keepCommit {
+	files := l.r.RefFormat == "files"
+	if files {
+		data, err := os.ReadFile(filepath.Join(l.r.GitDir, "refs", "worktree", "multistage", l.ID))
+		if errors.Is(err, fs.ErrNotExist) {
+			return keepCommit{}
+		}
+		if rec, ok := l.readKeepRecord(); err == nil && ok && strings.TrimSpace(string(data)) == rec.commit {
+			return rec
+		}
+	}
+	out, err := l.r.Run(gitx.Opt{}, "show", "-s", "--format=%H %P%n%B", l.keepRef(), "--")
+	if err != nil {
+		return keepCommit{}
+	}
+	k := parseKeep(string(out))
+	if files && k.commit != "" {
+		l.writeKeepRecord(k)
+	}
+	return k
 }
 
 func (l *Stage) protect() error {
@@ -511,7 +575,8 @@ func (l *Stage) protect() error {
 		return nil
 	}
 	// The staged tree, the base tree, and the keep ref are read at once.
-	var tree, base, cur string
+	var tree, base string
+	var cur keepCommit
 	err := parallel(
 		func() (err error) {
 			tree, err = l.r.WriteTree(l.IndexPath())
@@ -522,9 +587,7 @@ func (l *Stage) protect() error {
 			return err
 		},
 		func() error {
-			if out, err := l.r.Run(gitx.Opt{}, "show", "-s", "--format=%T %P%n%B", l.keepRef(), "--"); err == nil {
-				cur = string(out)
-			}
+			cur = l.readKeep()
 			return nil
 		},
 	)
@@ -538,8 +601,9 @@ func (l *Stage) protect() error {
 	}
 	edits := editBlobEntries(recs)
 	if tree == base && edits == "" {
-		if cur != "" {
+		if cur.commit != "" {
 			_, err = l.r.Run(gitx.Opt{}, "update-ref", "-d", l.keepRef())
+			_ = os.Remove(l.keepRecordPath())
 		}
 		return err
 	}
@@ -547,7 +611,7 @@ func (l *Stage) protect() error {
 	// unchanged stage needs no mktree.
 	input := keepInput(tree, edits)
 	digest := keepDigest(input)
-	if parents, d := parseKeep(cur); parents == l.M.Base && d == digest {
+	if cur.parents == l.M.Base && cur.digest == digest {
 		return nil
 	}
 	keepTree, err := l.r.Line(gitx.Opt{Stdin: strings.NewReader(input)}, "mktree")
@@ -566,8 +630,11 @@ func (l *Stage) protect() error {
 	if err != nil {
 		return err
 	}
-	_, err = l.r.Run(gitx.Opt{}, "update-ref", l.keepRef(), c)
-	return err
+	if _, err = l.r.Run(gitx.Opt{}, "update-ref", l.keepRef(), c); err != nil {
+		return err
+	}
+	l.writeKeepRecord(keepCommit{c, l.M.Base, digest})
+	return nil
 }
 
 func (l *Stage) save() error {
