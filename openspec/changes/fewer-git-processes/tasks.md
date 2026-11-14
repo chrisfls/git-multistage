@@ -29,7 +29,26 @@
 
 ## 3. Results
 
-- [ ] 3.1 Measure the scenario as in 1.1 and record the numbers next to the baseline. Run `mise run ci`. Verify: CI exits with code 0, and both sets of numbers are in this task.
+- [x] 3.1 Measure the scenario as in 1.1 and record the numbers next to the baseline. Run `mise run ci`. Verify: CI exits with code 0, and both sets of numbers are in this task.
+
+  After, 2026-11-14, master `383b098`, measured the same way (one command in flight, two runs):
+
+  | Command | git processes (before) | git processes (after) | Run 1 | Run 2 |
+  | --- | --- | --- | --- | --- |
+  | `status` (creates the stage) | 20 | 16 | 246 ms | 239 ms |
+  | `status` | 14 | 11 | 153 ms | 151 ms |
+  | hook PreToolUse | 11 | 9 | 152 ms | 131 ms |
+  | hook PostToolUse (creates the stage) | 22 | 18 | 290 ms | 273 ms |
+  | hook PreToolUse | 10 | 8 | 137 ms | 114 ms |
+  | hook PostToolUse | 16 | 14 | 215 ms | 207 ms |
+  | `add --edits` | 14 | 12 | 191 ms | 165 ms |
+  | `diff --cached` | 10 | 8 | 117 ms | 108 ms |
+  | `commit` (nothing staged) | 10 | 8 | 111 ms | 107 ms |
+  | `add f3.txt` | 22 | 18 | 296 ms | 267 ms |
+  | `commit -m y` | 43 | 35 | 599 ms | 542 ms |
+
+  - One hooked edit (PreToolUse and PostToolUse, stage exists) went from 26 to 22 processes and from about 371 ms to about 337 ms.
+  - `mise run ci`: exit code 0, 146 s wall; the `test` package took 141.7 s with the default `-parallel` (12).
 
 ## Workflow follow-up
 
