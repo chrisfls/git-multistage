@@ -38,7 +38,9 @@
 
 ## 4. Flat keep tree
 
-- [ ] 4.1 Write the keep tree with one `mktree`. Verify: the PostToolUse hook starts one process fewer; the crash-recovery tests of recorded edits and `git gc` pass.
+- [x] 4.1 Write the keep tree with one `mktree`. Verify: the PostToolUse hook starts one process fewer; the crash-recovery tests of recorded edits and `git gc` pass.
+
+  Result: PostToolUse 11 → 10. The `git gc`, drop, damaged-stage, and hook tests pass. A keep ref that v0.1.3 wrote (`edits` and `staged` trees) became the flat layout (`0-after`, `0-before`, `staged`) at the next `status`, with the same staged tree and parent.
 
 ## 5. Results
 

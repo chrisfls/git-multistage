@@ -461,8 +461,8 @@ func (r *Repo) outsideSparse(paths []string) ([]string, error) {
 	return outside, nil
 }
 
-// editBlobsTree returns the mktree input that names the blobs of recs.
-func editBlobsTree(recs []EditRecord) string {
+// editBlobEntries returns the mktree entries that name the blobs of recs.
+func editBlobEntries(recs []EditRecord) string {
 	var edits strings.Builder
 	for i, rec := range recs {
 		for _, b := range []struct{ name, oid string }{{"before", rec.Before}, {"after", rec.After}} {
@@ -474,17 +474,10 @@ func editBlobsTree(recs []EditRecord) string {
 	return edits.String()
 }
 
-// keepTree writes the tree that the keep ref holds: the staged tree, and the
-// tree of the edit blobs when edits names any.
+// keepTree writes the tree that the keep ref holds: the staged tree, and
+// beside it the edit blobs that edits names.
 func (r *Repo) keepTree(staged, edits string) (string, error) {
-	entries := fmt.Sprintf("040000 tree %s\tstaged\n", staged)
-	if edits != "" {
-		editsTree, err := r.Line(gitx.Opt{Stdin: strings.NewReader(edits)}, "mktree")
-		if err != nil {
-			return "", err
-		}
-		entries += fmt.Sprintf("040000 tree %s\tedits\n", editsTree)
-	}
+	entries := fmt.Sprintf("040000 tree %s\tstaged\n", staged) + edits
 	return r.Line(gitx.Opt{Stdin: strings.NewReader(entries)}, "mktree")
 }
 
@@ -516,7 +509,7 @@ func (l *Stage) protect() error {
 	if err != nil {
 		return err
 	}
-	edits := editBlobsTree(recs)
+	edits := editBlobEntries(recs)
 	if tree == base && edits == "" {
 		if cur != "" {
 			_, err = l.r.Run(gitx.Opt{}, "update-ref", "-d", l.keepRef())
