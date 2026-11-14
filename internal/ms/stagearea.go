@@ -612,7 +612,7 @@ func (l *Stage) recover() error {
 		return nil
 	}
 	defer lk.release()
-	if res, err := l.r.syncAfterCommit(p.Parent); err != nil {
+	if res, err := l.r.syncAfterCommit(l.M.Branch, p.Parent); err != nil {
 		l.warn("default index not synchronized: %v", err)
 	} else {
 		l.Warnings = append(l.Warnings, res.Warnings...)

@@ -29,7 +29,9 @@
 
 ## 3. Joint read of the tip and HEAD
 
-- [ ] 3.1 Add the joint read to `gitx` and use it in `refresh`, `prepareCommit`, and the index sync after a commit. Verify: a unit test compares the joint read with `SymbolicHead` and `ResolveRef` for a branch, a detached HEAD, a missing branch, an unborn branch, and a symbolic ref that points to a branch; `status` starts one process fewer and `commit` two fewer; the tests of commits, sync, detached HEADs, and branch mismatches pass.
+- [x] 3.1 Add the joint read to `gitx` and use it in `refresh`, `prepareCommit`, and the index sync after a commit. Verify: a unit test compares the joint read with `SymbolicHead` and `ResolveRef` for a branch, a detached HEAD, a missing branch, an unborn branch, and a symbolic ref that points to a branch; `status` starts one process fewer and `commit` two fewer; the tests of commits, sync, detached HEADs, and branch mismatches pass.
+
+  Result: counted with trace2 as in 2.1, `status` 10 → 9, `add --edits` 14 → 13, `diff --cached` 9 → 8, `commit` 25 → 23, `add f3.txt` 20 → 19. The unit tests pass, and so do the end-to-end tests whose names match commit, sync, detached HEAD, branch, recovery, crash, kill, doctor, refresh, stale, and index (38 s).
 
 ## 4. Message cleanup
 

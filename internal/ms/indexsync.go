@@ -177,17 +177,25 @@ func (r *Repo) SyncIndex(from string, timeout time.Duration) (SyncResult, error)
 			Hint:    hint,
 		}
 	}
-	return r.syncIndexLocked(head, from, true, false)
+	tip, err := r.ResolveRef(head)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	return r.syncIndexLocked(head, tip, from, true, false)
 }
 
 // syncAfterCommit synchronizes the default index after this process moved
-// the branch from parent. The caller holds index.lock, and every stage moves
+// branch, which HEAD normally points to, from parent. The caller holds
+// index.lock, and every stage moves
 // the branch only while holding it, so the index matches parent, unless a
 // tool moved the branch without updating the index. That lag is caught up
 // only when it is certain: the index equals an older commit exactly, and the
 // reflog shows that only index-free updates happened since.
-func (r *Repo) syncAfterCommit(parent string) (SyncResult, error) {
-	head, err := r.headTarget()
+func (r *Repo) syncAfterCommit(branch, parent string) (SyncResult, error) {
+	tip, head, err := r.tipAndTarget(branch)
+	if err == nil && head != branch {
+		tip, err = r.ResolveRef(head)
+	}
 	if err != nil {
 		return SyncResult{}, err
 	}
@@ -196,7 +204,7 @@ func (r *Repo) syncAfterCommit(parent string) (SyncResult, error) {
 		return SyncResult{}, err
 	}
 	if parent == "" {
-		return r.syncIndexLocked(head, r.EmptyTree, true, false)
+		return r.syncIndexLocked(head, tip, r.EmptyTree, true, false)
 	}
 	from, keep := parent, rec == parent
 	if !keep {
@@ -204,7 +212,7 @@ func (r *Repo) syncAfterCommit(parent string) (SyncResult, error) {
 			return SyncResult{}, err
 		}
 	}
-	return r.syncIndexLocked(head, from, keep, false)
+	return r.syncIndexLocked(head, tip, from, keep, false)
 }
 
 // indexBase returns the commit that the default index matches, when no
@@ -359,6 +367,16 @@ func (r *Repo) headTarget() (string, error) {
 	return refHEAD, nil
 }
 
+// tipAndTarget returns the tip of branch and the target of HEAD, as
+// headTarget names it, read together when it can.
+func (r *Repo) tipAndTarget(branch string) (tip, head string, err error) {
+	tip, head, err = r.TipAndHead(branch)
+	if err == nil && head == "" {
+		head = refHEAD
+	}
+	return tip, head, err
+}
+
 // validRecord returns the commit of the sync record when the record belongs
 // to head and the default index still has the recorded tree.
 func (r *Repo) validRecord(head string) (string, error) {
@@ -374,15 +392,14 @@ func (r *Repo) validRecord(head string) (string, error) {
 }
 
 // syncIndexLocked brings each default-index entry that holds its version in
-// from to its version in the tip of head. When keepRecord is set, the result
-// becomes the new sync record; otherwise the record is deleted, because the
-// index may still lag behind changes before from. The caller holds
-// index.lock, unless dryRun is set: then nothing is written.
-func (r *Repo) syncIndexLocked(head, from string, keepRecord, dryRun bool) (SyncResult, error) {
+// from to its version in tip, the tip of head. When keepRecord is set, the
+// result becomes the new sync record; otherwise the record is deleted,
+// because the index may still lag behind changes before from. The caller
+// holds index.lock, unless dryRun is set: then nothing is written.
+func (r *Repo) syncIndexLocked(head, tip, from string, keepRecord, dryRun bool) (SyncResult, error) {
 	var res SyncResult
-	tip, err := r.ResolveRef(head)
-	if err != nil || tip == "" {
-		return res, err
+	if tip == "" {
+		return res, nil
 	}
 	if from != r.EmptyTree {
 		if ok, _ := r.IsAncestor(from, tip); !ok {

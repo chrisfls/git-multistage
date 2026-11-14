@@ -243,3 +243,23 @@ func TestHasHookWithoutSettings(t *testing.T) {
 		t.Fatal("a failed config read must report a hook")
 	}
 }
+
+// TestTipAndHeadReadsOnce reads both with one process when both exist, and
+// falls back to the separate reads when the joint read fails.
+func TestTipAndHeadReadsOnce(t *testing.T) {
+	r, calls := countingGit(t, "c1\nrefs/heads/main\n")
+	if tip, head, err := r.TipAndHead("refs/heads/main"); err != nil || tip != "c1" || head != "refs/heads/main" {
+		t.Fatalf("TipAndHead = %q, %q, %v", tip, head, err)
+	}
+	if n := len(calls()); n != 1 {
+		t.Fatalf("%d git calls, want 1: %v", n, calls())
+	}
+
+	r, calls = countingGit(t, "c1\n")
+	if _, _, err := r.TipAndHead("refs/heads/main"); err != nil {
+		t.Fatal(err)
+	}
+	if got := calls(); len(got) != 3 || !strings.Contains(got[1], "_symbolic-ref_") || !strings.Contains(got[2], "_rev-parse_-q_--verify_") {
+		t.Fatalf("calls %v, want the joint read, then symbolic-ref and rev-parse --verify", got)
+	}
+}

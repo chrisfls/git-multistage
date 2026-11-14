@@ -404,6 +404,27 @@ func (r *Repo) SymbolicHead() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// TipAndHead returns the commit of ref, or "" when ref does not exist, and
+// the branch that HEAD points to, or "" for a detached HEAD. One rev-parse
+// reads both: --symbolic-full-name applies only to the arguments after it.
+func (r *Repo) TipAndHead(ref string) (tip, head string, err error) {
+	out, err := r.Run(Opt{}, "rev-parse", ref+"^{commit}", "--symbolic-full-name", "HEAD")
+	if lines := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n"); err == nil &&
+		len(lines) == 2 && lines[0] != "" && lines[1] != "" {
+		if lines[1] == "HEAD" {
+			lines[1] = ""
+		}
+		return lines[0], lines[1], nil
+	}
+	// A missing ref or an unborn branch fails the joint read; the separate
+	// reads tell them apart.
+	if head, err = r.SymbolicHead(); err != nil {
+		return "", "", err
+	}
+	tip, err = r.ResolveRef(ref)
+	return tip, head, err
+}
+
 // treeLookup is one read of a commit's tree, which concurrent callers share.
 type treeLookup struct {
 	done chan struct{}

@@ -236,11 +236,11 @@ type commitState struct {
 // tree, its changes, and the message.
 func (l *Stage) prepareCommit(res *CommitResult, rawMsg string, noVerify bool) (*commitState, error) {
 	r := l.r
-	tip0, err := r.ResolveRef(l.M.Branch)
+	tip0, head, err := r.tipAndTarget(l.M.Branch)
 	if err != nil {
 		return nil, err
 	}
-	if err := l.checkTarget(tip0); err != nil {
+	if err := l.checkHead(head, tip0); err != nil {
 		return nil, err
 	}
 	if op, blocking := r.inProgress(); blocking {
@@ -400,7 +400,7 @@ func (l *Stage) land(res *CommitResult, st *commitState, commit, tip string, att
 	fault("after-update-ref")
 	if lk != nil {
 		var err error
-		res.Sync, err = r.syncAfterCommit(tip)
+		res.Sync, err = r.syncAfterCommit(l.M.Branch, tip)
 		lk.release()
 		if err != nil {
 			res.Sync.Warnings = append(res.Sync.Warnings, fmt.Sprintf("default index not synchronized: %v; run `git multistage sync`", err))
@@ -472,6 +472,11 @@ func (l *Stage) checkTarget(tip string) error {
 	if err != nil {
 		return err
 	}
+	return l.checkHead(head, tip)
+}
+
+// checkHead is checkTarget for a known target of HEAD.
+func (l *Stage) checkHead(head, tip string) error {
 	if head != l.M.Branch {
 		return &Error{
 			Code: ExitRefused, Kind: "branch-mismatch",

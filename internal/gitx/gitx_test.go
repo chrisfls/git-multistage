@@ -100,3 +100,53 @@ func TestOpenKnowsTheEmptyObjects(t *testing.T) {
 		})
 	}
 }
+
+// TestTipAndHead compares the joint read with the separate reads of HEAD
+// and the tip.
+func TestTipAndHead(t *testing.T) {
+	t.Parallel()
+	dir := initRepo(t, "sha1")
+	git := func(args ...string) string {
+		t.Helper()
+		out, err := exec.CommandContext(context.Background(), "git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("symbolic-ref", "HEAD", "refs/heads/main")
+	git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "i")
+	tip := git("rev-parse", "HEAD")
+	r, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, setup, ref, tip, head string
+	}{
+		{"branch", "refs/heads/main", "refs/heads/main", tip, "refs/heads/main"},
+		{"missing branch", "refs/heads/main", "refs/heads/gone", "", "refs/heads/main"},
+		{"unborn branch", "refs/heads/unborn", "refs/heads/main", tip, "refs/heads/unborn"},
+		{"symbolic ref to a branch", "refs/heads/alias", "refs/heads/main", tip, "refs/heads/main"},
+		{"detached", "", "refs/heads/main", tip, ""},
+		{"detached stage", "", "HEAD", tip, ""},
+	} {
+		if tc.setup == "" {
+			git("update-ref", "--no-deref", "HEAD", tip)
+		} else {
+			git("symbolic-ref", "HEAD", tc.setup)
+		}
+		if tc.name == "symbolic ref to a branch" {
+			git("symbolic-ref", "refs/heads/alias", "refs/heads/main")
+		}
+		gotTip, gotHead, err := r.TipAndHead(tc.ref)
+		if err != nil || gotTip != tc.tip || gotHead != tc.head {
+			t.Fatalf("%s: TipAndHead(%s) = %q, %q, %v; want %q, %q", tc.name, tc.ref, gotTip, gotHead, err, tc.tip, tc.head)
+		}
+		sepHead, err1 := r.SymbolicHead()
+		sepTip, err2 := r.ResolveRef(tc.ref)
+		if err1 != nil || err2 != nil || sepTip != gotTip || sepHead != gotHead {
+			t.Fatalf("%s: separate reads give %q, %q (%v, %v); the joint read %q, %q", tc.name, sepTip, sepHead, err1, err2, gotTip, gotHead)
+		}
+	}
+}

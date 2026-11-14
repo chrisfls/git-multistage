@@ -586,16 +586,11 @@ type Freshness struct {
 // the result reports it as stale.
 func (l *Stage) refresh() (Freshness, error) {
 	f := Freshness{Branch: l.M.Branch, Base: l.M.Base}
-	head, err := l.r.headTarget()
+	tip, head, err := l.r.tipAndTarget(l.M.Branch)
 	if err != nil {
 		return f, err
 	}
-	f.Head = head
-	tip, err := l.r.ResolveRef(l.M.Branch)
-	if err != nil {
-		return f, err
-	}
-	f.Tip = tip
+	f.Head, f.Tip = head, tip
 	if head != l.M.Branch {
 		f.Stale = tip != l.M.Base
 		f.Reason = fmt.Sprintf("HEAD is %s, but this stage targets %s", describeTarget(head), describeTarget(l.M.Branch))
