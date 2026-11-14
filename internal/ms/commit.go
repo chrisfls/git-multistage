@@ -291,7 +291,7 @@ func (l *Stage) prepareCommit(res *CommitResult, rawMsg string, noVerify bool) (
 	if st.staged == st.baseTree {
 		return nil, &Error{Code: ExitError, Kind: "nothing-staged", Message: "nothing is staged for " + l.ID}
 	}
-	if res.Files, err = l.stagedChanges(); err != nil {
+	if res.Files, err = r.stagedFiles(st.baseTree, st.staged); err != nil {
 		return nil, err
 	}
 	if st.msg, err = l.prepareMessage(rawMsg, noVerify); err != nil {
@@ -303,13 +303,29 @@ func (l *Stage) prepareCommit(res *CommitResult, rawMsg string, noVerify bool) (
 	return st, nil
 }
 
+// stagedFiles lists the changes from baseTree to the staged tree with renames,
+// from the tree diff that the sync after the commit reuses.
+func (r *Repo) stagedFiles(baseTree, staged string) ([]Change, error) {
+	entries, err := r.DiffTrees(baseTree, staged, true)
+	if err != nil {
+		return nil, err
+	}
+	var files []Change
+	for _, e := range entries {
+		files = append(files, Change{Status: string(e.Status), Path: e.Path, OldPath: e.OldPath})
+	}
+	return files, nil
+}
+
 // commitAttempt replays the staged changes onto the branch's current tip
 // and tries to move the branch to the new commit. It reports false when
 // another process moved the branch first, so the commit must be tried again.
 func (l *Stage) commitAttempt(res *CommitResult, st *commitState, attempt int) (bool, error) {
 	r := l.r
 	st.turn = r.takeCommitTurn()
-	defer st.turn.Release()
+	// verifyTree may take the turn again after the pre-commit hook.
+	defer func() { st.turn.Release() }()
+	testPause("after-commit-turn")
 	tip, err := r.ResolveRef(l.M.Branch)
 	if err != nil {
 		return false, err
@@ -334,7 +350,7 @@ func (l *Stage) commitAttempt(res *CommitResult, st *commitState, attempt int) (
 		return true, nil
 	}
 	if !st.noVerify {
-		if err := l.verifyTree(st, tipTree, tree); err != nil {
+		if onTip, err := l.verifyTree(st, tip, tipTree, tree); err != nil || !onTip {
 			return false, err
 		}
 	}
@@ -352,30 +368,31 @@ func (l *Stage) commitAttempt(res *CommitResult, st *commitState, attempt int) (
 // verifyTree runs the pre-commit hook on tree. A retry that introduces
 // exactly the changes that the hook already accepted does not run the hook
 // again, so a slow hook cannot starve the commit while other stages commit.
-func (l *Stage) verifyTree(st *commitState, tipTree, tree string) error {
+// The hook runs without the commit turn, so that it never holds the commits
+// of other stages. verifyTree then takes the turn again, and reports false
+// when another commit moved the branch from tip meanwhile: the next attempt
+// replays and finds the changes that the hook accepted.
+func (l *Stage) verifyTree(st *commitState, tip, tipTree, tree string) (bool, error) {
 	if !l.r.HasHook("pre-commit") {
 		// A fresh index that holds tree writes tree back.
-		return nil
+		return true, nil
 	}
 	introduced, err := l.r.DiffTrees(tipTree, tree, false)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if sameEntries(introduced, st.verified) {
-		return nil
+		return true, nil
 	}
-	// A slow hook must not hold the commits of other stages. When one of
-	// them lands meanwhile, this attempt's update fails, and the next
-	// attempt finds the same changes and skips the hook.
 	st.turn.Release()
 	hooked, err := l.runPreCommit(tree)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if hooked != tree {
 		// The hook took content from the shared working tree,
 		// which may hold other stages' unstaged edits.
-		return &Error{
+		return false, &Error{
 			Code: ExitError, Kind: "hook-modified",
 			Message: "the pre-commit hook changed the staged content; nothing was committed and the staged changes are kept",
 			Hint: "the files that the hook re-added may hold unstaged edits that belong to other stages; " +
@@ -383,7 +400,9 @@ func (l *Stage) verifyTree(st *commitState, tipTree, tree string) error {
 		}
 	}
 	st.verified = introduced
-	return nil
+	st.turn = l.r.takeCommitTurn()
+	now, err := l.r.ResolveRef(l.M.Branch)
+	return err == nil && now == tip, err
 }
 
 // commitTree writes the commit object of tree on top of tip.

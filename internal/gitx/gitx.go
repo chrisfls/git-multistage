@@ -50,6 +50,9 @@ type Repo struct {
 
 	indexTrees indexTrees
 
+	diffsMu sync.Mutex
+	diffs   map[diffKey][]Entry // the diffs that DiffTrees returned, by their trees
+
 	configOnce sync.Once
 	config     map[string]*string // setting to its last value; nil for a key without "="
 	configErr  error
@@ -742,8 +745,62 @@ func ParseRaw(out []byte) ([]Entry, error) {
 	return entries, nil
 }
 
-// DiffTrees returns the raw differences between trees a and b.
+// diffKey names a diff by its two trees and the rename setting.
+type diffKey struct {
+	a, b    string
+	renames bool
+}
+
+// diffArg returns the key part of a DiffTrees argument: the tree of a commit
+// whose tree this process knows, or an object ID, which names the same
+// objects for the life of the process. Any other argument, such as a ref, can
+// move, so it gets "" and its diff is not remembered.
+func (r *Repo) diffArg(arg string) string {
+	if tree := r.KnownTree(arg); tree != "" {
+		return tree
+	}
+	if r.isObjectID(arg) {
+		return arg
+	}
+	return ""
+}
+
+// DiffTrees returns the raw differences between trees a and b. It
+// remembers each result for the life of the Repo, and answers a request
+// without renames from a remembered result with renames. The result is the
+// caller's to change.
 func (r *Repo) DiffTrees(a, b string, renames bool) ([]Entry, error) {
+	ka, kb := r.diffArg(a), r.diffArg(b)
+	if ka == "" || kb == "" {
+		return r.diffTrees(a, b, renames)
+	}
+	key := diffKey{ka, kb, renames}
+	r.diffsMu.Lock()
+	got, ok := r.diffs[key]
+	if !ok && !renames {
+		if withRenames, found := r.diffs[diffKey{ka, kb, true}]; found {
+			got, ok = splitRenames(withRenames, r.ZeroOID), true
+			r.diffs[key] = got
+		}
+	}
+	r.diffsMu.Unlock()
+	if ok {
+		return slices.Clone(got), nil
+	}
+	entries, err := r.diffTrees(a, b, renames)
+	if err != nil {
+		return nil, err
+	}
+	r.diffsMu.Lock()
+	if r.diffs == nil {
+		r.diffs = map[diffKey][]Entry{}
+	}
+	r.diffs[key] = slices.Clone(entries)
+	r.diffsMu.Unlock()
+	return entries, nil
+}
+
+func (r *Repo) diffTrees(a, b string, renames bool) ([]Entry, error) {
 	args := []string{"diff-tree", "-r", "-z", "--raw", "--no-abbrev"}
 	if renames {
 		args = append(args, "-M")
@@ -755,6 +812,25 @@ func (r *Repo) DiffTrees(a, b string, renames bool) ([]Entry, error) {
 		return nil, err
 	}
 	return ParseRaw(out)
+}
+
+// splitRenames turns each rename of a diff with renames into the deletion of
+// the old path and the addition of the new one, as a diff without renames
+// lists them, and sorts the entries by path: a recursive diff lists the
+// paths in the byte order of their full names.
+func splitRenames(entries []Entry, zero string) []Entry {
+	var out []Entry // nil for an empty diff, as ParseRaw returns it
+	for _, e := range entries {
+		if e.Status != 'R' {
+			out = append(out, e)
+			continue
+		}
+		out = append(out,
+			Entry{Path: e.OldPath, OldMode: e.OldMode, NewMode: "000000", OldOID: e.OldOID, NewOID: zero, Status: 'D'},
+			Entry{Path: e.Path, OldMode: "000000", NewMode: e.NewMode, OldOID: zero, NewOID: e.NewOID, Status: 'A'})
+	}
+	slices.SortStableFunc(out, func(x, y Entry) int { return strings.Compare(x.Path, y.Path) })
+	return out
 }
 
 // MergeResult is the outcome of a three-way tree merge.

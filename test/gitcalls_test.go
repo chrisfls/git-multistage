@@ -68,3 +68,51 @@ func TestUnchangedStageReadsNoKeepCommitAndNoTree(t *testing.T) {
 		}
 	}
 }
+
+// TestCommitJSONListsStagedFilesWithRenames checks that `commit --json`
+// lists the staged changes as `git show -M` does: a rename, an edit, an
+// addition, and a deletion.
+func TestCommitJSONListsStagedFilesWithRenames(t *testing.T) {
+	t.Parallel()
+	r := newRepo(t)
+	long := lines(20, func(i int) string { return "line " + strings.Repeat("x", i) })
+	for _, p := range []string{"old.txt", "edit.txt", "gone.txt", "dir/in.txt"} {
+		r.write(p, p+"\n"+long)
+	}
+	r.git("add", ".")
+	r.git("commit", "-q", "-m", "files")
+	r.mustMS("agent-a", "mv", "old.txt", "moved/new.txt")
+	r.mustMS("agent-a", "mv", "dir/in.txt", "out.txt")
+	r.write("edit.txt", "edit.txt\n"+long+"more\n")
+	r.write("added.txt", "added\n")
+	r.mustMS("agent-a", "add", "edit.txt", "added.txt")
+	r.mustMS("agent-a", "rm", "gone.txt")
+	res := r.mustMS("agent-a", "commit", "--json", "-m", "mixed")
+	var got struct {
+		Commit struct {
+			Files []struct {
+				Status  string `json:"status"`
+				Path    string `json:"path"`
+				OldPath string `json:"old_path"`
+			} `json:"files"`
+		} `json:"commit"`
+	}
+	decode(t, res, &got)
+	var gotLines []string
+	for _, f := range got.Commit.Files {
+		if f.OldPath != "" {
+			gotLines = append(gotLines, f.Status+"\t"+f.OldPath+"\t"+f.Path)
+		} else {
+			gotLines = append(gotLines, f.Status+"\t"+f.Path)
+		}
+	}
+	var want []string
+	for _, l := range strings.Split(strings.TrimSpace(r.git("show", "--name-status", "-M", "--format=", "HEAD")), "\n") {
+		parts := strings.Split(l, "\t")
+		parts[0] = parts[0][:1]
+		want = append(want, strings.Join(parts, "\t"))
+	}
+	if !eq(gotLines, want) || len(want) != 5 {
+		t.Fatalf("commit --json files %q, git show -M %q", gotLines, want)
+	}
+}
