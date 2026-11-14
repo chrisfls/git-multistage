@@ -41,6 +41,8 @@
 
   Result: `TestManyStagesCommitInTurns`, `TestCommitGoesOnWithoutAHeldTurn`, `TestKilledCommitGivesUpItsTurn`, and `TestSlowPreCommitHookGivesUpTheTurn` pass. With the turn disabled, the first two fail (an `attempts` of 3; a commit that did not wait), and with the turn kept through the hook, the last one fails (stage b's commit waited 10.2 s). The end-to-end tests whose names match concurrent, many, parallel, race, compare-and-swap, crash, kill, hook, commit, and turn pass (36 s).
 
+  A review then found that a commit whose `pre-commit` hook ran moved the branch without its turn, so a commit that held the turn could still replay, against the spec. The attempt now takes the turn again after the hook and ends when the tip moved meanwhile. `TestHookedCommitTakesTheTurnAgain` covers it: without the fix, the commit that held the turn reports `attempts` 2. The review also found a test worker that could call `t.Fatal`, now fixed. The turn tests pass three times in a row.
+
 ## 5. Results
 
 - [x] 5.1 Measure the scenario and the concurrent batches as in 1.1, with the old and new builds interleaved, and record the numbers. Run `mise run ci` and `mise run ci:stress`. Verify: both exit with code 0, and the numbers are in this task.

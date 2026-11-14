@@ -325,11 +325,11 @@ func (l *Stage) commitAttempt(res *CommitResult, st *commitState, attempt int) (
 	st.turn = r.takeCommitTurn()
 	// verifyTree may take the turn again after the pre-commit hook.
 	defer func() { st.turn.Release() }()
-	testPause("after-commit-turn")
 	tip, err := r.ResolveRef(l.M.Branch)
 	if err != nil {
 		return false, err
 	}
+	testPause("after-turn-tip")
 	if tip == "" && l.M.Base != "" {
 		return false, errorf(ExitRefused, "branch-missing", "branch %s no longer exists; nothing was committed", l.M.Branch)
 	}
