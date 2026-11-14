@@ -37,7 +37,12 @@ The tasks that change `internal/ms/hook.go`, `hooks/hooks.json`, `skills/git-mul
 ## 6. Version and checks
 
 - [x] 6.1 Set every manifest of design.md to the release version of this change, the next patch version after the newest tag (0.1.10, after v0.1.9), and make `TestPluginVersion` read them all. Verify that it passes
-- [ ] 6.2 Run `mise run ci` once, and verify that it passes
+- [x] 6.2 Run `mise run ci` once, and verify that it passes. It passed on `278d661` in 77 s, run on an export of that commit, because the shared checkout held another change in progress
+
+## Results
+
+- `agy plugin install` of the repository into a scratch home converts the Claude Code plugin: the skill, `SessionStart`, and pre- and post-tool hooks on `write_to_file`, `replace_file_content`, `multi_replace_file_content`, `edit_file`, and `write_file`, and `agy plugin validate` passes. A root `hooks.json`, `plugin.json`, or `gemini-extension.json` breaks the conversion, so the repository holds none.
+- The account of the local `agy` cannot run a model turn (HTTP 403), so only Antigravity's `SessionStart` input was captured live. No other harness of the list is installed here. Their hooks are tested by replaying each documented input through the binary (`TestHookHarnesses`, `TestReadHookCall`), and their code plugins in fake hosts (`TestJSPlugins`, `TestHermesPlugin`).
 
 ## Workflow follow-up
 
