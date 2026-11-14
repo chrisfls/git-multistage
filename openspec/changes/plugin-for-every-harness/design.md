@@ -12,7 +12,7 @@ The facts below come from each harness's documentation, its source code, or its 
 | Codex | Codex plugin | yes | yes | yes | Claude, `apply_patch` | in use |
 | Antigravity | `agy plugin install` converts the Claude plugin | yes | yes, with the stage | yes | camelCase, `toolCall{id,name,args}`, `conversationId` | local `agy` |
 | OpenCode | root `package.json`, JS plugin | yes | in a tool result | yes | from the plugin | `@opencode-ai/plugin` types |
-| Devin CLI | reads `.claude-plugin/`; root `hooks.json` | yes | yes | yes, unverified | Claude | docs |
+| Devin CLI | reads `.claude-plugin/` | yes | unverified | unverified | Claude | docs |
 | Grok Build | reads `.claude-plugin/` | yes | ignored by Grok | yes | camelCase and Claude | source |
 | Kimi Code | `.kimi-plugin/` with hooks | yes | discarded by Kimi | yes | Claude, `path` | source |
 | Muse Code | `.muse-plugin/` with hooks | yes | yes | if Muse runs `PostToolUse` | Claude | third-party plugins |
@@ -125,7 +125,7 @@ Grok ignores a session start hook's output, Kimi discards it, and Goose shows it
 
 ### One package for the Claude Code format
 
-The harnesses in the "Claude Code plugin" rows read `.claude-plugin/`, `hooks/hooks.json`, and `skills/`. The repository adds no root `plugin.json` and no root `gemini-extension.json`: with either, `agy plugin install` takes the repository as a native or Gemini extension, keeps `hooks/hooks.json` in Claude Code's form, and skips it, because its `SessionStart` entry has no `command` at the top. Both results were checked with `agy plugin install` into a scratch home. A root `hooks.json`, a copy for Devin, converts correctly.
+The harnesses in the "Claude Code plugin" rows read `.claude-plugin/`, `hooks/hooks.json`, and `skills/`. The repository adds no root `plugin.json` and no root `gemini-extension.json`: with either, `agy plugin install` takes the repository as a native or Gemini extension, keeps `hooks/hooks.json` in Claude Code's form, and skips it, because its `SessionStart` entry has no `command` at the top. Both results were checked with `agy plugin install` into a scratch home. A root `hooks.json` breaks the install too: `agy` merges the converted hooks into it, and then skips the whole file for the Claude Code entries. Devin documents plugin hooks in a root `hooks.json`, so Devin's loading of `hooks/hooks.json` from a Claude Code plugin stays unverified.
 
 `hooks/hooks.json` keeps its events. Its matcher grows to the file tools of the harnesses that read it: `Edit|MultiEdit|Write|Create|ApplyPatch|apply_patch|edit|write|create|str_replace_editor|search_replace|write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content|file_editor`. Claude Code reads a matcher of names and `|` as a list of exact names. `PostToolUseFailure` stays out of the file: OpenHands' event enum lacks it, and an unknown event can make a harness reject the whole file.
 
@@ -160,7 +160,7 @@ The OpenCode and Amp files are single files without imports of their own, becaus
 ## Risks / Trade-offs
 
 - [A harness changes its hook input or file tools] → The table of field names and tool names is in one file, and a replay test holds each harness's documented input.
-- [Facts that no source settled] → Devin's loading of the root `hooks.json`, Muse's `PostToolUse`, the argument names of Cursor's `Write`, Copilot's and Devin's file tools, and whether Grok, Kimi, and Goose show a first-edit message to the model. The hook reads every known path field, so an unknown argument name only loses the record of that call. The README marks these harnesses' edit recording as untested.
+- [Facts that no source settled] → Devin's loading of `hooks/hooks.json`, Muse's `PostToolUse`, the argument names of Cursor's `Write`, Copilot's and Devin's file tools, and whether Grok, Kimi, and Goose show a first-edit message to the model. The hook reads every known path field, so an unknown argument name only loses the record of that call. The README marks these harnesses' edit recording as untested.
 - [A variable inherited from a parent harness] → A Claude Code session started inside Copilot's shell sees `COPILOT_CLI` and gets Copilot's output format. The stage stays the same for the whole session.
 - [Snapshot records in other harnesses] → Another writer's change to the same file during one tool call enters the record. The Claude Code and Codex rules are unchanged.
 

@@ -18,7 +18,7 @@ The repository SHALL provide an install path from `chrisfls/git-multistage` for 
 - **THEN** they find an entry for each of Claude Code, Codex, Antigravity, OpenCode, Devin CLI, Grok Build, Kimi Code, Muse Code, DeepSeek Harness, ZCode, Qwen Code, GitHub Copilot CLI, Cursor CLI, Kiro CLI, Mistral Vibe, MiniMax Code, MiMo Code, Qoder CLI, Pi, Hermes Agent, Factory Droid, CodeBuddy, Amp, Cline, Kilo Code, Goose, Oh My Pi, Aider, OpenHands, CodeArts Agent, and Gemini CLI
 
 ### Requirement: Plugin hooks
-The plugin's hooks file `hooks/hooks.json` SHALL run `git multistage hook` at `SessionStart` and `SubagentStart`, before and after the file tools of every harness that reads the file, and before `Bash`. The file tools SHALL include `Edit`, `MultiEdit`, `Write`, and `apply_patch`, and the file tools of Antigravity, Factory Droid, GitHub Copilot CLI, Devin CLI, Grok Build, ZCode, MiniMax Code, Qoder CLI, CodeBuddy, OpenHands, Goose, and DeepSeek Harness. A copy of the file at the repository root, `hooks.json`, SHALL hold the same content.
+The plugin's hooks file `hooks/hooks.json` SHALL run `git multistage hook` at `SessionStart` and `SubagentStart`, before and after the file tools of every harness that reads the file, and before `Bash`. The file tools SHALL include `Edit`, `MultiEdit`, `Write`, and `apply_patch`, and the file tools of Antigravity, Factory Droid, GitHub Copilot CLI, Devin CLI, Grok Build, ZCode, MiniMax Code, Qoder CLI, CodeBuddy, OpenHands, Goose, and DeepSeek Harness.
 
 #### Scenario: Edit in a plugin session
 - **WHEN** an agent with the plugin installed edits a file with `Edit` in an opted-in checkout
@@ -36,10 +36,6 @@ The plugin's hooks file `hooks/hooks.json` SHALL run `git multistage hook` at `S
 - **WHEN** the test suite reads `hooks/hooks.json`
 - **THEN** the matcher of its `PreToolUse` and `PostToolUse` entries selects `write_to_file`, `replace_file_content`, `Create`, `ApplyPatch`, `search_replace`, `file_editor`, `write`, and `edit`
 
-#### Scenario: Root copy
-- **WHEN** the test suite reads `hooks.json` and `hooks/hooks.json`
-- **THEN** both files hold the same content
-
 ### Requirement: Plugin version
 Every plugin manifest SHALL carry one version: the Claude Code plugin, its marketplace entry, the Codex plugin, and the manifests that the other requirements of this spec name. A release that changes a file of the plugin SHALL raise that version to the release version, so that an installed plugin updates to the new files.
 
@@ -54,7 +50,7 @@ Every plugin manifest SHALL carry one version: the Claude Code plugin, its marke
 ## ADDED Requirements
 
 ### Requirement: Harnesses that read the Claude Code plugin
-The Claude Code plugin files SHALL install in each harness that reads them: Antigravity, Factory Droid, GitHub Copilot CLI, Devin CLI, Grok Build, ZCode, MiniMax Code, Qoder CLI, CodeBuddy, OpenHands, and Goose take the skill and the hooks; Oh My Pi, Qwen Code, and Mistral Vibe take the skill; DeepSeek Harness takes the hooks file. The repository SHALL hold no root `plugin.json` and no root `gemini-extension.json`, which make Antigravity install the plugin without converting it.
+The Claude Code plugin files SHALL install in each harness that reads them: Antigravity, Factory Droid, GitHub Copilot CLI, Devin CLI, Grok Build, ZCode, MiniMax Code, Qoder CLI, CodeBuddy, OpenHands, and Goose take the skill and the hooks; Oh My Pi, Qwen Code, and Mistral Vibe take the skill; DeepSeek Harness takes the hooks file. The repository SHALL hold no root `plugin.json`, `gemini-extension.json`, or `hooks.json`, which keep Antigravity from converting the hooks at install.
 
 #### Scenario: Antigravity install
 - **WHEN** the user runs `agy plugin install https://github.com/chrisfls/git-multistage`

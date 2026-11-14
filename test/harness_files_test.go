@@ -122,6 +122,40 @@ func TestHarnessManifests(t *testing.T) {
 	}
 }
 
+// TestSharedHooksFile checks that the Claude Code hooks file, which many
+// harnesses read, selects their file tools. A root hooks.json would make
+// Antigravity merge the file into it at install and skip the result.
+func TestSharedHooksFile(t *testing.T) {
+	t.Parallel()
+	shared, err := os.ReadFile("../hooks/hooks.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat("../hooks.json"); err == nil {
+		t.Error("the repository holds a root hooks.json, which breaks the Antigravity install")
+	}
+	var v struct {
+		Hooks map[string][]struct{ Matcher string }
+	}
+	if err := json.Unmarshal(shared, &v); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []string{"PreToolUse", "PostToolUse"} {
+		if len(v.Hooks[event]) != 1 {
+			t.Fatalf("hooks/hooks.json has %d %s entries, want 1", len(v.Hooks[event]), event)
+		}
+		names := strings.Split(v.Hooks[event][0].Matcher, "|")
+		for _, tool := range []string{
+			"Edit", "MultiEdit", "Write", "apply_patch", "write_to_file", "replace_file_content", "Create",
+			"ApplyPatch", "search_replace", "file_editor", "write", "edit",
+		} {
+			if !slices.Contains(names, tool) {
+				t.Errorf("the %s matcher of hooks/hooks.json does not select %s", event, tool)
+			}
+		}
+	}
+}
+
 // TestSkillCopies checks that the plugin folders that harnesses copy at
 // install hold the skill as it is.
 func TestSkillCopies(t *testing.T) {

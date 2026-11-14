@@ -22,7 +22,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Edit|MultiEdit|Write|apply_patch|Bash",
+        "matcher": "Edit|MultiEdit|Write|Create|ApplyPatch|apply_patch|edit|write|create|str_replace_editor|search_replace|write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content|file_editor|Bash",
         "hooks": [
           {
             "type": "command",
@@ -33,7 +33,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|MultiEdit|Write|apply_patch",
+        "matcher": "Edit|MultiEdit|Write|Create|ApplyPatch|apply_patch|edit|write|create|str_replace_editor|search_replace|write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content|file_editor",
         "hooks": [
           {
             "type": "command",
