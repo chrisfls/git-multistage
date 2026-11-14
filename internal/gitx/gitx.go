@@ -406,11 +406,13 @@ func (r *Repo) SymbolicHead() (string, error) {
 
 // TipAndHead returns the commit of ref, or "" when ref does not exist, and
 // the branch that HEAD points to, or "" for a detached HEAD. One rev-parse
-// reads both: --symbolic-full-name applies only to the arguments after it.
+// reads both: --symbolic-full-name applies only to the arguments after it,
+// and the final "--" makes every argument a revision, so a file named HEAD
+// cannot stand in for an unborn HEAD.
 func (r *Repo) TipAndHead(ref string) (tip, head string, err error) {
-	out, err := r.Run(Opt{}, "rev-parse", ref+"^{commit}", "--symbolic-full-name", "HEAD")
+	out, err := r.Run(Opt{}, "rev-parse", ref+"^{commit}", "--symbolic-full-name", "HEAD", "--")
 	if lines := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n"); err == nil &&
-		len(lines) == 2 && lines[0] != "" && lines[1] != "" {
+		len(lines) == 3 && lines[0] != "" && lines[1] != "" && lines[2] == "--" {
 		if lines[1] == "HEAD" {
 			lines[1] = ""
 		}

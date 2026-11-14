@@ -252,11 +252,11 @@ func (r *Repo) doctorIndex(rep *DoctorReport, head, tip string) error {
 		add("ok", "%s", msg)
 		return nil
 	}
+	var res SyncResult
 	now, err := r.ResolveRef(head)
-	if err != nil {
-		return err
+	if err == nil {
+		res, err = r.syncIndexLocked(head, now, from, false, true)
 	}
-	res, err := r.syncIndexLocked(head, now, from, false, true)
 	switch {
 	case err != nil:
 		add("warning", "cannot compare the default index with %s: %v", head, err)

@@ -33,6 +33,8 @@
 
   Result: counted with trace2 as in 2.1, `status` 10 → 9, `add --edits` 14 → 13, `diff --cached` 9 → 8, `commit` 25 → 23, `add f3.txt` 20 → 19. The unit tests pass, and so do the end-to-end tests whose names match commit, sync, detached HEAD, branch, recovery, crash, kill, doctor, refresh, stale, and index (38 s).
 
+  A review then found two defects. An unborn HEAD beside a file named `HEAD` at the worktree top read as a detached HEAD, so the joint read now ends with `--`, and `TestTipAndHead` covers the case. A failed tip read in `doctorIndex` ended `doctor` with an error instead of a warning, as before this change, and the warning is back. The `gitx` tests and the doctor, commit, sync, detached, unborn, refresh, and stale end-to-end tests pass.
+
 ## 4. Message cleanup
 
 - [x] 4.1 Clean the commit message in the process. Verify: a unit test compares the result with `git stripspace` for empty text, blank lines only, CRLF, tabs, `\v`, `\f`, NUL, text without a final LF, and runs of blank lines; an end-to-end test covers the new scenario of the commit spec; `commit` starts no `git stripspace`.

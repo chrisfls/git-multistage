@@ -247,7 +247,7 @@ func TestHasHookWithoutSettings(t *testing.T) {
 // TestTipAndHeadReadsOnce reads both with one process when both exist, and
 // falls back to the separate reads when the joint read fails.
 func TestTipAndHeadReadsOnce(t *testing.T) {
-	r, calls := countingGit(t, "c1\nrefs/heads/main\n")
+	r, calls := countingGit(t, "c1\nrefs/heads/main\n--\n")
 	if tip, head, err := r.TipAndHead("refs/heads/main"); err != nil || tip != "c1" || head != "refs/heads/main" {
 		t.Fatalf("TipAndHead = %q, %q, %v", tip, head, err)
 	}

@@ -121,24 +121,30 @@ func TestTipAndHead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	headFile := filepath.Join(dir, "HEAD")
 	for _, tc := range []struct {
-		name, setup, ref, tip, head string
+		name, ref, tip, head string
+		setup                func()
 	}{
-		{"branch", "refs/heads/main", "refs/heads/main", tip, "refs/heads/main"},
-		{"missing branch", "refs/heads/main", "refs/heads/gone", "", "refs/heads/main"},
-		{"unborn branch", "refs/heads/unborn", "refs/heads/main", tip, "refs/heads/unborn"},
-		{"symbolic ref to a branch", "refs/heads/alias", "refs/heads/main", tip, "refs/heads/main"},
-		{"detached", "", "refs/heads/main", tip, ""},
-		{"detached stage", "", "HEAD", tip, ""},
-	} {
-		if tc.setup == "" {
-			git("update-ref", "--no-deref", "HEAD", tip)
-		} else {
-			git("symbolic-ref", "HEAD", tc.setup)
-		}
-		if tc.name == "symbolic ref to a branch" {
+		{"branch", "refs/heads/main", tip, "refs/heads/main", func() { git("symbolic-ref", "HEAD", "refs/heads/main") }},
+		{"missing branch", "refs/heads/gone", "", "refs/heads/main", func() {}},
+		{"unborn branch", "refs/heads/main", tip, "refs/heads/unborn", func() { git("symbolic-ref", "HEAD", "refs/heads/unborn") }},
+		{"unborn branch beside a file named HEAD", "refs/heads/main", tip, "refs/heads/unborn", func() {
+			if err := os.WriteFile(headFile, nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"symbolic ref to a branch", "refs/heads/main", tip, "refs/heads/main", func() {
+			if err := os.Remove(headFile); err != nil {
+				t.Fatal(err)
+			}
 			git("symbolic-ref", "refs/heads/alias", "refs/heads/main")
-		}
+			git("symbolic-ref", "HEAD", "refs/heads/alias")
+		}},
+		{"detached", "refs/heads/main", tip, "", func() { git("update-ref", "--no-deref", "HEAD", tip) }},
+		{"detached stage", "HEAD", tip, "", func() {}},
+	} {
+		tc.setup()
 		gotTip, gotHead, err := r.TipAndHead(tc.ref)
 		if err != nil || gotTip != tc.tip || gotHead != tc.head {
 			t.Fatalf("%s: TipAndHead(%s) = %q, %q, %v; want %q, %q", tc.name, tc.ref, gotTip, gotHead, err, tc.tip, tc.head)
