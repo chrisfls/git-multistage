@@ -112,7 +112,7 @@ type indexLock struct {
 func (r *Repo) lockIndex(timeout time.Duration) (*indexLock, error) {
 	path := r.IndexPath + ".lock"
 	deadline := time.Now().Add(timeout)
-	delay := 5 * time.Millisecond
+	delay := time.Millisecond
 	for {
 		f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o666)
 		if err == nil {
@@ -128,10 +128,10 @@ func (r *Repo) lockIndex(timeout time.Duration) (*indexLock, error) {
 				Hint:    "another Git process is running; if none is, delete the lock file and retry",
 			}
 		}
+		// A check is one open, so a short wait costs nothing and wakes
+		// soon after Git removes the lock.
 		time.Sleep(delay)
-		if delay < 100*time.Millisecond {
-			delay *= 2
-		}
+		delay = min(2*delay, 10*time.Millisecond)
 	}
 }
 

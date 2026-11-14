@@ -26,6 +26,31 @@ func TestExclusive(t *testing.T) {
 	b.Release()
 }
 
+// TestWaiterWakesSoon has a waiter take a lock that another holder releases
+// after 300 ms, and checks that the waiter did not sleep long past the release.
+func TestWaiterWakesSoon(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "lock")
+	a, err := Acquire(p, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := make(chan time.Time, 1)
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		released <- time.Now()
+		a.Release()
+	}()
+	b, err := Acquire(p, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	took := time.Now()
+	b.Release()
+	if late := took.Sub(<-released); late > 30*time.Millisecond {
+		t.Fatalf("the waiter took the lock %v after its release, want at most 30ms", late)
+	}
+}
+
 // TestLockFollowsThePath has a waiter whose lock file is renamed away while
 // it waits, as dropping a stage renames the stage directory. The waiter must
 // end up holding the file at the lock path, not the renamed file, so that a

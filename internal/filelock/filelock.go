@@ -27,7 +27,7 @@ func Acquire(path string, timeout time.Duration) (*Lock, error) {
 		return nil, err
 	}
 	deadline := time.Now().Add(timeout)
-	delay := 5 * time.Millisecond
+	delay := time.Millisecond
 	for {
 		err := tryLock(f)
 		if err == nil {
@@ -56,11 +56,14 @@ func Acquire(path string, timeout time.Duration) (*Lock, error) {
 			return nil, ErrBusy
 		}
 		time.Sleep(delay)
-		if delay < 100*time.Millisecond {
-			delay *= 2
-		}
+		delay = min(2*delay, maxPoll)
 	}
 }
+
+// maxPoll is the longest wait between two checks of a held lock. A check is
+// one system call, and a longer wait keeps a waiter asleep after the lock is
+// free.
+const maxPoll = 10 * time.Millisecond
 
 // isFileAt reports whether the open file f is still the file at path.
 func isFileAt(f *os.File, path string) (bool, error) {

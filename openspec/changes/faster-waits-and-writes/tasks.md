@@ -31,7 +31,9 @@
 
 ## 3. Lock waits
 
-- [ ] 3.1 Make `filelock.Acquire` and `lockIndex` check again after 1 ms, doubling up to 10 ms. Verify: a `filelock` unit test takes a lock within 30 ms of its release by another holder that held it for 300 ms; the busy-stage and `index.lock` timeout tests still pass with their exit codes.
+- [x] 3.1 Make `filelock.Acquire` and `lockIndex` check again after 1 ms, doubling up to 10 ms. Verify: a `filelock` unit test takes a lock within 30 ms of its release by another holder that held it for 300 ms; the busy-stage and `index.lock` timeout tests still pass with their exit codes.
+
+  Result: `TestWaiterWakesSoon` passes three times in a row. `TestBusyStageExits6` and the orphaned `index.lock` tests pass, and so do the end-to-end tests whose names match crash, kill, concurrent, many, parallel, race, and sync (16 s). No test holds `index.lock` for the 15 s timeout of `commit`; the code that times out did not change.
 
 ## 4. Commit turns
 
