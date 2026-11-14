@@ -486,6 +486,29 @@ func TestHookAnnouncesTheSharedCheckout(t *testing.T) {
 	}
 }
 
+// TestHookLeavesARepositoryThatDidNotOptIn runs the hooks in a repository
+// without multistage.shared: they print nothing and record nothing.
+func TestHookLeavesARepositoryThatDidNotOptIn(t *testing.T) {
+	t.Parallel()
+	r := newRepo(t)
+	r.git("config", "--unset", "multistage.shared")
+	data, _ := json.Marshal(map[string]any{"hook_event_name": "SessionStart", "session_id": "s", "cwd": r.dir})
+	if res := runStdin(r.dir, "", nil, string(data), "hook"); res.code != 0 || res.out != "" {
+		t.Fatalf("SessionStart:\n%s", res)
+	}
+	file := r.path("README")
+	if res := r.hookCall("PreToolUse", "Edit", "s", "", file); res.code != 0 || res.out != "" {
+		t.Fatalf("PreToolUse:\n%s", res)
+	}
+	r.write("README", "changed\n")
+	if res := r.hookCall("PostToolUse", "Edit", "s", "", file); res.code != 0 || res.out != "" {
+		t.Fatalf("PostToolUse:\n%s", res)
+	}
+	if _, err := os.Stat(filepath.Join(r.dir, ".git", "multistage", "stages")); !os.IsNotExist(err) {
+		t.Fatalf("the hook created stages: %v", err)
+	}
+}
+
 // TestHookCleansThroughAFilter edits files that a clean filter changes,
 // with and without the Edit's tool response; each commit holds the cleaned
 // content.

@@ -100,6 +100,7 @@ func newRepo(tb testing.TB) *repo {
 	tb.Helper()
 	r := &repo{t: tb, dir: tb.TempDir()}
 	r.git("init", "-q", "-b", "main")
+	r.git("config", "multistage.shared", "true")
 	r.write("README", "readme\n")
 	r.git("add", "README")
 	r.git("commit", "-q", "-m", "init")

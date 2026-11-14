@@ -277,6 +277,7 @@ func TestAddEditsOfAnUntrackedFileOnAnUnbornBranch(t *testing.T) {
 	t.Parallel()
 	r := &repo{t: t, dir: t.TempDir()}
 	r.git("init", "-q")
+	r.git("config", "multistage.shared", "true")
 	r.write("n.go", "one\n")
 	r.hookedEdit("a", "", "n.go", "two\n")
 	var out struct {

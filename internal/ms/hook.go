@@ -218,6 +218,9 @@ func newEditHook(in hookInput, stage, file string) (*editHook, error) {
 	if err != nil {
 		return nil, nil //nolint:nilerr // not in a Git worktree, so the hook records nothing
 	}
+	if !r.shared() {
+		return nil, nil
+	}
 	rel, err := r.RepoPath(r.topSpelling(dir, abs))
 	if err != nil {
 		return nil, nil //nolint:nilerr // the file is outside the repository, so the hook records nothing
@@ -509,15 +512,22 @@ const otherAgentsNote = "Other agents may edit files in this checkout and commit
 	"Commits, file changes, and stages that you did not make are theirs: do not review, revert, stage, " +
 	"or mention them unless they block your task."
 
-// announceSharedCheckout answers a SessionStart hook in a Git worktree with
-// otherAgentsNote, so the agent knows from its first turn that others work
-// in the same checkout.
+// configShared is the Git setting that opts a checkout in to the hooks.
+const configShared = "multistage.shared"
+
+// shared reports whether the checkout opted in to the hooks. The hooks
+// leave every other repository alone, such as one that a single agent uses.
+func (r *Repo) shared() bool { return r.ConfigBool(configShared, false) }
+
+// announceSharedCheckout answers a SessionStart hook in an opted-in
+// checkout with otherAgentsNote, so the agent knows from its first turn that
+// others work in the same checkout.
 func announceSharedCheckout(cwd string, stdout io.Writer) {
 	if cwd == "" {
 		return
 	}
-	if _, err := OpenRepo(cwd); err != nil {
-		return // not a Git worktree
+	if r, err := OpenRepo(cwd); err != nil || !r.shared() {
+		return // not a Git worktree, or one that did not opt in
 	}
 	out, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{
 		"hookEventName":     "SessionStart",

@@ -2,7 +2,7 @@
 
 ## 1. Opt-in
 
-- [ ] 1.1 Make every hook event return before it records, creates a stage, or prints, unless the checkout's config sets `multistage.shared` to `true`. Set it in the test helpers that run hooks, and add tests for a checkout without it. Verify with `go test ./test -run 'TestHook'`
+- [x] 1.1 Make every hook event return before it records, creates a stage, or prints, unless the checkout's config sets `multistage.shared` to `true`. Set it in the test helpers that run hooks, and add tests for a checkout without it. Verify with `go test ./test -run 'TestHook'`
 
 ## 2. Notices
 
