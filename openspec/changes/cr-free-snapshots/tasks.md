@@ -19,7 +19,19 @@
 
 ## 3. Results
 
-- [ ] 3.1 Measure the scenario as in 1.1 and record the numbers. Run `mise run ci`. Verify: CI exits with code 0, and the numbers are in this task.
+- [x] 3.1 Measure the scenario as in 1.1 and record the numbers. Run `mise run ci`. Verify: CI exits with code 0, and the numbers are in this task.
+
+  After, 2026-11-14, master `f919027` with the same code built, one command in flight, two runs:
+
+  | Command | git processes (before) | git processes (after) | Run 1 | Run 2 |
+  | --- | --- | --- | --- | --- |
+  | hook PreToolUse (stage exists) | 8 | 6 | 98 ms | 87 ms |
+  | hook PostToolUse (stage exists) | 14 | 12 | 183 ms | 180 ms |
+  | hook PreToolUse (no stage yet) | 9 | 7 | 119 ms | 105 ms |
+  | hook PostToolUse (creates the stage) | 18 | 16 | 267 ms | 246 ms |
+
+  - One hooked edit (stage exists) went from 22 to 18 processes, and from 321 to 352 ms to 267 to 281 ms. The other commands of the scenario start the same processes as before.
+  - `mise run ci`: exit code 0, 144 s wall; the `test` package took 139.6 s.
 
 ## Workflow follow-up
 
