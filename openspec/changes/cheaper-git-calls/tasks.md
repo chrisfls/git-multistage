@@ -23,7 +23,9 @@
 
 ## 2. Git's own binary
 
-- [ ] 2.1 Make `Open` find Git's own binary when the `git` on `PATH` is the macOS Xcode shim, and run every internal call with it; calls with `Opt.User` keep the `git` on `PATH`. Verify: on macOS, a unit test shows that the binary found reports the same `git version` as `/usr/bin/git`, and that a `PATH` without `/usr/bin/git` or a set `GIT_EXEC_PATH` keeps the `git` on `PATH`; the fake-`git` tests of `gitx` pass; the scenario's calls run the binary in the exec path.
+- [x] 2.1 Make `Open` find Git's own binary when the `git` on `PATH` is the macOS Xcode shim, and run every internal call with it; calls with `Opt.User` keep the `git` on `PATH`. Verify: on macOS, a unit test shows that the binary found reports the same `git version` as `/usr/bin/git`, and that a `PATH` without `/usr/bin/git` or a set `GIT_EXEC_PATH` keeps the `git` on `PATH`; the fake-`git` tests of `gitx` pass; the scenario's calls run the binary in the exec path.
+
+  Result: the scenario's calls run `/Library/Developer/CommandLineTools/usr/libexec/git-core/git`, after one `/usr/bin/git --exec-path` in each process, so each command starts one process more. The counting wrapper of 1.1 sits first on `PATH` and hides the shim, so the counts here come from Git's trace2 `start` events, with `GIT_TRACE2_EVENT` set and no wrapper. One traced run of each build, one command in flight: `status` 78 → 49 ms, a hooked edit 209 → 150 ms, `commit -m x` 332 → 169 ms. Both builds wrote the same commit trees. The `gitx` tests and the version and hook end-to-end tests pass.
 
 ## 3. Joint read of the tip and HEAD
 

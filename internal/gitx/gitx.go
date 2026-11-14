@@ -37,6 +37,7 @@ type Repo struct {
 	EmptyTree    string
 	EmptyBlob    string
 	baseEnv      []string
+	git          string // the Git binary of internal calls; "" runs the git on PATH
 
 	emptyBlobOnce sync.Once
 	emptyBlobErr  error
@@ -131,9 +132,34 @@ var emptyObjects = map[string]struct{ tree, blob string }{
 	},
 }
 
+// xcodeShim is the git that macOS installs. Each run looks up the active
+// developer directory and then runs the Git in it, which adds 3 to 6 ms.
+const xcodeShim = "/usr/bin/git"
+
+// ownGit returns the Git binary that the Xcode shim runs, when the git on
+// PATH is the shim, or "" to run the git on PATH. With GIT_EXEC_PATH set, the
+// exec path may hold another Git.
+func ownGit() string {
+	if runtime.GOOS != "darwin" || os.Getenv("GIT_EXEC_PATH") != "" {
+		return ""
+	}
+	if p, err := exec.LookPath("git"); err != nil || p != xcodeShim {
+		return ""
+	}
+	out, err := exec.CommandContext(context.Background(), xcodeShim, "--exec-path").Output()
+	if err != nil {
+		return ""
+	}
+	p := filepath.Join(strings.TrimSpace(string(out)), "git")
+	if info, err := os.Stat(p); err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+		return ""
+	}
+	return p
+}
+
 // Open discovers the repository that contains dir.
 func Open(dir string) (*Repo, error) {
-	r := &Repo{baseEnv: internalEnv()}
+	r := &Repo{baseEnv: internalEnv(), git: ownGit()}
 	r.Top = dir
 	// The version check runs beside rev-parse; its error comes first, because
 	// an old Git can fail rev-parse for a reason that the check explains.
@@ -280,6 +306,16 @@ func rerunnable(o Opt) (rewind func() error, ok bool) {
 	}, true
 }
 
+// binary returns the Git that a call with o runs. Hooks and output for the
+// user run the git on PATH, which gives them the environment that the Xcode
+// shim sets up.
+func (r *Repo) binary(o Opt) string {
+	if o.User || r.git == "" {
+		return "git"
+	}
+	return r.git
+}
+
 // run runs git with args once.
 func (r *Repo) run(o Opt, args ...string) ([]byte, error) {
 	gitArgs := args
@@ -289,7 +325,7 @@ func (r *Repo) run(o Opt, args ...string) ([]byte, error) {
 		// index, which would break an idle stage.
 		gitArgs = append([]string{"-c", "core.splitIndex=false", "-c", "index.sparse=false"}, args...)
 	}
-	cmd := exec.CommandContext(context.Background(), "git", gitArgs...)
+	cmd := exec.CommandContext(context.Background(), r.binary(o), gitArgs...)
 	cmd.Dir = o.Dir
 	if cmd.Dir == "" {
 		cmd.Dir = r.Top

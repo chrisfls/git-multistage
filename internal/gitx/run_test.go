@@ -4,10 +4,13 @@ package gitx
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -137,4 +140,59 @@ func errorStderr(err error) string {
 		return ee.Stderr
 	}
 	return ""
+}
+
+// TestRunPicksTheBinary runs internal calls with the Repo's own Git, and
+// user calls with the git on PATH.
+func TestRunPicksTheBinary(t *testing.T) {
+	r := fakeGit(t, `printf path`)
+	r.git = filepath.Join(t.TempDir(), "own-git")
+	if err := os.WriteFile(r.git, []byte("#!/bin/sh\nprintf own"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := r.Run(Opt{}, "status"); err != nil || string(out) != "own" {
+		t.Fatalf("internal call ran %q, %v; want the own Git", out, err)
+	}
+	if out, err := r.Run(Opt{User: true}, "status"); err != nil || string(out) != "path" {
+		t.Fatalf("user call ran %q, %v; want the git on PATH", out, err)
+	}
+}
+
+// TestOwnGit replaces the macOS Xcode shim with the Git that it runs, and
+// keeps every other git on PATH.
+func TestOwnGit(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		if got := ownGit(); got != "" {
+			t.Fatalf("ownGit() = %q on %s, want the git on PATH", got, runtime.GOOS)
+		}
+		return
+	}
+	shimVersion, err := exec.CommandContext(context.Background(), xcodeShim, "version").Output()
+	if err != nil {
+		t.Skipf("the Xcode shim does not run: %v", err)
+	}
+	t.Setenv("PATH", "/usr/bin:/bin")
+	t.Setenv("GIT_EXEC_PATH", "")
+	own := ownGit()
+	if own == "" || own == xcodeShim {
+		t.Fatalf("ownGit() = %q, want the Git that the shim runs", own)
+	}
+	ownVersion, err := exec.CommandContext(context.Background(), own, "version").Output()
+	if err != nil || string(ownVersion) != string(shimVersion) {
+		t.Fatalf("%s version = %q, %v; the shim reports %q", own, ownVersion, err, shimVersion)
+	}
+	r, err := Open(initRepo(t, "sha1"))
+	if err != nil || r.git != own {
+		t.Fatalf("Open runs %q, %v; want %q", r.git, err, own)
+	}
+
+	t.Setenv("GIT_EXEC_PATH", filepath.Dir(own))
+	if got := ownGit(); got != "" {
+		t.Fatalf("with GIT_EXEC_PATH, ownGit() = %q, want the git on PATH", got)
+	}
+	t.Setenv("GIT_EXEC_PATH", "")
+	fakeGit(t, "")
+	if got := ownGit(); got != "" {
+		t.Fatalf("with another git on PATH, ownGit() = %q, want the git on PATH", got)
+	}
 }
