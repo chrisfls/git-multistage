@@ -295,7 +295,7 @@ func (r *Repo) moveEntries(tree string, moves map[string]string) (string, error)
 			olds = append(olds, oldp)
 		}
 		slices.Sort(olds)
-		if _, err := r.Run(gitx.Opt{Index: idx}, append([]string{"update-index", "--force-remove", "--"}, olds...)...); err != nil {
+		if _, err := r.Run(gitx.Opt{Index: idx}, append([]string{cmdUpdateIndex, "--force-remove", "--"}, olds...)...); err != nil {
 			return false, err
 		}
 		for _, oldp := range olds {
@@ -440,7 +440,7 @@ func (r *Repo) checkDeleted(baseTree, staged, tipTree string, stagedMoves []Move
 		return baseTree, nil
 	}
 	return r.editTree(baseTree, func(idx string) (bool, error) {
-		_, err := r.Run(gitx.Opt{Index: idx}, append([]string{"update-index", "--force-remove", "--"}, recreated...)...)
+		_, err := r.Run(gitx.Opt{Index: idx}, append([]string{cmdUpdateIndex, "--force-remove", "--"}, recreated...)...)
 		return true, err
 	})
 }

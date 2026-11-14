@@ -54,7 +54,7 @@ func (l *Stage) RemovePaths(paths []string, force bool) error {
 	l.M.Moves, dropped = dropMoves(moves, paths)
 	l.M.PendingDisk = append(slices.Clone(pending), DiskChange{Command: cmdRm, Paths: paths, Blobs: blobs, Moves: dropped})
 	err = l.withNewIndex(func(idx string) error {
-		_, err := l.r.Run(gitx.Opt{Index: idx}, append([]string{"update-index", "--force-remove", "--"}, paths...)...)
+		_, err := l.r.Run(gitx.Opt{Index: idx}, append([]string{cmdUpdateIndex, "--force-remove", "--"}, paths...)...)
 		return err
 	})
 	if err != nil {

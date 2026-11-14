@@ -102,7 +102,7 @@ func (r *Repo) cleanFile(o gitx.Opt, indexFile, idx, path string) (string, error
 	o.Index = idx
 	// update-index applies its arguments in order, so the line-ending check
 	// of the file sees the entry from indexFile.
-	args := []string{"update-index", "--add"}
+	args := []string{cmdUpdateIndex, "--add"}
 	if ok && entry.mode != "120000" && entry.mode != "160000" {
 		args = append(args, "--cacheinfo", entry.mode, entry.oid, path)
 	}
