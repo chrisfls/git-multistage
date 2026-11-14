@@ -1,7 +1,7 @@
 # agent-plugins Specification
 
 ## Purpose
-The repository is a Claude Code plugin and a Codex plugin. Each installs the editor hooks and the agent guide skill, so an agent can stage its own edits without manual setup.
+The repository installs as a plugin, an extension, or hook files in each supported coding-agent harness, from Claude Code and Codex to Aider. Each install gives the agent guide skill and, where the harness can run hooks, the editor hooks, so an agent can stage its own edits without manual setup.
 
 ## Requirements
 

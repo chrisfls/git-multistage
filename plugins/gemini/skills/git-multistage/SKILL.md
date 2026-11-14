@@ -25,7 +25,7 @@ git multistage --stage <id> diff --cached
 git multistage --stage <id> commit -m "Add input validation"
 ```
 
-`add --edits` stages exactly the edits that you made with the file-editing tools (Claude Code's Edit and Write, Codex's apply_patch), including apply_patch's deletions and moves. It stages what you wrote, even when another agent later changed those lines or deleted the file.
+`add --edits` stages exactly the edits that you made with your harness's file-editing tools, such as Edit and Write, including the deletions and moves of an apply_patch patch. It stages what you wrote, even when another agent later changed those lines or deleted the file.
 
 Before you commit, stage your other changes by hunk: files that you changed through shell commands, and all your edits when no git-multistage message names your stage. List the hunks of the file, and stage the hunks whose `+` and `-` lines are your edits:
 

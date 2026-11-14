@@ -161,7 +161,7 @@ Give each agent its own stage ID, such as its agent ID, and point it to [the age
 Other agents may edit files in this checkout and commit to this branch while you work. Commits, file changes, and stages that you did not make are theirs: do not review, revert, stage, or mention them unless they block your task, and keep their changes in the working tree, even for a moment. To run something without them, use a separate worktree from `git worktree add`. Do not run `git add`, `git commit`, `git rm`, `git mv`, `git stash`, `git restore`, `git reset`, `git checkout`, or `git switch`: they change state that every agent shares. Stage and commit with `git multistage`, as skills/git-multistage/SKILL.md describes.
 ```
 
-For Claude Code and Codex, install the plugin. The plugin records each edit that an agent makes with its file tools in that agent's stage, and teaches the agent the commands. The agent then stages its recorded edits and commits them:
+Install the plugin in your coding agent: Claude Code and Codex below, and 29 other harnesses in [Other harnesses](#other-harnesses). The plugin records each edit that an agent makes with its file tools in that agent's stage, and teaches the agent the commands. The agent then stages its recorded edits and commits them:
 
 ```bash
 git multistage --stage <id> add --edits
@@ -201,6 +201,51 @@ prefix_rule(pattern = ["git", "multistage"], decision = "allow")
 ```
 
 This rule also lets the agent run commands that discard staged changes, such as `drop --force`, without asking. To allow single commands instead, use `pattern = ["git", "multistage", "add"]` and similar lines.
+
+### Other harnesses
+
+The plugin also installs in the harnesses below. `<clone>` is a clone of this repository. The binary must be on your `PATH`, and the checkout must set `multistage.shared`, as for Claude Code.
+
+| Harness | Install |
+| --- | --- |
+| Antigravity | `agy plugin install https://github.com/chrisfls/git-multistage` |
+| Factory Droid | `droid plugin marketplace add https://github.com/chrisfls/git-multistage`, then `droid plugin install git-multistage@git-multistage` |
+| GitHub Copilot CLI | `copilot plugin install chrisfls/git-multistage` |
+| Devin CLI | `devin plugins install chrisfls/git-multistage` |
+| Grok Build | `grok plugin install chrisfls/git-multistage --trust` |
+| CodeBuddy | `codebuddy plugin add github:chrisfls/git-multistage` |
+| Qoder CLI | `qodercli plugins marketplace add chrisfls/git-multistage`, then `qodercli plugins install git-multistage` |
+| ZCode | `zcode plugins marketplace add <clone>`, then `zcode plugins install git-multistage@git-multistage --scope user` |
+| MiniMax Code | `git clone https://github.com/chrisfls/git-multistage ~/.minimax/plugins/git-multistage` |
+| Goose | `goose plugin install https://github.com/chrisfls/git-multistage.git` |
+| OpenHands | `install_plugin("github:chrisfls/git-multistage")` in the SDK, or copy `skills/git-multistage` to `~/.agents/skills/` and `hooks/hooks.json` to `.openhands/hooks.json` |
+| Oh My Pi | `/marketplace add chrisfls/git-multistage`, then `/marketplace install git-multistage@git-multistage` |
+| Cursor CLI | `cursor-agent plugin marketplace add https://github.com/chrisfls/git-multistage`, then install it from `/plugin` |
+| Kimi Code | `/plugins install https://github.com/chrisfls/git-multistage` |
+| Muse Code | `muse plugins marketplace add git-multistage https://github.com/chrisfls/git-multistage`, `muse plugins install git-multistage@git-multistage`, then `muse plugins approve git-multistage` |
+| Hermes Agent | `hermes plugins install chrisfls/git-multistage --enable` |
+| OpenCode | `opencode plugin add https://github.com/chrisfls/git-multistage` |
+| Kilo Code | `kilo plugin git:https://github.com/chrisfls/git-multistage` |
+| MiMo Code | save [`plugins/opencode/git-multistage.js`](plugins/opencode/git-multistage.js) in `~/.config/mimocode/plugins/` |
+| CodeArts Agent | save [`plugins/opencode/git-multistage.js`](plugins/opencode/git-multistage.js) in the project's `.codeartsdoer/plugin/` |
+| Pi | `pi install git:github.com/chrisfls/git-multistage` |
+| Amp | `amp plugins add https://raw.githubusercontent.com/chrisfls/git-multistage/master/plugins/amp/git-multistage.js`, then `amp skill add chrisfls/git-multistage` |
+| Qwen Code | `qwen extensions install chrisfls/git-multistage`, and merge [`hooks/qwen.json`](hooks/qwen.json) into `~/.qwen/settings.json` |
+| Gemini CLI | `gemini extensions install <clone>/plugins/gemini` |
+| Mistral Vibe | `cp -R <clone>/plugins/vibe ~/.vibe/plugins/git-multistage`, then `/reload-plugins` |
+| Kiro CLI | copy [`hooks/kiro.json`](hooks/kiro.json) to `~/.kiro/hooks/git-multistage.json`, and add `skill://<clone>/skills/git-multistage/SKILL.md` to the agent's `resources` |
+| Cline | on macOS and Linux, copy the files of [`hooks/cline/`](hooks/cline/) to `~/Documents/Cline/Hooks/`, and `skills/git-multistage/SKILL.md` to the project's `.clinerules/` |
+| DeepSeek Harness | in the profile's YAML, add the plugin `@deepseek-ai/dsh-hooks-claude-code` with `configPath` set to `<clone>/hooks/hooks.json` |
+| Aider | `aider --read <clone>/skills/git-multistage/SKILL.md --no-auto-commits`, or `read:` and `auto-commits: false` in `.aider.conf.yml` |
+
+Each harness above gets the skill, and records the edits of its file tools, except where this list says otherwise:
+
+- Aider has no hooks, so it records no edits. `--no-auto-commits` keeps its own commits, which take whole files, out of the shared branch.
+- DeepSeek Harness loads no skills; point the agent to the skill file.
+- The Cline CLI runs hooks of another format, so only the Cline extension records edits.
+- Grok Build, Kimi Code, and Goose may not show the first-edit message to the model. An agent that receives no message stages its files by path, as the skill says.
+
+The tests run Claude Code and Codex hooks as those tools send them. For the other harnesses, they replay each harness's documented hook input, or drive the plugin in a fake host. A real session in the harness has not been run.
 
 ## Specs
 
