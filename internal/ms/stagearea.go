@@ -31,7 +31,9 @@ func OpenRepo(dir string) (*Repo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Repo{Repo: g, Dir: filepath.Join(g.GitDir, "multistage")}, nil
+	msDir := filepath.Join(g.GitDir, "multistage")
+	g.TreeCache = filepath.Join(msDir, "index-trees")
+	return &Repo{Repo: g, Dir: msDir}, nil
 }
 
 func (r *Repo) stagesDir() string { return filepath.Join(r.Dir, "stages") }
@@ -314,6 +316,7 @@ func (l *Stage) setIndexTree(tree, base string) error {
 	if err := l.r.copySkipWorktree(path, nil, false); err != nil {
 		return err
 	}
+	l.r.RememberIndexTree(path, tree)
 	l.M.Base = base
 	return l.adoptIndex(name, gen)
 }

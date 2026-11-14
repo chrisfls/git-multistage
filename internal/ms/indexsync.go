@@ -71,6 +71,9 @@ func (r *Repo) indexTree(path string) (string, error) {
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		return r.EmptyTree, nil
 	}
+	if tree := r.KnownIndexTree(path); tree != "" {
+		return tree, nil
+	}
 	tmpDir := filepath.Join(r.Dir, "tmp")
 	if err := os.MkdirAll(tmpDir, 0o777); err != nil {
 		return "", err
@@ -80,6 +83,8 @@ func (r *Repo) indexTree(path string) (string, error) {
 	if err := copyFile(path, tmp); err != nil {
 		return "", err
 	}
+	// WriteTree remembers the tree under the checksum of the copy, which is the
+	// original's checksum when the original did not change during the copy.
 	tree, err := r.WriteTree(tmp)
 	if gitx.ExitCode(err) > 0 {
 		return "", nil // unmerged entries
