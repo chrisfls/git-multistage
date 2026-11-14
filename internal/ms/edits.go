@@ -133,7 +133,8 @@ func (l *Stage) AddEdits(paths []string, force bool, recreate []string) ([]strin
 	if len(chosen) == 0 {
 		return nil, errorf(ExitError, "no-edits", "no recorded edits to stage")
 	}
-	apply, err := l.followRecords(chosen, recreate)
+	reads := &indexReads{}
+	apply, err := l.followRecords(chosen, recreate, reads)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +152,7 @@ func (l *Stage) AddEdits(paths []string, force bool, recreate []string) ([]strin
 			_ = os.Remove(idx)
 		}
 	}()
-	staged, err := l.r.applyRecords(idx, apply, force)
+	staged, err := l.r.applyRecords(idx, apply, force, reads)
 	if err != nil {
 		return nil, err
 	}
@@ -192,8 +193,8 @@ func (l *Stage) AddEdits(paths []string, force bool, recreate []string) ([]strin
 // commit deleted fails with edit-conflict. The records
 // of a deleted path of recreate become one record that creates the file
 // with the content of the newest of them.
-func (l *Stage) followRecords(chosen []EditRecord, recreate []string) ([]EditRecord, error) {
-	gone, err := l.gonePaths(chosen)
+func (l *Stage) followRecords(chosen []EditRecord, recreate []string, reads *indexReads) ([]EditRecord, error) {
+	gone, err := l.gonePaths(chosen, reads)
 	if err != nil {
 		return nil, err
 	}
@@ -236,12 +237,20 @@ func (l *Stage) followRecords(chosen []EditRecord, recreate []string) ([]EditRec
 }
 
 // gonePaths returns the oldest record of each path whose oldest record
-// edits an existing file that the stage's index does not hold.
-func (l *Stage) gonePaths(chosen []EditRecord) ([]EditRecord, error) {
-	seen := map[string]bool{}
+// edits an existing file that the stage's index does not hold. Its one read
+// covers the paths of every chosen record, so that applying the records
+// reads no path again.
+func (l *Stage) gonePaths(chosen []EditRecord, reads *indexReads) ([]EditRecord, error) {
+	seen, read := map[string]bool{}, map[string]bool{}
 	var oldest []EditRecord
 	var paths []string
 	for _, rec := range chosen {
+		for _, p := range []string{rec.Path, rec.From} {
+			if p != "" && !read[p] {
+				read[p] = true
+				paths = append(paths, p)
+			}
+		}
 		if seen[rec.Path] {
 			continue
 		}
@@ -250,9 +259,8 @@ func (l *Stage) gonePaths(chosen []EditRecord) ([]EditRecord, error) {
 			continue
 		}
 		oldest = append(oldest, rec)
-		paths = append(paths, rec.Path)
 	}
-	held, err := l.r.lsIndexMany(l.IndexPath(), paths)
+	held, err := reads.read(l.r, l.IndexPath(), paths)
 	if err != nil {
 		return nil, err
 	}
@@ -442,10 +450,12 @@ func chooseRecords(recs []EditRecord, paths []string) []EditRecord {
 
 // applyRecords applies the records to the index file idx, and returns the
 // paths it staged. It fails with edit-conflict when any record does not fit.
-func (r *Repo) applyRecords(idx string, chosen []EditRecord, force bool) (map[string]bool, error) {
+// The records' writes reach the index file together, after every record
+// applied.
+func (r *Repo) applyRecords(idx string, chosen []EditRecord, force bool, reads *indexReads) (map[string]bool, error) {
 	var failed []string
 	staged := map[string]bool{}
-	view, err := r.newIndexView(idx, chosen)
+	view, err := r.newIndexView(idx, chosen, reads)
 	if err != nil {
 		return nil, err
 	}
@@ -462,6 +472,9 @@ func (r *Repo) applyRecords(idx string, chosen []EditRecord, force bool) (map[st
 	}
 	if len(failed) > 0 {
 		return nil, editConflict(failed)
+	}
+	if err := view.flush(); err != nil {
+		return nil, err
 	}
 	return staged, nil
 }
@@ -518,65 +531,175 @@ func (r *Repo) blobContent(oid string) ([]byte, error) {
 	return r.catBlob(oid)
 }
 
-// indexView reads the entries of the index file idx that records name. One
-// Git call reads them all before the first record applies. A record that
-// writes a path makes the read of that path stale, so the view reads it
-// again, with one call, when a later record needs it.
+// indexReads keeps the stage-0 entries that `add --edits` read from index
+// files, and the paths that they do not hold, by the checksum of the index
+// file. The index copy that the records apply to has the bytes of the stage's
+// index, so its view reads no path that the stage's index read.
+type indexReads struct {
+	bySum map[string]map[string]*indexEntry // a nil entry is a path without a stage-0 entry
+}
+
+// read returns the stage-0 entries of paths in idx, as Repo.lsIndexMany does.
+// It starts Git only for the paths that no read of an index with the same
+// checksum covered. An index without a checksum is always read.
+func (c *indexReads) read(r *Repo, idx string, paths []string) (map[string]indexEntry, error) {
+	sum := r.IndexChecksum(idx)
+	if sum == "" {
+		return r.lsIndexMany(idx, paths)
+	}
+	known := c.bySum[sum]
+	var missing []string
+	for _, p := range paths {
+		if _, ok := known[p]; !ok {
+			missing = append(missing, p)
+		}
+	}
+	if len(missing) > 0 {
+		got, err := r.lsIndexMany(idx, missing)
+		if err != nil {
+			return nil, err
+		}
+		if r.IndexChecksum(idx) != sum {
+			// The file changed during the read: answer from this read only.
+			return r.lsIndexMany(idx, paths)
+		}
+		known = c.remember(sum, missing, got)
+	}
+	out := make(map[string]indexEntry, len(paths))
+	for _, p := range paths {
+		if e := known[p]; e != nil {
+			out[p] = *e
+		}
+	}
+	return out, nil
+}
+
+// remember keeps the entries that a read found for paths, and the paths that
+// it did not find, under the index checksum sum.
+func (c *indexReads) remember(sum string, paths []string, found map[string]indexEntry) map[string]*indexEntry {
+	if c.bySum == nil {
+		c.bySum = map[string]map[string]*indexEntry{}
+	}
+	known := c.bySum[sum]
+	if known == nil {
+		known = map[string]*indexEntry{}
+		c.bySum[sum] = known
+	}
+	for _, p := range paths {
+		if e, ok := found[p]; ok {
+			known[p] = &e
+		} else {
+			known[p] = nil
+		}
+	}
+	return known
+}
+
+// maxIndexWrites is the number of writes that one update-index call takes,
+// which keeps its command line short on Windows.
+const maxIndexWrites = 100
+
+// indexWrite is one pending change of the index entry at path: the entry
+// that replaces it, or its removal.
+type indexWrite struct {
+	path   string
+	entry  indexEntry
+	remove bool
+}
+
+// indexView reads the entries of the index file idx that records name, and
+// keeps the writes of the records that applied. One Git read answers every
+// record, and a read of a path with a pending write answers from the write,
+// so no record starts Git to read or write the index. flush writes the
+// pending writes to the file in record order.
 type indexView struct {
 	r       *Repo
 	idx     string
 	entries map[string]indexEntry
-	loaded  map[string]bool
+	writes  []indexWrite
+	last    map[string]int // path to the position in writes of its newest write
 }
 
-func (r *Repo) newIndexView(idx string, recs []EditRecord) (*indexView, error) {
-	v := &indexView{r: r, idx: idx, loaded: map[string]bool{}}
+func (r *Repo) newIndexView(idx string, recs []EditRecord, reads *indexReads) (*indexView, error) {
+	v := &indexView{r: r, idx: idx, last: map[string]int{}}
+	seen := map[string]bool{}
 	var paths []string
 	for _, rec := range recs {
 		for _, p := range []string{rec.Path, rec.From} {
-			if p != "" && !v.loaded[p] {
-				v.loaded[p] = true
+			if p != "" && !seen[p] {
+				seen[p] = true
 				paths = append(paths, p)
 			}
 		}
 	}
 	var err error
-	v.entries, err = r.lsIndexMany(idx, paths)
+	v.entries, err = reads.read(r, idx, paths)
 	return v, err
 }
 
-// get returns the stage-0 entry of p in the index file.
-func (v *indexView) get(p string) (indexEntry, bool, error) {
-	if v.loaded[p] {
-		e, ok := v.entries[p]
-		return e, ok, nil
+// get returns the stage-0 entry of p, which a record names, as the index
+// file holds it after the pending writes.
+func (v *indexView) get(p string) (indexEntry, bool) {
+	if i, ok := v.last[p]; ok {
+		w := v.writes[i]
+		return w.entry, !w.remove
 	}
-	return v.r.lsIndex(v.idx, p)
+	e, ok := v.entries[p]
+	return e, ok
 }
 
-// wrote marks the reads of paths as stale.
-func (v *indexView) wrote(paths ...string) {
-	for _, p := range paths {
-		v.loaded[p] = false
+// removed reports whether the newest pending write of p removes it.
+func (v *indexView) removed(p string) bool {
+	i, ok := v.last[p]
+	return ok && v.writes[i].remove
+}
+
+func (v *indexView) set(p, mode, oid string) {
+	if mode == "" {
+		mode = "100644"
 	}
+	v.last[p] = len(v.writes)
+	v.writes = append(v.writes, indexWrite{path: p, entry: indexEntry{mode, oid}})
+}
+
+func (v *indexView) remove(p string) {
+	v.last[p] = len(v.writes)
+	v.writes = append(v.writes, indexWrite{path: p, remove: true})
+}
+
+// flush writes the pending writes to the index file, in groups of
+// maxIndexWrites, with one update-index call for each group. Git fails
+// without writing the index when a write does not fit, such as a file where
+// the index holds a directory, as the call for each record did.
+func (v *indexView) flush() error {
+	for start := 0; start < len(v.writes); start += maxIndexWrites {
+		args := []string{"update-index", "--add"}
+		for _, w := range v.writes[start:min(start+maxIndexWrites, len(v.writes))] {
+			if w.remove {
+				// The ./ keeps a path that starts with - from reading as an option.
+				args = append(args, "--force-remove", "./"+w.path)
+			} else {
+				args = append(args, "--cacheinfo", w.entry.mode+","+w.entry.oid+","+w.path)
+			}
+		}
+		if _, err := v.r.Run(gitx.Opt{Index: v.idx}, args...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // applyRecord replays one recorded edit onto the index entry of its path.
 func (r *Repo) applyRecord(v *indexView, rec EditRecord, force bool) error {
-	idx := v.idx
-	defer v.wrote(rec.Path, rec.From)
 	if rec.From != "" {
 		return r.applyMove(v, rec)
 	}
-	cur, inIndex, err := v.get(rec.Path)
-	if err != nil {
-		return err
-	}
+	cur, inIndex := v.get(rec.Path)
 	switch {
 	case rec.After == "": // deletion
-		return r.applyDeletion(idx, rec, cur, inIndex)
+		return applyDeletion(v, rec, cur, inIndex)
 	case !inIndex && rec.Before == "": // a new file
-		return r.applyNewFile(idx, rec, force)
+		return r.applyNewFile(v, rec, force)
 	case !inIndex:
 		return errorf(ExitConflict, "edit-conflict", "the file is not in the stage; it was created by another writer")
 	}
@@ -584,7 +707,8 @@ func (r *Repo) applyRecord(v *indexView, rec EditRecord, force bool) error {
 		return errorf(ExitConflict, "edit-conflict", "the stage holds a symbolic link or submodule at this path")
 	}
 	if cur.oid == rec.Before {
-		return r.setIndexBlob(idx, rec.Path, cur.mode, rec.After)
+		v.set(rec.Path, cur.mode, rec.After)
+		return nil
 	}
 	out, err := r.replayRecord(rec, cur.oid)
 	if err != nil {
@@ -594,48 +718,46 @@ func (r *Repo) applyRecord(v *indexView, rec EditRecord, force bool) error {
 	if err != nil {
 		return err
 	}
-	return r.setIndexBlob(idx, rec.Path, cur.mode, oid)
+	v.set(rec.Path, cur.mode, oid)
+	return nil
 }
 
 // applyDeletion applies a recorded deletion to the index entry cur.
-func (r *Repo) applyDeletion(idx string, rec EditRecord, cur indexEntry, inIndex bool) error {
+func applyDeletion(v *indexView, rec EditRecord, cur indexEntry, inIndex bool) error {
 	if !inIndex {
 		return nil
 	}
 	if cur.oid != rec.Before {
 		return errorf(ExitConflict, "edit-conflict", "the deleted file differs in the stage from what was deleted")
 	}
-	_, err := r.Run(gitx.Opt{Index: idx}, "update-index", "--force-remove", "--", rec.Path)
-	return err
+	v.remove(rec.Path)
+	return nil
 }
 
 // applyMove moves the index entry of rec.From to rec.Path, as `mv` does.
 func (r *Repo) applyMove(v *indexView, rec EditRecord) error {
-	idx := v.idx
-	cur, ok, err := v.get(rec.From)
-	if err != nil {
-		return err
-	}
+	cur, ok := v.get(rec.From)
 	if !ok {
 		return errorf(ExitConflict, "edit-conflict", "the moved file %s is not in the stage", rec.From)
 	}
-	if _, taken, err := v.get(rec.Path); err != nil || taken {
-		if err != nil {
-			return err
-		}
+	if _, taken := v.get(rec.Path); taken {
 		return errorf(ExitConflict, "edit-conflict", "the stage already holds the file that the move creates")
 	}
-	if _, err := r.Run(gitx.Opt{Index: idx}, "update-index", "--force-remove", "--", rec.From); err != nil {
-		return err
-	}
-	return r.setIndexBlob(idx, rec.Path, cur.mode, cur.oid)
+	v.remove(rec.From)
+	v.set(rec.Path, cur.mode, cur.oid)
+	return nil
 }
 
 // applyNewFile stages a file that the recorded edit created.
-func (r *Repo) applyNewFile(idx string, rec EditRecord, force bool) error {
+func (r *Repo) applyNewFile(v *indexView, rec EditRecord, force bool) error {
 	if !force {
 		// Like `git add`, an ignored file needs --force.
-		_, err := r.Run(gitx.Opt{Index: idx, Env: []string{envLiteralPathspecs}}, "check-ignore", "-q", "--", rec.Path)
+		args := []string{"check-ignore", "-q"}
+		if v.removed(rec.Path) {
+			// The index file still tracks the path that an earlier record deleted.
+			args = append(args, "--no-index")
+		}
+		_, err := r.Run(gitx.Opt{Index: v.idx, Env: []string{envLiteralPathspecs}}, append(args, "--", rec.Path)...)
 		if err == nil {
 			return errorf(ExitConflict, "edit-conflict", "the file is ignored by .gitignore; pass -f to stage it")
 		}
@@ -643,7 +765,8 @@ func (r *Repo) applyNewFile(idx string, rec EditRecord, force bool) error {
 			return err
 		}
 	}
-	return r.setIndexBlob(idx, rec.Path, rec.Mode, rec.After)
+	v.set(rec.Path, rec.Mode, rec.After)
+	return nil
 }
 
 // replayRecord places the lines of the recorded edit into the stage's
