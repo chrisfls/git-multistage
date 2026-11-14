@@ -39,7 +39,7 @@ type Repo struct {
 	emptyBlobErr  error
 
 	treesMu sync.Mutex
-	trees   map[string]string // commit ID to tree ID; a commit's tree never changes
+	trees   map[string]*treeLookup // by commit ID; a commit's tree never changes
 
 	configOnce sync.Once
 	config     map[string]*string // setting to its last value; nil for a key without "="
@@ -363,29 +363,42 @@ func (r *Repo) SymbolicHead() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// treeLookup is one read of a commit's tree, which concurrent callers share.
+type treeLookup struct {
+	done chan struct{}
+	tree string
+	err  error
+}
+
 // TreeOf returns the tree of commit, or the empty tree when commit is "".
-// It reads the tree of each commit once for each Repo.
+// It reads the tree of each commit once for each Repo; concurrent calls for
+// one commit wait for one read. A failed read is not kept.
 func (r *Repo) TreeOf(commit string) (string, error) {
 	if commit == "" {
 		return r.EmptyTree, nil
 	}
 	r.treesMu.Lock()
-	tree, ok := r.trees[commit]
+	l, ok := r.trees[commit]
+	if !ok {
+		if r.trees == nil {
+			r.trees = map[string]*treeLookup{}
+		}
+		l = &treeLookup{done: make(chan struct{})}
+		r.trees[commit] = l
+	}
 	r.treesMu.Unlock()
 	if ok {
-		return tree, nil
+		<-l.done
+		return l.tree, l.err
 	}
-	tree, err := r.Line(Opt{}, "rev-parse", commit+"^{tree}")
-	if err != nil {
-		return "", err
+	l.tree, l.err = r.Line(Opt{}, "rev-parse", commit+"^{tree}")
+	if l.err != nil {
+		r.treesMu.Lock()
+		delete(r.trees, commit)
+		r.treesMu.Unlock()
 	}
-	r.treesMu.Lock()
-	if r.trees == nil {
-		r.trees = map[string]string{}
-	}
-	r.trees[commit] = tree
-	r.treesMu.Unlock()
-	return tree, nil
+	close(l.done)
+	return l.tree, l.err
 }
 
 // ConfigBool reads a boolean Git setting, or returns def when the setting is

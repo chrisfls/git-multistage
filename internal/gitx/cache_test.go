@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -43,6 +44,36 @@ func TestTreeOfReadsEachCommitOnce(t *testing.T) {
 	}
 	if got := calls(); len(got) != 2 {
 		t.Fatalf("git calls %v, want one for each commit", got)
+	}
+}
+
+func TestTreeOfSharesConcurrentReads(t *testing.T) {
+	r, calls := countingGit(t, "tree1\n")
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if tree, err := r.TreeOf("c1"); err != nil || tree != "tree1" {
+				t.Errorf("TreeOf = %q, %v", tree, err)
+			}
+		}()
+	}
+	wg.Wait()
+	if got := calls(); len(got) != 1 {
+		t.Fatalf("git calls %v, want one", got)
+	}
+}
+
+func TestTreeOfDoesNotKeepAFailure(t *testing.T) {
+	r := fakeGit(t, "exit 1\n")
+	for range 2 {
+		if _, err := r.TreeOf("c1"); err == nil {
+			t.Fatal("TreeOf of a missing commit succeeded")
+		}
+	}
+	if len(r.trees) != 0 {
+		t.Fatalf("kept %d failed reads", len(r.trees))
 	}
 }
 
