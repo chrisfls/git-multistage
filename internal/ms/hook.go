@@ -224,7 +224,7 @@ func newEditHook(in hookInput, stage, file string) (*editHook, error) {
 	}
 	// On a case-insensitive file system, use the index's spelling, so that
 	// the record names one file whatever case the editor used.
-	if r.configBool("core.ignoreCase", false) {
+	if r.ConfigBool("core.ignoreCase", false) {
 		out, err := r.Run(gitx.Opt{Env: []string{envLiteralPathspecs, "GIT_ICASE_PATHSPECS=1"}}, "ls-files", "-z", "--", rel)
 		if err == nil {
 			for _, name := range strings.Split(string(out), "\x00") {
@@ -276,7 +276,7 @@ func (r *Repo) topSpelling(dir, abs string) string {
 	p := filepath.Join(resolved, rest)
 	n := len(r.Top)
 	if len(p) >= n && (len(p) == n || p[n] == filepath.Separator) && p[:n] != r.Top &&
-		strings.EqualFold(p[:n], r.Top) && r.configBool("core.ignoreCase", false) {
+		strings.EqualFold(p[:n], r.Top) && r.ConfigBool("core.ignoreCase", false) {
 		return r.Top + p[n:]
 	}
 	return abs
@@ -463,7 +463,7 @@ func (h *editHook) movedContent(p pendingEdit, sec codexPatchSection, newp strin
 // fileMode returns the index mode of the file p on disk.
 func (h *editHook) fileMode(p string) string {
 	if info, err := os.Stat(h.r.diskPath(p)); err == nil &&
-		info.Mode()&0o111 != 0 && h.r.configBool("core.fileMode", true) {
+		info.Mode()&0o111 != 0 && h.r.ConfigBool("core.fileMode", true) {
 		return "100755"
 	}
 	return "100644"

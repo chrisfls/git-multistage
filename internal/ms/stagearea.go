@@ -36,15 +36,6 @@ func OpenRepo(dir string) (*Repo, error) {
 
 func (r *Repo) stagesDir() string { return filepath.Join(r.Dir, "stages") }
 
-// configBool reads a boolean Git setting.
-func (r *Repo) configBool(key string, def bool) bool {
-	v, err := r.Line(gitx.Opt{}, "config", "--type=bool", "--get", key)
-	if err != nil || v == "" {
-		return def
-	}
-	return v == "true"
-}
-
 var (
 	idRE       = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 	reservedRE = regexp.MustCompile(`^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$`)
@@ -384,7 +375,7 @@ func (l *Stage) keepRef() string { return "refs/worktree/multistage/" + l.ID }
 // checkout leaves out of the working tree and the set of all its paths; nil
 // maps without a sparse checkout.
 func (r *Repo) sparseState() (skip, known map[string]bool, err error) {
-	if !r.configBool("core.sparseCheckout", false) {
+	if !r.ConfigBool("core.sparseCheckout", false) {
 		return nil, nil, nil
 	}
 	out, err := r.Run(gitx.Opt{}, "ls-files", "-t", "-z")

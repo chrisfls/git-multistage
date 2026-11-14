@@ -498,7 +498,7 @@ func (l *Stage) canonical(p string) (string, error) {
 // canonicalUnheld returns the spelling in the stage index of a path that the
 // index does not hold as spelled.
 func (l *Stage) canonicalUnheld(p string) (string, error) {
-	if !l.r.configBool("core.ignoreCase", false) {
+	if !l.r.ConfigBool("core.ignoreCase", false) {
 		return p, nil
 	}
 	dir := path.Dir(p)
@@ -559,7 +559,7 @@ func (l *Stage) unstagedHunks(p string) (FileHunks, error) {
 
 // newFileMode returns the index mode that `git add` gives the new file info.
 func (r *Repo) newFileMode(info fs.FileInfo) string {
-	if info.Mode()&0o111 != 0 && r.configBool("core.fileMode", true) {
+	if info.Mode()&0o111 != 0 && r.ConfigBool("core.fileMode", true) {
 		return "100755"
 	}
 	return "100644"

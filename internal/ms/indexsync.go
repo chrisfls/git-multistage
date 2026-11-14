@@ -36,7 +36,7 @@ type SyncResult struct {
 	written []string // updated paths that still have an entry
 }
 
-func (r *Repo) syncEnabled() bool { return r.configBool("multistage.syncIndex", true) }
+func (r *Repo) syncEnabled() bool { return r.ConfigBool("multistage.syncIndex", true) }
 
 func (r *Repo) syncRecordPath() string { return filepath.Join(r.Dir, "index-sync") }
 

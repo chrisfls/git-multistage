@@ -259,7 +259,7 @@ func (l *Stage) prepareCommit(res *CommitResult, rawMsg string, noVerify bool) (
 		return nil, err
 	}
 	res.Subject, _, _ = strings.Cut(st.msg, "\n")
-	st.sign = r.configBool("commit.gpgSign", false)
+	st.sign = r.ConfigBool("commit.gpgSign", false)
 	st.sync = r.syncEnabled()
 	return st, nil
 }

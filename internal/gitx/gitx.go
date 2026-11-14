@@ -37,6 +37,12 @@ type Repo struct {
 
 	emptyBlobOnce sync.Once
 	emptyBlobErr  error
+
+	treesMu sync.Mutex
+	trees   map[string]string // commit ID to tree ID; a commit's tree never changes
+
+	configOnce sync.Once
+	config     map[string]*string // setting to its last value; nil for a key without "="
 }
 
 // ExitError is a Git command that exited with a nonzero status.
@@ -358,11 +364,101 @@ func (r *Repo) SymbolicHead() (string, error) {
 }
 
 // TreeOf returns the tree of commit, or the empty tree when commit is "".
+// It reads the tree of each commit once for each Repo.
 func (r *Repo) TreeOf(commit string) (string, error) {
 	if commit == "" {
 		return r.EmptyTree, nil
 	}
-	return r.Line(Opt{}, "rev-parse", commit+"^{tree}")
+	r.treesMu.Lock()
+	tree, ok := r.trees[commit]
+	r.treesMu.Unlock()
+	if ok {
+		return tree, nil
+	}
+	tree, err := r.Line(Opt{}, "rev-parse", commit+"^{tree}")
+	if err != nil {
+		return "", err
+	}
+	r.treesMu.Lock()
+	if r.trees == nil {
+		r.trees = map[string]string{}
+	}
+	r.trees[commit] = tree
+	r.treesMu.Unlock()
+	return tree, nil
+}
+
+// ConfigBool reads a boolean Git setting, or returns def when the setting is
+// missing or not a boolean. The first call reads every setting with one
+// `git config --list`; later calls reuse it.
+func (r *Repo) ConfigBool(key string, def bool) bool {
+	r.configOnce.Do(r.readConfig)
+	v, ok := r.config[configKey(key)]
+	if !ok {
+		return def
+	}
+	b, ok := parseBool(v)
+	if !ok {
+		return def
+	}
+	return b
+}
+
+// readConfig reads the output of `git config -z --list`: each setting is
+// <key> LF <value> NUL, or <key> NUL for a key without "=". A failed read
+// leaves no settings.
+func (r *Repo) readConfig() {
+	r.config = map[string]*string{}
+	out, err := r.Run(Opt{}, "config", "-z", "--list")
+	if err != nil {
+		return
+	}
+	for _, rec := range strings.Split(string(out), "\x00") {
+		if rec == "" {
+			continue
+		}
+		key, value, found := strings.Cut(rec, "\n")
+		if !found {
+			r.config[configKey(key)] = nil
+			continue
+		}
+		r.config[configKey(key)] = &value
+	}
+}
+
+// configKey folds the case of the section and the variable of key, which
+// Git compares without case, and keeps the case of a subsection.
+func configKey(key string) string {
+	first, last := strings.IndexByte(key, '.'), strings.LastIndexByte(key, '.')
+	if first < 0 {
+		return strings.ToLower(key)
+	}
+	return strings.ToLower(key[:first]) + key[first:last] + strings.ToLower(key[last:])
+}
+
+// parseBool reads a boolean setting by Git's rules: a key without "=" is
+// true, and an integer, with an optional k, m, or g unit, is true when it is
+// not zero.
+func parseBool(v *string) (value, ok bool) {
+	if v == nil {
+		return true, true
+	}
+	switch strings.ToLower(*v) {
+	case "true", "yes", "on":
+		return true, true
+	case "false", "no", "off", "":
+		return false, true
+	}
+	// Git's strtoimax skips leading white space.
+	num := strings.TrimRight(strings.TrimLeft(strings.ToLower(*v), " \t\n\v\f\r"), "kmg")
+	if len(*v)-len(num) > 1 || strings.Contains(num, "_") {
+		return false, false
+	}
+	n, err := strconv.ParseInt(num, 0, 64)
+	if err != nil {
+		return false, false
+	}
+	return n != 0, true
 }
 
 // IsAncestor reports whether a is an ancestor of, or equal to, b.

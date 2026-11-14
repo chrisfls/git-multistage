@@ -106,7 +106,7 @@ func (l *Stage) samePaths(pending, paths []string) bool {
 			return false
 		}
 	}
-	return l.r.configBool("core.ignoreCase", false)
+	return l.r.ConfigBool("core.ignoreCase", false)
 }
 
 // leaveTemp renames the file of d that is at its temporary name back to
