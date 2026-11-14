@@ -186,3 +186,50 @@ func TestReadIndexLeavesOddIndexesToGit(t *testing.T) {
 		t.Fatalf("sparse index: ReadIndex = %v, true; want Git to read it", entries)
 	}
 }
+
+// TestVarint checks the offset varint of Git's varint.c, and that a number
+// that does not fit in an int is malformed.
+func TestVarint(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		in   []byte
+		v, n int
+	}{
+		{[]byte{0x00}, 0, 1},
+		{[]byte{0x7f, 0xff}, 127, 1},
+		{[]byte{0x80, 0x00}, 128, 2},
+		{[]byte{0xff, 0x7f}, 16511, 2},
+		{[]byte{0x80}, 0, 0},
+		{[]byte{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00}, 0, 0},
+	} {
+		if v, n := varint(tc.in); v != tc.v || n != tc.n {
+			t.Errorf("varint(% x) = %d, %d; want %d, %d", tc.in, v, n, tc.v, tc.n)
+		}
+	}
+}
+
+// TestReadIndexHandsAnOverflowToGit reads a version 4 index whose first
+// entry removes more bytes than an int holds; Git reads it, so the reader
+// hands it to Git instead of failing.
+func TestReadIndexHandsAnOverflowToGit(t *testing.T) {
+	t.Parallel()
+	r, err := Open(initRepo(t, "sha1"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := make([]byte, indexEntryFixed+20+2)
+	binary.BigEndian.PutUint32(entry[24:], 0o100644)
+	binary.BigEndian.PutUint16(entry[indexEntryFixed+20:], 1)
+	data := bytes.Join([][]byte{
+		[]byte("DIRC\x00\x00\x00\x04\x00\x00\x00\x01"), entry,
+		{0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00},
+		[]byte("a\x00"), make([]byte, 20),
+	}, nil)
+	p := filepath.Join(t.TempDir(), "index")
+	if err := os.WriteFile(p, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if entries, ok := r.ReadIndex(p, func([]byte) bool { return true }); ok {
+		t.Fatalf("ReadIndex = %v, true; want Git to read it", entries)
+	}
+}

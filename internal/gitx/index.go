@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 )
 
@@ -158,7 +159,7 @@ func (p *indexParser) extensionsOptional() bool {
 
 // varint decodes the offset varint of Git's varint.c, which version 4 of the
 // index uses for the bytes to remove from the previous path. n is 0 for a
-// malformed number.
+// malformed number and for one that does not fit in an int.
 func varint(b []byte) (v, n int) {
 	for n < len(b) && n < maxVarintBytes {
 		c := b[n]
@@ -166,6 +167,9 @@ func varint(b []byte) (v, n int) {
 		v += int(c & 127)
 		if c&128 == 0 {
 			return v, n
+		}
+		if v >= math.MaxInt>>7 {
+			return 0, 0
 		}
 		v = (v + 1) << 7
 	}
