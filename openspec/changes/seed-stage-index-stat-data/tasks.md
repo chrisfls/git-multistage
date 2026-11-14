@@ -21,7 +21,20 @@
 
 ## 3. Results
 
-- [ ] 3.1 Measure as in 1.1 with the old and new builds, interleaved, and check that both builds give stage indexes with the same entries and bits. Run `mise run ci`. Verify: CI exits with code 0, and the counts and times are in this task.
+- [x] 3.1 Measure as in 1.1 with the old and new builds, interleaved, and check that both builds give stage indexes with the same entries and bits. Run `mise run ci`. Verify: CI exits with code 0, and the counts and times are in this task.
+
+  After, 2026-11-14, `9488ef2` against `0d8041c`, the commit before it, so the builds differ only by this change. The setup is that of 1.1, on a fresh clone of Core and a fresh generated repository, with ten rounds that alternate the builds (five rounds each). The counts are lower than in 1.1 for both builds, because `0cd074b` of another change landed in between.
+
+  | Command | Core clone, before → after | Generated, before → after | git processes, both builds |
+  | --- | --- | --- | --- |
+  | First `status` of a new stage, another stage exists | 846 → 163 ms | 948 → 143 ms | 8 |
+  | `status` after a base move, nothing staged | 892 → 155 ms | 937 → 140 ms | 8 |
+  | `status` after a base move, one file staged | 964 → 243 ms | 1,036 → 211 ms | 19 |
+  | `status` without a base move | 84 → 83 ms | 60 → 58 ms | 4 |
+
+  - Stage creation and a base move take 75 to 85 % less time, and start the same `git` processes.
+  - Both builds give the same entries, bits, and index version: two clones of each repository ran the same steps, one with each build (a first stage, a new stage that starts from it, a commit in a third stage, a base move with a staged file and one without, and a new stage after the commit), and `git ls-files -s -v` of each stage index matched.
+  - `mise run ci` in a clean export of `9488ef2` (the shared checkout holds another session's unfinished files): format, lint (0 issues), vet with and without `testhooks`, every test, and `openspec validate --all --strict` passed, exit 0, 77 s wall; the `test` package took 71.2 s.
 
 ## Workflow follow-up
 
