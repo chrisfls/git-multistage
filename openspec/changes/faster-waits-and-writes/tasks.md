@@ -39,11 +39,40 @@
 
 - [x] 4.1 Take the commit turn in each commit attempt, as the design describes, and give it up after `update-ref`, before the `pre-commit` hook, and on an early return; go on without it after 10 s or on a failure to take it. Verify: end-to-end tests cover the four scenarios of the `commit` spec delta (8 commits at once each report `attempts` 1; a turn held from the test past a shortened wait; a commit killed at `before-update-ref`; a slow `pre-commit` hook), and the concurrency, race, crash, and hook tests pass.
 
-  Result: `TestConcurrentCommitsTakeTurns`, `TestCommitGoesOnWithoutAHeldTurn`, `TestKilledCommitGivesUpItsTurn`, and `TestSlowPreCommitHookGivesUpTheTurn` pass. With the turn disabled, the first two fail (an `attempts` of 3; a commit that did not wait), and with the turn kept through the hook, the last one fails (stage b's commit waited 10.2 s). The end-to-end tests whose names match concurrent, many, parallel, race, compare-and-swap, crash, kill, hook, commit, and turn pass (36 s).
+  Result: `TestManyStagesCommitInTurns`, `TestCommitGoesOnWithoutAHeldTurn`, `TestKilledCommitGivesUpItsTurn`, and `TestSlowPreCommitHookGivesUpTheTurn` pass. With the turn disabled, the first two fail (an `attempts` of 3; a commit that did not wait), and with the turn kept through the hook, the last one fails (stage b's commit waited 10.2 s). The end-to-end tests whose names match concurrent, many, parallel, race, compare-and-swap, crash, kill, hook, commit, and turn pass (36 s).
 
 ## 5. Results
 
-- [ ] 5.1 Measure the scenario and the concurrent batches as in 1.1, with the old and new builds interleaved, and record the numbers. Run `mise run ci` and `mise run ci:stress`. Verify: both exit with code 0, and the numbers are in this task.
+- [x] 5.1 Measure the scenario and the concurrent batches as in 1.1, with the old and new builds interleaved, and record the numbers. Run `mise run ci` and `mise run ci:stress`. Verify: both exit with code 0, and the numbers are in this task.
+
+  After, 2026-11-14, master `d423f86` against `9cf4d2b`, macOS, 12 cores, Git 2.54 (Apple Git-157) through `/usr/bin/git`, with the old and new builds interleaved (old, new, old, new). Other sessions ran tests on the machine meanwhile, so single runs vary by about 10 ms. The new build also holds another change's edit of a hook message, which starts no process.
+
+  | Command | Before, runs 1 and 2 | After, runs 1 and 2 |
+  | --- | --- | --- |
+  | `status` (creates the stage) | 90.8, 88.9 ms | 92.2, 81.2 ms |
+  | `status` | 45.2, 54.1 ms | 46.1, 50.4 ms |
+  | hook PreToolUse | 54.2, 60.3 ms | 44.5, 46.3 ms |
+  | hook PostToolUse | 77.2, 96.8 ms | 66.2, 71.6 ms |
+  | hook PreToolUse (second edit) | 52.2, 51.7 ms | 40.1, 45.2 ms |
+  | hook PostToolUse (second edit) | 78.1, 83.7 ms | 66.8, 76.4 ms |
+  | `add --edits` (2 files) | 93.9, 106.3 ms | 81.3, 79.9 ms |
+  | `status`, two files staged | 56.0, 61.7 ms | 53.1, 57.8 ms |
+  | `diff --cached` | 54.4, 56.7 ms | 52.1, 55.5 ms |
+  | `commit -m x` | 155.9, 160.2 ms | 124.0, 133.3 ms |
+  | `add f3.txt` | 113.2, 106.7 ms | 89.3, 96.1 ms |
+  | `commit -m y` | 145.6, 152.7 ms | 122.4, 134.4 ms |
+
+  Concurrent commits, wall time of the batch, interleaved:
+
+  | Batch | Before | After |
+  | --- | --- | --- |
+  | 8 commits, 8 in flight | 1423, 1426, 1380, 1542, 1631 ms | 916, 815, 839, 819, 830 ms |
+  | 4 commits, 4 in flight | 753, 725, 761 ms | 513, 403, 402 ms |
+
+  - The commands that write metadata take 10 to 30 ms less: a hooked edit (both hooks) about 139 → 114 ms, `add --edits` about 100 → 81 ms, `commit` about 154 → 129 ms. `status` and `diff --cached`, which write nothing, stay the same within the noise.
+  - A batch of 8 concurrent commits takes about 42 % less time (median 1426 → 830 ms), and a batch of 4 about 46 % less (median 753 → 403 ms). One commit alone takes about 129 ms, so 8 commits one after the other take about 1030 ms: 8 commits in turns now take less, where before they took about 40 % more.
+  - `mise run ci` in the shared checkout failed its format check on another session's unfinished files in `internal/gitx/`, so its steps ran on a clean export of `d423f86`: every step passed, 79 s. The steps of `mise run ci:stress` (`MULTISTAGE_STRESS=3`), with the new tests' names added to its pattern, passed in 76 s.
+  - The 8-commit test is named `TestManyStagesCommitInTurns`, so `ci:stress` repeats it.
 
 ## Workflow follow-up
 

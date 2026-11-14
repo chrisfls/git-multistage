@@ -22,9 +22,9 @@ func commitAttempts(t *testing.T, res result) int {
 	return out.Commit.Attempts
 }
 
-// TestConcurrentCommitsTakeTurns has eight stages commit at the same time.
+// TestManyStagesCommitInTurns has eight stages commit at the same time.
 // Each commit waits for its turn and lands without a replay.
-func TestConcurrentCommitsTakeTurns(t *testing.T) {
+func TestManyStagesCommitInTurns(t *testing.T) {
 	for range iterations() {
 		r := newRepo(t)
 		const agents = 8
