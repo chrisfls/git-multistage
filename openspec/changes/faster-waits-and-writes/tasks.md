@@ -25,7 +25,9 @@
 
 ## 2. Writes
 
-- [ ] 2.1 Flush atomic writes with `fsync(2)` on macOS and with `os.File.Sync` elsewhere. Verify: a unit test writes a file with `writeFileAtomic` and reads it back; the scenario's writes take under 1 ms each on macOS; the crash, kill, hook, and sync end-to-end tests pass.
+- [x] 2.1 Flush atomic writes with `fsync(2)` on macOS and with `os.File.Sync` elsewhere. Verify: a unit test writes a file with `writeFileAtomic` and reads it back; the scenario's writes take under 1 ms each on macOS; the crash, kill, hook, and sync end-to-end tests pass.
+
+  Result: `TestWriteFileAtomic` passes, and `go vet` passes for Linux and Windows. In a build with timers, the scenario's writes took 0.17 to 0.23 ms each, against 4.4 to 7.0 ms before. The end-to-end tests whose names match crash, kill, hook, sync, and recover pass (14 s).
 
 ## 3. Lock waits
 
