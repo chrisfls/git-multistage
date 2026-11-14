@@ -38,6 +38,13 @@ func TestPluginFiles(t *testing.T) {
 	if len(parts) != 3 || !strings.Contains(parts[1], "name: git-multistage\n") || !strings.Contains(parts[1], "description: ") {
 		t.Fatal("skills/git-multistage/SKILL.md must start with front matter that holds `name: git-multistage` and a description")
 	}
+	// The agent reads the description to decide when to load the skill, so
+	// it says when, in one sentence.
+	_, desc, _ := strings.Cut(parts[1], "description: ")
+	desc, _, _ = strings.Cut(desc, "\n")
+	if !strings.HasPrefix(desc, "Use ") || strings.Count(desc, ". ") > 0 || !strings.HasSuffix(desc, ".") {
+		t.Fatalf("the skill description must be one sentence that starts with `Use `: %q", desc)
+	}
 }
 
 // TestPluginVersion checks that the Claude Code plugin, its marketplace

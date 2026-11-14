@@ -18,7 +18,7 @@
 
 ## 5. Skill and README
 
-- [ ] 5.1 Rewrite the skill: the description says when to use it, the body holds the procedure, staging by path starts with `hunks`, and failures go to the hint. Make `TestPluginFiles` check that the description starts with `Use `. Count the tokens
+- [x] 5.1 Rewrite the skill: the description says when to use it, the body holds the procedure, staging by path starts with `hunks`, and failures go to the hint. Make `TestPluginFiles` check that the description starts with `Use `. Count the tokens
 - [ ] 5.2 Add the opt-in to the README's plugin install, and the rules for an agent without the plugin. Set the plugin manifests to the release version
 
 ## 6. Evaluation
