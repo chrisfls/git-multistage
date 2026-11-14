@@ -17,9 +17,16 @@ func (r *repo) traceCalls(agent string, args ...string) []string {
 	if res := run(r.dir, agent, []string{"GIT_TRACE2_EVENT=" + trace}, args...); res.code != 0 {
 		r.t.Fatalf("git-multistage %s:\n%s", strings.Join(args, " "), res)
 	}
+	return readTrace(r.t, trace)
+}
+
+// readTrace returns the subcommand of each Git process in a file of Git's
+// trace2 events, in start order.
+func readTrace(tb testing.TB, trace string) []string {
+	tb.Helper()
 	data, err := os.ReadFile(trace)
 	if err != nil {
-		r.t.Fatal(err)
+		tb.Fatal(err)
 	}
 	var subs []string
 	for _, line := range strings.Split(string(data), "\n") {
@@ -269,5 +276,44 @@ func TestStageCommandsReadRefsFromFiles(t *testing.T) {
 				t.Errorf("%v started %d %s: %v", args, n, name, subs)
 			}
 		}
+	}
+}
+
+// TestIndexReadsStartNoLsFiles checks that the edit hooks, add --edits, add
+// of a tracked and of a new file, and commit read index entries and index
+// spellings from the index file: with core.ignoreCase set, they start no
+// ls-files.
+func TestIndexReadsStartNoLsFiles(t *testing.T) {
+	t.Parallel()
+	r := newRepo(t)
+	r.git("config", "core.ignoreCase", "true")
+	r.write("f.txt", "1\n")
+	r.write("g.txt", "1\n")
+	r.git("add", ".")
+	r.git("commit", "-q", "-m", "files")
+	hook := func(event string) []string {
+		t.Helper()
+		trace := filepath.Join(t.TempDir(), "trace")
+		if res := r.hookCall(event, "Edit", "s", "", r.path("f.txt"), "GIT_TRACE2_EVENT="+trace); res.code != 0 {
+			t.Fatalf("%s:\n%s", event, res)
+		}
+		return readTrace(t, trace)
+	}
+	calls := map[string][]string{"PreToolUse": hook("PreToolUse")}
+	r.write("f.txt", "2\n")
+	calls["PostToolUse"] = hook("PostToolUse")
+	calls["add --edits"] = r.traceCalls("claude-s", "add", "--edits")
+	r.write("g.txt", "2\n")
+	calls["add g.txt"] = r.traceCalls("claude-s", "add", "g.txt")
+	r.write("new.txt", "n\n")
+	calls["add new.txt"] = r.traceCalls("claude-s", "add", "new.txt")
+	calls["commit"] = r.traceCalls("claude-s", "commit", "-m", "x")
+	for name, subs := range calls {
+		if n := countCalls(subs, "ls-files"); n != 0 {
+			t.Errorf("%s started %d ls-files: %v", name, n, subs)
+		}
+	}
+	if got := r.changedPaths("HEAD"); !eq(got, []string{"f.txt", "g.txt", "new.txt"}) {
+		t.Fatalf("the commit changed %v", got)
 	}
 }

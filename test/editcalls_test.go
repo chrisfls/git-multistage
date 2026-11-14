@@ -69,8 +69,8 @@ func TestAddEditsReadsAndWritesTheIndexOnce(t *testing.T) {
 	if res.code != 0 {
 		t.Fatal(res)
 	}
-	if n := countCmd(cmds, "ls-files"); n != 1 {
-		t.Errorf("add --edits started %d ls-files, want 1: %v", n, cmds)
+	if n := countCmd(cmds, "ls-files"); n != 0 {
+		t.Errorf("add --edits started %d ls-files, want none: it reads the index file: %v", n, cmds)
 	}
 	if n := countCmd(cmds, "update-index"); n != 1 {
 		t.Errorf("add --edits started %d update-index, want 1: %v", n, cmds)

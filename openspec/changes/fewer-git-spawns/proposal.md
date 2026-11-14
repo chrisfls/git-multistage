@@ -31,5 +31,5 @@ None. No requirement changes, so the change sets `skip_specs: true`. The `cli` r
 
 - `internal/gitx/gitx.go`: `Open`, the version check, `ResolveRef`, `SymbolicHead`, and `TipAndHead`.
 - `internal/gitx/refs.go` and `internal/gitx/index.go`: new readers of the ref files and of index entries, with their tests.
-- `internal/ms/stage.go`, `internal/ms/indexsync.go`, and `internal/ms/hook.go`: `lsIndex`, `readIndexEntries`, and the index spelling in `newEditHook` call the index reader.
+- `internal/ms/stage.go`, `internal/ms/indexsync.go`, and `internal/ms/hook.go`: `lsIndex`, `readIndexEntries`, and the index spellings in `canonicalUnheld` and `newEditHook` call the index reader.
 - Every command starts fewer `git` processes. The measurements before and after go in `tasks.md`.

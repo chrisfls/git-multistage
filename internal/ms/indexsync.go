@@ -586,8 +586,17 @@ func (r *Repo) planIndexChanges(index string, changes []gitx.Entry, res *SyncRes
 }
 
 // readIndexEntries reads the stage-0 entries of paths in index, and the
-// paths that have conflict stages.
+// paths that have conflict stages. It reads the index file itself when it
+// can, and runs ls-files otherwise.
 func (r *Repo) readIndexEntries(index string, paths []string) (map[string]stagedEntry, map[string]bool, error) {
+	if current, conflicted, ok := r.readIndexFile(index, paths); ok {
+		return current, conflicted, nil
+	}
+	return r.lsFilesEntries(index, paths)
+}
+
+// lsFilesEntries reads what readIndexEntries reads with ls-files.
+func (r *Repo) lsFilesEntries(index string, paths []string) (map[string]stagedEntry, map[string]bool, error) {
 	current := map[string]stagedEntry{}
 	conflicted := map[string]bool{}
 	for start := 0; start < len(paths); start += 200 {
@@ -613,6 +622,63 @@ func (r *Repo) readIndexEntries(index string, paths []string) (map[string]staged
 		}
 	}
 	return current, conflicted, nil
+}
+
+// readIndexFile reads what readIndexEntries reads, from the index file. It
+// keeps the literal pathspecs of ls-files: a path matches itself and every
+// path below it. ok is false when only Git can read the file or the paths.
+func (r *Repo) readIndexFile(index string, paths []string) (current map[string]stagedEntry, conflicted map[string]bool, ok bool) {
+	current, conflicted = map[string]stagedEntry{}, map[string]bool{}
+	if len(paths) == 0 {
+		return current, conflicted, true
+	}
+	specs := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		if !plainPath(p) {
+			return nil, nil, false
+		}
+		specs[p] = true
+	}
+	if index == "" {
+		index = r.IndexPath
+	}
+	entries, ok := r.ReadIndex(index, func(name []byte) bool {
+		if specs[string(name)] {
+			return true
+		}
+		for i, c := range name {
+			if c == '/' && specs[string(name[:i])] {
+				return true
+			}
+		}
+		return false
+	})
+	if !ok {
+		return nil, nil, false
+	}
+	for _, e := range entries {
+		if e.Stage != 0 {
+			conflicted[e.Path] = true
+			continue
+		}
+		current[e.Path] = stagedEntry{e.Mode, e.OID}
+	}
+	return current, conflicted, true
+}
+
+// plainPath reports whether ls-files reads the pathspec p as the path p: p
+// is not empty, holds no backslash, which Git for Windows reads as "/", and
+// has no empty, ".", or ".." component.
+func plainPath(p string) bool {
+	if p == "" || strings.ContainsRune(p, '\\') {
+		return false
+	}
+	for _, c := range strings.Split(p, "/") {
+		if c == "" || c == "." || c == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // copyFile copies an index file. The copy keeps the original's modification

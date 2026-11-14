@@ -199,20 +199,32 @@ func newEditHook(in hookCall, stage, file string) (*editHook, error) {
 	// On a case-insensitive file system, use the index's spelling, so that
 	// the record names one file whatever case the editor used.
 	if r.ConfigBool("core.ignoreCase", false) {
-		out, err := r.Run(gitx.Opt{Env: []string{envLiteralPathspecs, "GIT_ICASE_PATHSPECS=1"}}, "ls-files", "-z", "--", rel)
-		if err == nil {
-			for _, name := range strings.Split(string(out), "\x00") {
-				if strings.EqualFold(name, rel) {
-					rel = name
-					break
-				}
-			}
-		}
+		rel = r.indexSpelling(rel)
 	}
 	h := &editHook{r: r, in: in, stage: stage, stageDir: filepath.Join(r.stagesDir(), stage), path: rel, file: file}
 	sum := sha256.Sum256([]byte(rel))
 	h.key = sanitizeID(in.ToolUseID + "-" + hex.EncodeToString(sum[:8]))
 	return h, nil
+}
+
+// indexSpelling returns the path of the default index's first entry that
+// equals rel without case, or rel when there is none.
+func (r *Repo) indexSpelling(rel string) string {
+	if name, found, ok := r.icaseSpelling(r.IndexPath, rel, rel); ok {
+		if found {
+			return name
+		}
+		return rel
+	}
+	out, err := r.Run(gitx.Opt{Env: []string{envLiteralPathspecs, "GIT_ICASE_PATHSPECS=1"}}, "ls-files", "-z", "--", rel)
+	if err == nil {
+		for _, name := range strings.Split(string(out), "\x00") {
+			if strings.EqualFold(name, rel) {
+				return name
+			}
+		}
+	}
+	return rel
 }
 
 // linkTarget follows the symbolic links at path, even to a target that does

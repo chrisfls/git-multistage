@@ -411,18 +411,12 @@ type indexEntry struct{ mode, oid string }
 
 // lsIndex returns the stage-0 index entry of path in idx.
 func (r *Repo) lsIndex(idx, p string) (indexEntry, bool, error) {
-	out, err := r.Run(gitx.Opt{Index: idx}, "ls-files", "-s", "-z", "--", p)
+	current, _, err := r.readIndexEntries(idx, []string{p})
 	if err != nil {
 		return indexEntry{}, false, err
 	}
-	for _, rec := range strings.Split(string(out), "\x00") {
-		meta, name, ok := strings.Cut(rec, "\t")
-		f := strings.Fields(meta)
-		if ok && name == p && len(f) == 3 && f[2] == "0" {
-			return indexEntry{f[0], f[1]}, true, nil
-		}
-	}
-	return indexEntry{}, false, nil
+	e, ok := current[p]
+	return indexEntry(e), ok, nil
 }
 
 // lsTree returns the entry of path in commit.
@@ -587,6 +581,12 @@ func (l *Stage) canonicalUnheld(p string) (string, error) {
 		return p, nil
 	}
 	dir := path.Dir(p)
+	if name, found, ok := l.r.icaseSpelling(l.IndexPath(), dir, p); ok {
+		if found {
+			return name, nil
+		}
+		return p, nil
+	}
 	out, err := l.r.Run(gitx.Opt{Index: l.IndexPath(), Env: []string{envLiteralPathspecs, "GIT_ICASE_PATHSPECS=1"}},
 		"ls-files", "-z", "--", dir)
 	if err != nil {
@@ -598,6 +598,49 @@ func (l *Stage) canonicalUnheld(p string) (string, error) {
 		}
 	}
 	return p, nil
+}
+
+// icaseSpelling returns the first entry of the index file that `ls-files --
+// <spec>` lists with GIT_ICASE_PATHSPECS and that equals p without case, as
+// canonicalUnheld and indexSpelling choose it from that output. The pathspec
+// matches spec and the paths below it without ASCII case, and "." matches
+// every path. ok is false when only Git can tell, such as for a pathspec
+// with glob characters or magic.
+func (r *Repo) icaseSpelling(index, spec, p string) (name string, found, ok bool) {
+	if spec == "" || strings.ContainsAny(spec, "*?[\\") || strings.HasPrefix(spec, ":") {
+		return "", false, false
+	}
+	entries, ok := r.ReadIndex(index, func(name []byte) bool {
+		if spec != "." && !asciiEqualFold(name, spec) &&
+			(len(name) <= len(spec) || name[len(spec)] != '/' || !asciiEqualFold(name[:len(spec)], spec)) {
+			return false
+		}
+		return strings.EqualFold(string(name), p)
+	})
+	if !ok || len(entries) == 0 {
+		return "", false, ok
+	}
+	return entries[0].Path, true, true
+}
+
+// asciiEqualFold reports whether a and b are equal without ASCII case.
+func asciiEqualFold(a []byte, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		x, y := a[i], b[i]
+		if 'A' <= x && x <= 'Z' {
+			x += 'a' - 'A'
+		}
+		if 'A' <= y && y <= 'Z' {
+			y += 'a' - 'A'
+		}
+		if x != y {
+			return false
+		}
+	}
+	return true
 }
 
 // unstagedHunks lists the hunks between the stage index and the working tree.

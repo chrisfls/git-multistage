@@ -10,8 +10,18 @@ import (
 	"github.com/chrisfls/git-multistage/internal/gitx"
 )
 
+// splitIndexes makes Git write split indexes, which only ls-files reads, so
+// that the reads of the test start Git.
+func splitIndexes(t *testing.T) {
+	t.Helper()
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "core.splitIndex")
+	t.Setenv("GIT_CONFIG_VALUE_0", "true")
+}
+
 func TestIndexReadsAnswerFromEarlierReads(t *testing.T) {
 	calls := traceGitCalls(t)
+	splitIndexes(t)
 	r := batchRepo(t)
 	reads := &indexReads{}
 	check := func(idx string, paths []string, wantHeld, wantCalls int) {
@@ -43,14 +53,13 @@ func TestIndexReadsAnswerFromEarlierReads(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(r.Top, "z"), []byte("z"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := r.Run(gitx.Opt{Index: cp}, "update-index", "--add", "z"); err != nil {
+	if out, err := r.Run(gitx.Opt{Index: cp, KeepFormat: true}, "update-index", "--add", "z"); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	check(cp, []string{"a", "z"}, 2, 1)
 }
 
-func TestIndexReadsWithoutChecksumAlwaysReadGit(t *testing.T) {
-	calls := traceGitCalls(t)
+func TestIndexReadsWithoutChecksumAreNotRemembered(t *testing.T) {
 	t.Setenv("GIT_CONFIG_COUNT", "1")
 	t.Setenv("GIT_CONFIG_KEY_0", "index.skipHash")
 	t.Setenv("GIT_CONFIG_VALUE_0", "true")
@@ -59,15 +68,14 @@ func TestIndexReadsWithoutChecksumAlwaysReadGit(t *testing.T) {
 		t.Fatalf("index.skipHash left an index checksum: %s", sum)
 	}
 	reads := &indexReads{}
-	calls()
 	for range 2 {
 		held, err := reads.read(r, r.IndexPath, []string{"a"})
 		if err != nil || len(held) != 1 {
 			t.Fatalf("read = %v, %v", held, err)
 		}
 	}
-	if got := count(calls(), "ls-files"); got != 2 {
-		t.Fatalf("two reads of an index without a checksum started %d ls-files, want 2", got)
+	if len(reads.bySum) != 0 {
+		t.Fatalf("reads of an index without a checksum were remembered: %v", reads.bySum)
 	}
 }
 
