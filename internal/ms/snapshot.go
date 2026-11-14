@@ -1,7 +1,10 @@
 package ms
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -42,6 +45,10 @@ func (r *Repo) snapshotBlob(indexFile, path string) (string, error) {
 		return r.Line(gitx.Opt{Stdin: strings.NewReader(target)}, "hash-object", "-w", "--stdin")
 	} else if err == nil && !info.Mode().IsRegular() {
 		return r.Line(gitx.Opt{}, "hash-object", "-w", "--path="+path, "--", path)
+	} else if err == nil {
+		if id, ok, err := r.hashIfNoCR(full, path); ok || err != nil {
+			return id, err
+		}
 	}
 	dir, err := r.tempDir("snapshot-")
 	if err != nil {
@@ -56,6 +63,11 @@ func (r *Repo) snapshotBlob(indexFile, path string) (string, error) {
 // temporary work tree that holds the .gitattributes files of path's
 // directories, so attributes and filters apply as in the real work tree.
 func (r *Repo) cleanContent(indexFile, path string, content []byte) (string, error) {
+	if !bytes.Contains(content, []byte{'\r'}) {
+		// As in hashIfNoCR, content without CR needs no index. hash-object
+		// reads the attributes of path from the real work tree.
+		return r.Line(gitx.Opt{Stdin: bytes.NewReader(content)}, "hash-object", "-w", "--stdin", "--path="+path)
+	}
 	dir, err := r.tempDir("clean-")
 	if err != nil {
 		return "", err
@@ -81,6 +93,33 @@ func (r *Repo) cleanContent(indexFile, path string, content []byte) (string, err
 	}
 	o := gitx.Opt{Dir: wt, Env: []string{"GIT_DIR=" + r.GitDir, "GIT_WORK_TREE=" + wt}}
 	return r.cleanFile(o, indexFile, filepath.Join(dir, "index"), path)
+}
+
+// hashIfNoCR stores the file full as the blob of path when the file holds
+// no CR. Without CR, the line-ending rules give the same blob whatever an
+// index holds, so hash-object, which reads no index, stores the blob that
+// cleanFile would. ok is false for a file with CR.
+func (r *Repo) hashIfNoCR(full, path string) (id string, ok bool, err error) {
+	f, err := os.Open(full)
+	if err != nil {
+		return "", false, err
+	}
+	defer func() { _ = f.Close() }()
+	buf := make([]byte, 64*1024)
+	for {
+		n, err := f.Read(buf)
+		if bytes.IndexByte(buf[:n], '\r') >= 0 {
+			return "", false, nil
+		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return "", false, err
+		}
+	}
+	id, err = r.Line(gitx.Opt{}, "hash-object", "-w", "--path="+path, "--", path)
+	return id, true, err
 }
 
 // tempDir creates a temporary directory in the repository's tmp directory.

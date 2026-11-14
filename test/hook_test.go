@@ -485,3 +485,33 @@ func TestHookAnnouncesTheSharedCheckout(t *testing.T) {
 		t.Fatalf("outside a worktree:\n%s", res)
 	}
 }
+
+// TestHookCleansThroughAFilter edits files that a clean filter changes,
+// with and without the Edit's tool response; each commit holds the cleaned
+// content.
+func TestHookCleansThroughAFilter(t *testing.T) {
+	t.Parallel()
+	r := newRepo(t)
+	r.git("config", "filter.up.clean", "tr a-z A-Z")
+	r.write(".gitattributes", "*.up filter=up\n")
+	r.write("e.up", "a\nb\nc\n")
+	r.git("add", ".")
+	r.git("commit", "-q", "-m", "filter")
+	r.hookedEdit("s", "", "f.up", "x\ny\n")
+	file := r.path("e.up")
+	r.claudeEditCall("PreToolUse", "s", file, "", "b\n", "q\n")
+	r.write("e.up", "a\nb\nz\n") // another writer
+	orig := r.read("e.up")
+	r.write("e.up", "a\nq\nz\n") // the Edit
+	if res := r.claudeEditCall("PostToolUse", "s", file, orig, "b\n", "q\n"); res.code != 0 {
+		t.Fatalf("PostToolUse:\n%s", res)
+	}
+	r.mustMS("", "--stage", "claude-s", "add", "--edits")
+	r.mustMS("", "--stage", "claude-s", "commit", "-m", "s")
+	if got := r.git("show", "main:f.up"); got != "X\nY\n" {
+		t.Fatalf("committed f.up %q", got)
+	}
+	if got := r.git("show", "main:e.up"); got != "A\nQ\nC\n" {
+		t.Fatalf("committed e.up %q", got)
+	}
+}

@@ -15,7 +15,7 @@
 
 ## 2. Snapshots without an index
 
-- [ ] 2.1 Store a snapshot of a file or of content without CR with one `hash-object --path`, and keep the temporary index for content with CR. Verify: a new end-to-end test commits a hooked edit and an Edit's own change through a clean filter; it fails when the fast path drops `--path` or uses `--no-filters`; the CRLF tests pass.
+- [x] 2.1 Store a snapshot of a file or of content without CR with one `hash-object --path`, and keep the temporary index for content with CR. Verify: a new end-to-end test commits a hooked edit and an Edit's own change through a clean filter; it fails when the fast path drops `--path` or uses `--no-filters`; the CRLF tests pass.
 
 ## 3. Results
 
