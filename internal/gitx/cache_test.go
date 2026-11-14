@@ -97,6 +97,31 @@ func TestRememberTree(t *testing.T) {
 	}
 }
 
+func TestRememberCommit(t *testing.T) {
+	r, calls := countingGit(t, "")
+	r.RememberCommit("c2", "t2", "c1")
+	r.RememberCommit("root", "t0", "")
+	if ok, err := r.IsAncestor("c1", "c2"); err != nil || !ok {
+		t.Fatalf("IsAncestor of a recorded parent = %v, %v", ok, err)
+	}
+	if tree, err := r.TreeOf("c2"); err != nil || tree != "t2" {
+		t.Fatalf("TreeOf of a recorded commit = %q, %v", tree, err)
+	}
+	if got := calls(); len(got) != 0 {
+		t.Fatalf("git calls %v, want none", got)
+	}
+	// Other pairs, such as a grandparent, still ask Git.
+	if ok, err := r.IsAncestor("c0", "c2"); err != nil || !ok {
+		t.Fatalf("IsAncestor through Git = %v, %v", ok, err)
+	}
+	if ok, _ := r.IsAncestor("", "root"); ok {
+		t.Fatal("an empty parent must not count")
+	}
+	if got := calls(); len(got) != 1 {
+		t.Fatalf("git calls %v, want one merge-base", got)
+	}
+}
+
 func TestConfigBool(t *testing.T) {
 	list := strings.Join([]string{
 		"core.filemode\nfalse", "core.bare\nfalse", "a.yes\nYes", "a.on\non", "a.off\nOFF",

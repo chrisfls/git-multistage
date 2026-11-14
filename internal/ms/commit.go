@@ -358,6 +358,7 @@ func (r *Repo) commitTree(tree, tip, msg string, sign bool) (string, error) {
 	if err != nil {
 		return "", gitErr(err, ExitError, "commit-tree-failed")
 	}
+	r.RememberCommit(commit, tree, tip)
 	return commit, nil
 }
 

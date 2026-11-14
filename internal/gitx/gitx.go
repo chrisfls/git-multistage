@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,6 +43,7 @@ type Repo struct {
 
 	treesMu sync.Mutex
 	trees   map[string]*treeLookup // by commit ID; a commit's tree never changes
+	parents map[string][]string    // parents of the commits that RememberCommit recorded
 
 	configOnce sync.Once
 	config     map[string]*string // setting to its last value; nil for a key without "="
@@ -423,6 +425,18 @@ func (r *Repo) RememberTree(commit, tree string) {
 	r.trees[commit] = l
 }
 
+// RememberCommit records the tree and the parents of a commit that this
+// process wrote, so that TreeOf and IsAncestor answer for it without Git.
+func (r *Repo) RememberCommit(commit, tree string, parents ...string) {
+	r.RememberTree(commit, tree)
+	r.treesMu.Lock()
+	defer r.treesMu.Unlock()
+	if r.parents == nil {
+		r.parents = map[string][]string{}
+	}
+	r.parents[commit] = slices.DeleteFunc(slices.Clone(parents), func(p string) bool { return p == "" })
+}
+
 // KnownTree returns the tree of commit when TreeOf has it without Git, or "".
 func (r *Repo) KnownTree(commit string) string {
 	r.treesMu.Lock()
@@ -570,6 +584,12 @@ func parseBool(v *string) (value, ok bool) {
 func (r *Repo) IsAncestor(a, b string) (bool, error) {
 	if a == "" || b == "" {
 		return false, nil
+	}
+	r.treesMu.Lock()
+	parent := slices.Contains(r.parents[b], a)
+	r.treesMu.Unlock()
+	if parent {
+		return true, nil
 	}
 	_, err := r.Run(Opt{}, "merge-base", "--is-ancestor", a, b)
 	if err == nil {
