@@ -164,34 +164,44 @@ func ownGit() string {
 	return p
 }
 
-// Open discovers the repository that contains dir.
-func Open(dir string) (*Repo, error) {
+// Open discovers the repository that contains dir. cacheName names a
+// directory under the Git directory for the files that remember results
+// between processes; "" keeps them in memory only.
+func Open(dir, cacheName string) (*Repo, error) {
 	r := &Repo{baseEnv: internalEnv(), git: ownGit()}
 	r.Top = dir
-	// The version check runs beside rev-parse; its error comes first, because
-	// an old Git can fail rev-parse for a reason that the check explains.
-	versionErr := make(chan error, 1)
-	go func() { versionErr <- r.checkVersion() }()
+	// An old Git can fail rev-parse for a reason that the version check
+	// explains, so the check's error comes first.
+	fail := func(err error) (*Repo, error) {
+		if verr := r.checkVersion(""); verr != nil {
+			return nil, verr
+		}
+		return nil, err
+	}
 	out, err := r.Run(Opt{Dir: dir}, "rev-parse", "--path-format=absolute",
 		"--show-toplevel", "--git-dir", "--git-common-dir", "--show-prefix", "--show-object-format",
 		"--show-ref-format", "--git-path", "index")
-	if verr := <-versionErr; verr != nil {
-		return nil, verr
-	}
 	if err != nil {
 		var ee *ExitError
 		if errors.As(err, &ee) {
-			return nil, fmt.Errorf("not inside a Git worktree: %s", strings.TrimSpace(ee.Stderr))
+			return fail(fmt.Errorf("not inside a Git worktree: %s", strings.TrimSpace(ee.Stderr)))
 		}
-		return nil, err
+		return fail(err)
 	}
 	// The prefix is "" at the top of the worktree, so its line can be empty.
 	lines := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
 	if len(lines) != 7 || lines[0] == "" {
-		return nil, errors.New("not inside a Git worktree (bare repositories are not supported)")
+		return fail(errors.New("not inside a Git worktree (bare repositories are not supported)"))
 	}
 	r.Top, r.GitDir, r.CommonDir = filepath.Clean(lines[0]), filepath.Clean(lines[1]), filepath.Clean(lines[2])
 	r.Prefix, r.ObjectFormat, r.RefFormat, r.IndexPath = lines[3], lines[4], lines[5], filepath.Clean(lines[6])
+	versionCache := ""
+	if cacheName != "" {
+		versionCache = filepath.Join(r.GitDir, cacheName, "git-version")
+	}
+	if err := r.checkVersion(versionCache); err != nil {
+		return nil, err
+	}
 	empty, ok := emptyObjects[r.ObjectFormat]
 	if !ok {
 		return nil, fmt.Errorf("unknown object format %q", r.ObjectFormat)
@@ -224,13 +234,24 @@ var versionChecked struct {
 	err  error
 }
 
-// checkVersion runs `git version` once for each process.
-func (r *Repo) checkVersion() error {
-	versionChecked.once.Do(func() { versionChecked.err = r.runVersionCheck() })
+// checkVersion runs the version check once for each process. A cache file
+// that names the binary of internal calls as one that passed skips `git
+// version`; cache "" reads and writes no file.
+func (r *Repo) checkVersion(cache string) error {
+	versionChecked.once.Do(func() { versionChecked.err = r.runVersionCheck(cache) })
 	return versionChecked.err
 }
 
-func (r *Repo) runVersionCheck() error {
+func (r *Repo) runVersionCheck(cache string) error {
+	key := ""
+	if cache != "" {
+		key = r.binaryKey()
+	}
+	if key != "" {
+		if data, err := os.ReadFile(cache); err == nil && string(data) == key+"\n" {
+			return nil
+		}
+	}
 	out, err := r.Run(Opt{}, "version")
 	if err != nil {
 		return fmt.Errorf("cannot run git: %w", err)
@@ -245,7 +266,45 @@ func (r *Repo) runVersionCheck() error {
 		return fmt.Errorf("git-multistage needs Git %d.%d or newer; found %s",
 			MinVersion[0], MinVersion[1], strings.TrimSpace(string(out)))
 	}
+	if key != "" {
+		writeCacheFile(cache, key+"\n")
+	}
 	return nil
+}
+
+// binaryKey names the file of the Git binary that internal calls run: its
+// size, its modification time in nanoseconds, and its path after symbolic
+// links. An upgrade of Git writes a new file, so the key changes. It returns
+// "" when the binary cannot be found.
+func (r *Repo) binaryKey() string {
+	p, err := exec.LookPath(r.binary(Opt{}))
+	if err != nil {
+		return ""
+	}
+	if p, err = filepath.Abs(p); err != nil {
+		return ""
+	}
+	if p, err = filepath.EvalSymlinks(p); err != nil {
+		return ""
+	}
+	info, err := os.Stat(p)
+	if err != nil || strings.ContainsAny(p, "\n") {
+		return ""
+	}
+	return fmt.Sprintf("%d %d %s", info.Size(), info.ModTime().UnixNano(), p)
+}
+
+// writeCacheFile replaces the file at path with data through a temporary
+// file and a rename, without a flush. A cache file only saves a Git call, so
+// a failed write is ignored.
+func writeCacheFile(path, data string) {
+	if os.MkdirAll(filepath.Dir(path), 0o777) != nil {
+		return
+	}
+	tmp := fmt.Sprintf("%s.tmp-%d", path, os.Getpid())
+	if os.WriteFile(tmp, []byte(data), 0o666) != nil || os.Rename(tmp, path) != nil {
+		_ = os.Remove(tmp)
+	}
 }
 
 // lostObjectWriteRE matches the error of a loose object write that lost a

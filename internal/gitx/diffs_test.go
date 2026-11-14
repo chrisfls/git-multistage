@@ -116,11 +116,11 @@ func TestDiffTreesDerivesTheDiffWithoutRenames(t *testing.T) {
 		t.Run(format, func(t *testing.T) {
 			t.Parallel()
 			dir, pairs := diffRepo(t, format)
-			r, err := Open(dir)
+			r, err := Open(dir, "")
 			if err != nil {
 				t.Fatal(err)
 			}
-			fresh, err := Open(dir)
+			fresh, err := Open(dir, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -162,7 +162,7 @@ func TestDiffTreesDerivesTheDiffWithoutRenames(t *testing.T) {
 func TestDiffTreesRemembersEachResult(t *testing.T) {
 	t.Parallel()
 	dir, pairs := diffRepo(t, "sha1")
-	r, err := Open(dir)
+	r, err := Open(dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestDiffTreesRemembersEachResult(t *testing.T) {
 func TestDiffTreesKeysCommitsByTheirKnownTrees(t *testing.T) {
 	t.Parallel()
 	dir, pairs := diffRepo(t, "sha1")
-	r, err := Open(dir)
+	r, err := Open(dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -25,7 +25,9 @@
 
 ## 2. Version check
 
-- [ ] 2.1 Make `Open` take a cache directory name, run the setup `rev-parse` first, and skip `git version` when `<git-dir>/multistage/git-version` holds the binary's resolved path, size, and modification time; run the check when `rev-parse` fails, and write the file after a passed check. Verify: unit tests show that a second `Open` starts no `git version`, that a changed size, modification time, or path runs it, that a damaged file runs it, that `""` writes no file, and that a Git older than 2.45 still fails `Open` with the version error; the `gitx` tests pass.
+- [x] 2.1 Make `Open` take a cache directory name, run the setup `rev-parse` first, and skip `git version` when `<git-dir>/multistage/git-version` holds the binary's resolved path, size, and modification time; run the check when `rev-parse` fails, and write the file after a passed check. Verify: unit tests show that a second `Open` starts no `git version`, that a changed size, modification time, or path runs it, that a damaged file runs it, that `""` writes no file, and that a Git older than 2.45 still fails `Open` with the version error; the `gitx` tests pass.
+
+  Result: every command after the first one in a worktree starts no `git version`: the scenario starts 103 processes instead of 115, one fewer in each command. Unit tests cover a second check of the same binary, a new modification time, a new size, another path, a damaged cache file, no cache name, an old Git that is not remembered, the cache file that `Open` writes, and an old Git that fails `rev-parse` and gets the version error. The `gitx` tests pass with `-race`, and so do the `ms` unit tests.
 
 ## 3. Ref files
 

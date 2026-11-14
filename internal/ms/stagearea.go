@@ -27,14 +27,18 @@ type Repo struct {
 
 // OpenRepo discovers the repository that contains dir.
 func OpenRepo(dir string) (*Repo, error) {
-	g, err := gitx.Open(dir)
+	g, err := gitx.Open(dir, cacheDirName)
 	if err != nil {
 		return nil, err
 	}
-	msDir := filepath.Join(g.GitDir, "multistage")
+	msDir := filepath.Join(g.GitDir, cacheDirName)
 	g.TreeCache = filepath.Join(msDir, "index-trees")
 	return &Repo{Repo: g, Dir: msDir}, nil
 }
+
+// cacheDirName is the directory of git-multistage's files in the Git
+// directory.
+const cacheDirName = "multistage"
 
 func (r *Repo) stagesDir() string { return filepath.Join(r.Dir, "stages") }
 

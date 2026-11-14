@@ -181,7 +181,7 @@ func TestOwnGit(t *testing.T) {
 	if err != nil || string(ownVersion) != string(shimVersion) {
 		t.Fatalf("%s version = %q, %v; the shim reports %q", own, ownVersion, err, shimVersion)
 	}
-	r, err := Open(initRepo(t, "sha1"))
+	r, err := Open(initRepo(t, "sha1"), "")
 	if err != nil || r.git != own {
 		t.Fatalf("Open runs %q, %v; want %q", r.git, err, own)
 	}

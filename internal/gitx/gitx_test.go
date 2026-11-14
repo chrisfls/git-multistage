@@ -72,11 +72,11 @@ func TestOpenKnowsTheEmptyObjects(t *testing.T) {
 		t.Run(format, func(t *testing.T) {
 			t.Parallel()
 			dir := initRepo(t, format)
-			top, err := Open(dir)
+			top, err := Open(dir, "")
 			if err != nil {
 				t.Fatal(err)
 			}
-			sub, err := Open(filepath.Join(dir, "sub"))
+			sub, err := Open(filepath.Join(dir, "sub"), "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -117,7 +117,7 @@ func TestTipAndHead(t *testing.T) {
 	git("symbolic-ref", "HEAD", "refs/heads/main")
 	git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "i")
 	tip := git("rev-parse", "HEAD")
-	r, err := Open(dir)
+	r, err := Open(dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestTipAndHead(t *testing.T) {
 
 func TestOpenReadsTheRefFormat(t *testing.T) {
 	t.Parallel()
-	r, err := Open(initRepo(t, "sha1"))
+	r, err := Open(initRepo(t, "sha1"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
