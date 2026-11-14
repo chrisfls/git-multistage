@@ -1,0 +1,19 @@
+{
+  "name": "git-multistage",
+  "version": "0.1.9",
+  "private": true,
+  "description": "Records each agent's file edits in its own git-multistage stage, so agents that share a checkout commit only their own changes.",
+  "type": "module",
+  "main": "plugins/opencode/git-multistage.js",
+  "license": "MIT",
+  "homepage": "https://github.com/chrisfls/git-multistage",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chrisfls/git-multistage.git"
+  },
+  "keywords": ["pi-package", "opencode", "git", "staging", "parallel-agents"],
+  "pi": {
+    "extensions": ["./plugins/pi/git-multistage.js"],
+    "skills": ["./skills"]
+  }
+}
