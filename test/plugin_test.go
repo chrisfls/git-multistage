@@ -39,3 +39,27 @@ func TestPluginFiles(t *testing.T) {
 		t.Fatal("skills/git-multistage/SKILL.md must start with front matter that holds `name: git-multistage` and a description")
 	}
 }
+
+// TestPluginVersion checks that the Claude Code plugin, its marketplace
+// entry, and the Codex plugin carry one version. An installed plugin
+// updates only when that version changes.
+func TestPluginVersion(t *testing.T) {
+	t.Parallel()
+	var claude, codex struct{ Version string }
+	var market struct{ Plugins []struct{ Version string } }
+	for f, v := range map[string]any{
+		"../.claude-plugin/plugin.json": &claude, "../.codex-plugin/plugin.json": &codex,
+		"../.claude-plugin/marketplace.json": &market,
+	} {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, v); err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+	}
+	if claude.Version == "" || codex.Version != claude.Version || len(market.Plugins) != 1 || market.Plugins[0].Version != claude.Version {
+		t.Fatalf("the plugin versions differ: Claude Code %q, Codex %q, marketplace %+v", claude.Version, codex.Version, market.Plugins)
+	}
+}

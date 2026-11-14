@@ -12,7 +12,7 @@
 
 ## 3. Plugin version
 
-- [ ] 3.1 Set the version of `.claude-plugin/plugin.json`, its marketplace entry, and `.codex-plugin/plugin.json` to the release version of this change, the next patch version after the newest tag. Make `TestPluginFiles` check that the three agree, and verify that it passes and that `claude plugin validate .` passes
+- [x] 3.1 Set the version of `.claude-plugin/plugin.json`, its marketplace entry, and `.codex-plugin/plugin.json` to the release version of this change, the next patch version after the newest tag. Make `TestPluginFiles` check that the three agree, and verify that it passes and that `claude plugin validate .` passes
 
 ## 4. Integration
 
