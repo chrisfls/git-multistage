@@ -65,7 +65,7 @@ The Claude Code plugin files SHALL install in each harness that reads them: Anti
 - **THEN** Droid installs the skill and the hooks
 
 ### Requirement: Harness manifests
-The repository SHALL hold a manifest for each harness that reads its own: `.cursor-plugin/plugin.json` with the hooks file `hooks/cursor.json` for Cursor CLI, `.kimi-plugin/plugin.json` with its hooks for Kimi Code, `.muse-plugin/plugin.json` and `.muse-plugin/marketplace.json` with its hooks for Muse Code, and `.hermes-plugin/` for Hermes Agent. Each SHALL ship the `git-multistage` skill and run `git multistage hook <editor>` with that harness's editor name.
+The repository SHALL hold a manifest for each harness that reads its own: `.cursor-plugin/` with `hooks/cursor.json` for Cursor CLI, `.kimi-plugin/plugin.json` for Kimi Code, `.muse-plugin/` for Muse Code, and `.hermes-plugin/` for Hermes Agent. Each SHALL ship the `git-multistage` skill and run `git multistage hook <editor>` with that harness's editor name.
 
 #### Scenario: Kimi Code manifest
 - **WHEN** the test suite reads `.kimi-plugin/plugin.json`

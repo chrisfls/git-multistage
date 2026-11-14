@@ -131,7 +131,7 @@ The harnesses in the "Claude Code plugin" rows read `.claude-plugin/`, `hooks/ho
 
 ### Harness files
 
-- **Cursor**: `.cursor-plugin/plugin.json` points to `./skills/` and `./hooks/cursor.json`, which uses Cursor's `version: 1` form with `sessionStart`, and `preToolUse`, `postToolUse`, `postToolUseFailure` on the `Write` tool.
+- **Cursor**: `cursor-agent plugin marketplace add` reads `.cursor-plugin/marketplace.json`, a copy of Claude Code's marketplace entry; no source settled which marketplace file Cursor reads. `.cursor-plugin/plugin.json` points to `./skills/` and `./hooks/cursor.json`, which uses Cursor's `version: 1` form with `sessionStart`, and `preToolUse`, `postToolUse`, `postToolUseFailure` on the `Write` tool.
 - **Kimi Code**: `.kimi-plugin/plugin.json` lists the skill and four hooks with `matcher` `^(Write|Edit)$`.
 - **Muse Code**: `.muse-plugin/plugin.json` lists the skill and hooks for `SessionStart`, `PreToolUse`, and `PostToolUse` as `["git", "multistage", "hook", "muse"]`. No source shows a matcher, so the hook filters the tools.
 - **Gemini CLI**: `plugins/gemini/` holds `gemini-extension.json`, `hooks/hooks.json` with `SessionStart`, `BeforeTool`, and `AfterTool` on `write_file|replace`, and the skill. A separate folder keeps `BeforeTool` out of `hooks/hooks.json`, where `claude plugin validate --strict` reports it as an unknown event.
@@ -155,7 +155,7 @@ The OpenCode and Amp files are single files without imports of their own, becaus
 
 ### Version
 
-`TestPluginVersion` reads every manifest: `.claude-plugin/plugin.json` and its marketplace entry, `.codex-plugin/plugin.json`, `.cursor-plugin/plugin.json`, `.kimi-plugin/plugin.json`, `.muse-plugin/plugin.json` and its marketplace entry, `.hermes-plugin/plugin.yaml`, `package.json`, `plugins/vibe/plugin.json`, and `plugins/gemini/gemini-extension.json`.
+`TestPluginVersion` reads every manifest: `.claude-plugin/plugin.json` and its marketplace entry, `.codex-plugin/plugin.json`, `.cursor-plugin/plugin.json` and its marketplace entry, `.kimi-plugin/plugin.json`, `.muse-plugin/plugin.json` and its marketplace entry, `.hermes-plugin/plugin.yaml`, `package.json`, `plugins/vibe/plugin.json`, and `plugins/gemini/gemini-extension.json`.
 
 ## Risks / Trade-offs
 
