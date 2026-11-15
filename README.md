@@ -157,22 +157,27 @@ Commands that you run in the checkout, such as a build or the tests, see the unc
 
 ## Coding agents
 
-Give each agent its own stage ID, such as its agent ID, and point it to [the agent guide](skills/git-multistage/SKILL.md). For an agent without the plugin, also put the rules of a shared checkout in the project's `AGENTS.md` or `CLAUDE.md`:
+Give each coding agent its own stage ID, such as its agent ID. An agent can use git-multistage by following [the agent guide](skills/git-multistage/SKILL.md), or through the plugin, which also records the edits that it makes with its file tools.
+
+### Without the plugin
+
+Point the agent to the agent guide, and put the rules of a shared checkout in the project's `AGENTS.md` or `CLAUDE.md`:
 
 ```markdown
 Other agents may edit files in this checkout and commit to this branch while you work. Commits, file changes, and stages that you did not make are theirs: do not review, revert, stage, or mention them unless they block your task, and keep their changes in the working tree, even for a moment. To run something without them, use a separate worktree from `git worktree add`. Do not run `git add`, `git commit`, `git rm`, `git mv`, `git stash`, `git restore`, `git reset`, `git checkout`, or `git switch`: they change state that every agent shares. Stage and commit with `git multistage`, as skills/git-multistage/SKILL.md describes.
 ```
 
-Install the plugin in your coding agent: Claude Code and Codex below, and 29 other harnesses in [Other harnesses](#other-harnesses). The plugin records each edit that an agent makes with its file tools in that agent's stage, and teaches the agent the commands. The agent then stages its recorded edits and commits them:
+### With the plugin
+
+The plugin records each edit that an agent makes with its file tools in that agent's stage, and teaches the agent the commands. Its hooks act only in a checkout that opts in, so a repository that one agent uses alone stays as it is. In each checkout that agents share, run:
 
 ```bash
-git multistage --stage <id> add --edits
-git multistage --stage <id> commit -m "Add input validation"
+git config multistage.shared true
 ```
 
-`add --edits` stages only the lines that the agent itself changed, even when another agent changed the next line. It stages them from the plugin's record, so the stage keeps the agent's work even after another writer overwrote those lines or deleted the file.
+In an opted-in checkout, the plugin gives each session and subagent the rules of a shared checkout at its start, and refuses the Git commands that change shared state, such as `git stash` and `git commit`. `git config multistage.shared false` turns the plugin off for the checkout.
 
-The plugin calls the `git-multistage` binary, so [install it](#install) first: the hooks report an error while the binary is not on your `PATH`.
+The plugin calls the `git-multistage` binary, so [install it](#install) first: the hooks report an error while the binary is not on your `PATH`. Install the plugin in Claude Code, in Codex, or in one of the [other harnesses](#other-harnesses).
 
 Claude Code:
 
@@ -188,14 +193,6 @@ codex plugin marketplace add chrisfls/git-multistage
 codex plugin add git-multistage@git-multistage
 ```
 
-The hooks act only in a checkout that opts in, so a repository that one agent uses alone stays as it is. In each checkout that agents share, run:
-
-```bash
-git config multistage.shared true
-```
-
-In an opted-in checkout, the plugin gives each session and subagent the rules of a shared checkout at its start, and refuses the Git commands that change shared state, such as `git stash` and `git commit`. `git config multistage.shared false` turns the plugin off for the checkout.
-
 Codex asks you to trust the plugin's hooks the next time it starts. Its default sandbox makes `.git` read-only, so `git multistage` needs a rule to run outside it. Add the rule to `.codex/rules/multistage.rules` in a trusted project, or to a file in `~/.codex/rules/`:
 
 ```python
@@ -203,6 +200,17 @@ prefix_rule(pattern = ["git", "multistage"], decision = "allow")
 ```
 
 This rule also lets the agent run commands that discard staged changes, such as `drop --force`, without asking. To allow single commands instead, use `pattern = ["git", "multistage", "add"]` and similar lines.
+
+With the plugin installed, the agent stages its recorded edits and commits them:
+
+```bash
+git multistage --stage <id> add --edits
+git multistage --stage <id> commit -m "Add input validation"
+```
+
+`add --edits` stages only the lines that the agent itself changed, even when another agent changed the next line. It stages them from the plugin's record, so the stage keeps the agent's work even after another writer overwrote those lines or deleted the file.
+
+The plugin records only the edits of an agent's file tools. Stage the changes of a shell command, such as a formatter, with `add` or `add --hunk`, or with `rm` and `mv` for a deleted or moved file.
 
 ### Other harnesses
 

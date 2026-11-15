@@ -4,7 +4,7 @@
 
 - [x] 1.1 Reorder the sections as D1 says, and rewrite the overview. Verify: the headings of `README.md` appear in the order of the proposal.
 - [x] 1.2 Replace "What it keeps apart" with "How isolation works" after the quick start, with the boundary sentence first, the reworded deletion and move sentence, and the worktree paragraph of D3. Verify: the section holds each fact of the old section.
-- [ ] 1.3 Reorganize "Coding agents": the two setups first, the opt-in after the plugin's introduction, the shell-edit limit next to `add --edits`, and the harness table without the count. Verify: no "29" remains, and the opt-in comes before the Claude Code install commands.
+- [x] 1.3 Reorganize "Coding agents": the two setups first, the opt-in after the plugin's introduction, the shell-edit limit next to `add --edits`, and the harness table without the count. Verify: no "29" remains, and the opt-in comes before the Claude Code install commands.
 - [ ] 1.4 Apply the wording edits of the proposal without contractions. Verify: `grep -nE "n't|'s |'re " README.md` finds no new contraction.
 
 ## 2. Checks
