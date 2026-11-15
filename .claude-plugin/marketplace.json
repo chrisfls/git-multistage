@@ -9,7 +9,7 @@
     {
       "name": "git-multistage",
       "description": "Records each agent's file edits in its own git-multistage stage, so agents that share a checkout commit only their own changes.",
-      "version": "0.1.13",
+      "version": "0.1.14",
       "source": "./"
     }
   ]
