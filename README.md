@@ -17,13 +17,13 @@ Use it to work on several changes at once, or to let several coding agents share
 
 ## The problem
 
-Git has one staging area, the index, for each checkout. When you work on several changes, everything that you stage goes into the same index, and `git commit` commits all of it together.
+Git has one staging area, the index, for each checkout. When several tasks share a checkout, their staged changes go into the same index, and `git commit` commits all of it together.
 
-To keep unrelated changes apart, you stage one change at a time. For two changes in the same file, that takes `git add -p`, which is interactive and hard to script.
+To keep the tasks in separate commits, you stage one task at a time. When two tasks change the same file, `git add -p` can separate them, but it is interactive and hard to script.
 
-Separate worktrees keep changes apart, but each worktree has its own working tree and branch. Each can need its own dependency install and build output, and its branch has to be merged back.
+Separate worktrees keep changes apart, but each worktree has its own working tree and branch. Each may need separate dependencies and build outputs, and its branch has to be merged back.
 
-git-multistage keeps one checkout and gives each change its own index, so each change is staged and committed on its own.
+git-multistage gives each task its own stage, with its own index, in one checkout, so you can stage and commit the changes of one task without those of another.
 
 ## Install
 
