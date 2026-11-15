@@ -78,7 +78,7 @@ The first command creates `fix-login` if it does not exist yet. The commit conta
 
 ### Stage part of a file
 
-Two agents are working in the same checkout, each with its own stage. `fix-login` is committed as above. The `validation` stage holds an input check in `src/shared.ts`, which also holds an unrelated edit.
+Two unrelated changes are in progress in the same checkout, each in its own stage. `fix-login` is committed as above. The `validation` stage holds an input check in `src/shared.ts`, which also holds an unrelated edit.
 
 List the hunks of the file:
 
