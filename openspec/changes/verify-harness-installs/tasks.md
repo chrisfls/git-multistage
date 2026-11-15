@@ -16,7 +16,7 @@
 - [x] 3.1 Correct the install steps of OpenCode, Kilo Code, MiMo Code, Oh My Pi, Copilot, CodeBuddy, Qwen Code, Gemini CLI, Kiro CLI, OpenHands, CodeArts Agent, Muse Code, and Aider
 - [x] 3.2 Add `scripts/live-check.sh`, and verify that it prints `PASS claude`, `PASS codex`, and `PASS opencode`
 - [x] 3.3 Raise every manifest to the release version of this change, the next patch version after the newest tag: 0.1.13, after v0.1.12
-- [ ] 3.4 Run `mise run ci` once, and verify that it passes
+- [x] 3.4 Run `mise run ci` once, and verify that it passes. It passed on `0574bf2` in 66 s, run on an export of that commit, and `scripts/live-check.sh` then printed `PASS claude`, `PASS codex`, and `PASS opencode` on the same commit
 
 ## Results
 
