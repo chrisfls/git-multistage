@@ -85,7 +85,7 @@ The first command creates `fix-login` if it does not exist yet. The commit conta
 
 ### Stage part of a file
 
-Two unrelated changes are in progress in the same checkout, each in its own stage. `fix-login` is committed as above. The `validation` stage holds an input check in `src/shared.ts`, which also holds an unrelated edit.
+After `fix-login` is committed, `src/shared.ts` holds two unrelated edits. You want to commit an input-length check, and leave the other edit in the working tree.
 
 List the hunks of the file:
 
