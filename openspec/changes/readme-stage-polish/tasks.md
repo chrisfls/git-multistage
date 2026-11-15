@@ -14,5 +14,9 @@
 
 ## 2. Checks
 
-- [ ] 2.1 Compare the fenced blocks and table rows of the old and new README. Verify: a script lists no block or row of the old README that the new one lacks.
+- [x] 2.1 Compare the fenced blocks and table rows of the old and new README. Verify: a script lists no block or row of the old README that the new one lacks.
+
+  Result: the old README holds 20 fenced blocks and 39 table rows, and the new one holds 21 blocks, with the overview example, and the same 39 rows. No block or row is missing.
 - [ ] 2.2 Check every `#anchor` and relative link, and run `openspec validate --all --strict`. Verify: each link resolves, and validation exits with code 0.
+
+  Result: all 18 links resolve, the README holds no contraction, and `openspec validate --all --strict` passes 12 items with 0 failures.
