@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "git multistage hook"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|MultiEdit|Write|Create|ApplyPatch|apply_patch|edit|write|create|str_replace_editor|search_replace|hashline_edit|write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content|file_editor|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "git multistage hook"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|MultiEdit|Write|Create|ApplyPatch|apply_patch|edit|write|create|str_replace_editor|search_replace|hashline_edit|write_file|edit_file|write_to_file|replace_file_content|multi_replace_file_content|file_editor",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "git multistage hook"
+          }
+        ]
+      }
+    ]
+  }
+}

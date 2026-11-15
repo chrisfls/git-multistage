@@ -43,10 +43,21 @@ def _description(skill):
     return ""
 
 
+def _cwd():
+    """Return the agent's working directory. Hermes runs in its own install
+    folder, so the process's own directory is not the agent's."""
+    try:
+        from agent.runtime_cwd import resolve_agent_cwd  # pylint: disable=import-outside-toplevel
+
+        return str(resolve_agent_cwd())
+    except Exception:  # pylint: disable=broad-except  # an older Hermes, or a test host
+        return os.getcwd()
+
+
 def _run(event, session_id, **fields):
     """Run `git multistage hook hermes` and return the text of its message."""
     global _reported
-    hook_input = {"hook_event_name": event, "session_id": session_id or "", "cwd": os.getcwd(), **fields}
+    hook_input = {"hook_event_name": event, "session_id": session_id or "", "cwd": _cwd(), **fields}
     try:
         out = subprocess.run(
             ["git", "multistage", "hook", "hermes"],

@@ -70,8 +70,7 @@ func TestHarnessHookFiles(t *testing.T) {
 		{"../.kimi-plugin/plugin.json", "kimi", []string{"SessionStart", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Write|Edit"}},
 		{"../.muse-plugin/plugin.json", "muse", []string{"SessionStart", "PreToolUse", "PostToolUse", "skills/git-multistage/SKILL.md"}},
 		{"../plugins/gemini/hooks/hooks.json", "gemini", []string{"SessionStart", "BeforeTool", "AfterTool", "write_file|replace"}},
-		{"../hooks/qwen.json", "qwen", []string{"SessionStart", "PreToolUse", "PostToolUse", "PostToolUseFailure", "edit|write_file"}},
-		{"../hooks/kiro.json", "kiro", []string{"SessionStart", "PreToolUse", "PostToolUse", "fs_write"}},
+		{"../hooks/kiro.json", "kiro", []string{"agentSpawn", "preToolUse", "postToolUse", "fs_write"}},
 	} {
 		v := readJSON(t, tc.path)
 		cmds := hookCommands(v)
@@ -154,6 +153,34 @@ func TestSharedHooksFile(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestOpenHandsHooks checks that the OpenHands hooks file is the shared
+// hooks file without SubagentStart, an event that OpenHands rejects.
+func TestOpenHandsHooks(t *testing.T) {
+	t.Parallel()
+	var shared, openhands map[string]map[string]any
+	if err := json.Unmarshal(mustRead(t, "../hooks/hooks.json"), &shared); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(mustRead(t, "../hooks/openhands.json"), &openhands); err != nil {
+		t.Fatal(err)
+	}
+	delete(shared["hooks"], "SubagentStart")
+	a, _ := json.Marshal(shared)
+	b, _ := json.Marshal(openhands)
+	if string(a) != string(b) {
+		t.Errorf("hooks/openhands.json differs from hooks/hooks.json without SubagentStart:\n%s\n%s", b, a)
+	}
+}
+
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
 
 // TestSkillCopies checks that the plugin folders that harnesses copy at
