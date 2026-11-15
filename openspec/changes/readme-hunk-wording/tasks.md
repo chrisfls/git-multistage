@@ -6,7 +6,7 @@
 - [x] 1.2 Rewrite "The problem" in terms of changes, with the closing sentence of the proposal. Verify: the section does not use "task", keeps "interactive and hard to script", and no sentence says that a task or a change owns an index.
 - [x] 1.3 Replace "another task" in "How stages work" with "another change". Verify: the only "task" left in the README is in the rules block for a shared checkout and the comparison table's "Task" column.
 - [x] 1.4 Rewrite the setup and the staging sentence of "Stage part of a file" as the proposal and D4 say. Verify: the setup starts with "Next, suppose", and the commands and output are unchanged.
-- [ ] 1.5 Merge the plugin's first two sentences as D5 says. Verify: the agent is the subject of the staging clause, and the sentences on the rules, the refused commands, and shell-command edits remain.
+- [x] 1.5 Merge the plugin's first two sentences as D5 says. Verify: the agent is the subject of the staging clause, and the sentences on the rules, the refused commands, and shell-command edits remain.
 
 ## 2. Checks
 

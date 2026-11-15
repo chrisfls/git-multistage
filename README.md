@@ -170,7 +170,7 @@ go build -o "$env:USERPROFILE\bin\git-multistage.exe" .\cmd\git-multistage
 
 git-multistage works on its own as a command-line tool, and coding agents run the same commands. Give each agent its own stage ID, such as its agent ID, and point it to [the agent guide](skills/git-multistage/SKILL.md).
 
-The optional plugin adds edit tracking. It records the lines that an agent changes through its file tools, so the agent can stage only those lines with `add --edits`, even when other agents edit the same file at the same time. The plugin also gives the agent the rules of a shared checkout, and refuses the Git commands that change shared state.
+The optional plugin tracks the edits that an agent makes through its file tools, so the agent can stage only its own changes with `add --edits`, even when other agents edit the same file. The plugin also gives the agent the rules of a shared checkout, and refuses the Git commands that change shared state.
 
 The plugin tracks only edits made through an agent's file tools. Stage the changes of a shell command, such as a formatter, with `add` or `add --hunk`, or with `rm` and `mv` for a deleted or moved file.
 
