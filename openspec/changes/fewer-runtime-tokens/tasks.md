@@ -11,7 +11,7 @@
 ## 3. Evaluation
 
 - [x] 3.1 Run s1 and s2 with the new skill, as many runs as the baseline, record them in the Results section, and verify that each success count is equal or better. If one is worse, restore the part that caused it and run again
-- [ ] 3.2 Set the plugin manifests to the release version, run `mise run ci` once, and verify that it passes
+- [x] 3.2 Set the plugin manifests to the release version, run `mise run ci` once, and verify that it passes. It passed on `bf34a58` in 78 s, run on an export of that commit with a Git repository around it, because the shared checkout held other agents' uncommitted changes
 
 ## Results
 
