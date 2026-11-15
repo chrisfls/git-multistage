@@ -242,6 +242,10 @@ The hook SHALL read the event, the tool name, the tool input, the session ID, th
 - **WHEN** the hook receives `BeforeTool` and `AfterTool` from Gemini CLI, `pre_tool` and `post_tool` from Mistral Vibe, or `preToolUse` and `postToolUse` from Cursor
 - **THEN** it reads them as `PreToolUse` and `PostToolUse`
 
+#### Scenario: Cline CLI input
+- **WHEN** the hook receives Cline CLI inputs with `hookName` `tool_call` and `tool_result`, `taskId` `t1`, and the tool `editor` with `path` `<file>`
+- **THEN** the edit is recorded in stage `cline-t1`
+
 #### Scenario: Failed call in Mistral Vibe
 - **WHEN** the hook receives a Vibe `post_tool` input with `tool_status` `failure`
 - **THEN** it records nothing and deletes the pending record of the call
@@ -268,6 +272,10 @@ Without an editor name, the hook SHALL take the editor from, in order: the shape
 #### Scenario: Claude Code input
 - **WHEN** `git multistage hook` receives a Claude Code input and no harness variable is set
 - **THEN** it uses the editor `claude`
+
+#### Scenario: Droid and Qwen Code
+- **WHEN** `git multistage hook` receives a Claude-shaped input with `DROID_PLUGIN_ROOT` set, or with `QWEN_PROJECT_DIR` set
+- **THEN** it uses the editor `droid`, or `qwen`
 
 ### Requirement: Output format of each harness
 The hook SHALL write the session start notice and the first-edit message in the output format that the editor's harness reads. For a harness without a format of its own, it SHALL write `hookSpecificOutput.additionalContext` with the input's event name.
