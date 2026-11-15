@@ -37,7 +37,8 @@ const (
 // eventNames maps each harness's event names to the hook's.
 var eventNames = map[string]string{
 	"sessionStart": eventSessionStart, "session_start": eventSessionStart,
-	"agentSpawn": eventSessionStart, "TaskStart": eventSessionStart,
+	"agentSpawn": eventSessionStart, "TaskStart": eventSessionStart, "agent_start": eventSessionStart,
+	"tool_call": eventPreTool, "tool_result": eventPostTool, // Cline CLI
 	"preToolUse": eventPreTool, "BeforeTool": eventPreTool, "pre_tool": eventPreTool,
 	"postToolUse": eventPostTool, "AfterTool": eventPostTool, "post_tool": eventPostTool,
 	"postToolUseFailure": eventPostFailure,
@@ -67,7 +68,7 @@ var fileTools = map[string]bool{
 	"str_replace": true, "search_replace": true, "write_file": true, "edit_file": true,
 	"create_file": true, "write_to_file": true, "replace_file_content": true,
 	"multi_replace_file_content": true, "replace": true, "replace_in_file": true,
-	"file_editor": true, "fs_write": true, "fs_append": true,
+	"file_editor": true, "fs_write": true, "fs_append": true, "editor": true, "hashline_edit": true,
 }
 
 // Fields of hook inputs and of Claude Code's hook output.
@@ -96,7 +97,7 @@ func readHookCall(r io.Reader) (hookCall, error) {
 	if call, ok := m["toolCall"].(map[string]any); ok { // Antigravity
 		in["tool_name"], in["tool_use_id"], c.args = str(call, "name"), str(call, "id"), call["args"]
 	}
-	nested, _ := m[lowerFirst(c.event)].(map[string]any)
+	nested, _ := m[lowerFirst(hookEvent(c.event, nil, nil))].(map[string]any)
 	if nested != nil { // Cline
 		in["tool_name"], c.args, in["tool_response"] = str(nested, "toolName"), nested["parameters"], nested["result"]
 	}
@@ -166,7 +167,9 @@ var harnessVars = [][2]string{
 	{"QODER_PLUGIN_ROOT", "qoder"},
 	{"CODEBUDDY_PLUGIN_ROOT", "codebuddy"},
 	{"DEVIN_PROJECT_DIR", "devin"},
+	{"DROID_PLUGIN_ROOT", "droid"},
 	{"FACTORY_PROJECT_DIR", "droid"},
+	{"QWEN_PROJECT_DIR", "qwen"}, // Qwen Code also sets GEMINI_PROJECT_DIR
 	{"GEMINI_SESSION_ID", "gemini"},
 }
 

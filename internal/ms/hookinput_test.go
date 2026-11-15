@@ -64,6 +64,13 @@ var hookCallCases = []struct {
 		[]string{wPath("a.go")},
 	},
 	{
+		"Cline CLI",
+		`{"clineVersion":"","hookName":"tool_call","taskId":"t1","workspaceRoots":["/w"],` +
+			`"preToolUse":{"toolName":"editor","parameters":{"path":"a.go","old_text":"x","new_text":"y"}}}`,
+		eventPreTool, "editor", "t1", "", "/w", "cline",
+		[]string{wPath("a.go")},
+	},
+	{
 		"Cursor",
 		`{"hook_event_name":"preToolUse","conversation_id":"k","cursor_version":"2.3","tool_name":"Write",` +
 			`"tool_use_id":"u","cwd":"/w","tool_input":{"file_path":"a.go"}}`,
@@ -212,6 +219,8 @@ func TestPickEditor(t *testing.T) {
 		{"input shape", "", agy, env("COPILOT_CLI"), "antigravity"},
 		{"harness variable before Claude Code's", "", claude, env("CLAUDE_PLUGIN_ROOT", "MINIMAX_PLUGIN_ROOT"), "minimax"},
 		{"Codex patch", "", codex, env(), agentCodex},
+		{"Droid", "", claude, env("CLAUDE_PLUGIN_ROOT", "DROID_PLUGIN_ROOT", "FACTORY_PROJECT_DIR"), "droid"},
+		{"Qwen Code", "", claude, env("CLAUDE_PROJECT_DIR", "GEMINI_PROJECT_DIR", "QWEN_PROJECT_DIR"), "qwen"},
 		{"patch outside command", "", opencode, env(), agentClaude},
 		{"Claude Code", "", claude, env("CLAUDE_PLUGIN_ROOT"), agentClaude},
 	} {
