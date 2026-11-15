@@ -1,6 +1,6 @@
 # Using git-multistage with coding agents
 
-Multiple coding agents can edit the same checkout while keeping their commits separate. In supported agent sessions, git-multistage automatically derives a stage ID from the session, giving each session its own index without manual stage assignment. Commits from stages created on the same branch go to that branch. The files on disk are shared, so agents can still see or overwrite one another's uncommitted changes.
+Multiple coding agents can edit the same working tree while keeping their commits separate. In supported agent sessions, git-multistage automatically derives a stage ID from the session, giving each session its own index without manual stage assignment. Commits from stages created on the same branch go to that branch. The files on disk are shared, so agents can still see or overwrite one another's uncommitted changes.
 
 Install [git-multistage](README.md#install) first and make sure the binary is on your `PATH`.
 
@@ -11,16 +11,16 @@ Have agents follow the [git-multistage skill](skills/git-multistage/SKILL.md). I
 Add these rules to your project's `AGENTS.md` or `CLAUDE.md`:
 
 ```markdown
-Other agents may edit files in this checkout and commit to this branch while you work. Commits, file changes, and stages that you did not make are theirs: do not review, revert, stage, or mention them unless they block your task, and keep their changes in the working tree, even for a moment. To run something without them, use a separate worktree from `git worktree add`. Do not run `git add`, `git commit`, `git rm`, `git mv`, `git stash`, `git restore`, `git reset`, `git checkout`, or `git switch`: they change state that every agent shares. Stage and commit with `git multistage`, as skills/git-multistage/SKILL.md describes.
+Other agents may edit files in this working tree and commit to this branch while you work. Commits, file changes, and stages that you did not make are theirs: do not review, revert, stage, or mention them unless they block your task, and keep their changes in the working tree, even for a moment. To run something without them, use a separate worktree from `git worktree add`. Do not run `git add`, `git commit`, `git rm`, `git mv`, `git stash`, `git restore`, `git reset`, `git checkout`, or `git switch`: they change state that every agent shares. Stage and commit with `git multistage`, as skills/git-multistage/SKILL.md describes.
 ```
 
 Without edit tracking, `add <path>` stages the entire file as it appears on disk. Use `add --hunk` when agents change different parts of the same file.
 
 ## With the plugin
 
-The plugin provides shared-checkout rules, blocks commands that modify shared Git state, and records changes made through each agent's file tools.
+The plugin provides rules for sharing a working tree, blocks commands that modify shared Git state, and records changes made through each agent's file tools.
 
-Its hooks only run when you enable shared-checkout mode in the repository:
+Its hooks only run when you enable shared mode in the repository:
 
 ```bash
 git config multistage.shared true
