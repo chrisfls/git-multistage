@@ -89,13 +89,13 @@ If you need isolated files, builds, or tests, use `git worktree add` instead.
 
 ## Coding agents
 
-Multiple agents can share a checkout and commit their work separately. Give each agent its own stage, and have it follow the [git-multistage skill](skills/git-multistage/SKILL.md) rather than using Git commands that modify shared state.
+Multiple agents can share a checkout and commit their work separately. In supported coding-agent sessions, git-multistage derives the stage ID from the agent session automatically, so you don't need to assign stage names yourself. Agents should follow the [git-multistage skill](skills/git-multistage/SKILL.md) instead of using Git commands that modify shared state.
 
 An optional plugin records edits made through each agent's file tools. With that record, an agent can stage only its own edits, even when several agents work on the same file:
 
 ```bash
-git multistage --stage agent-a add --edits
-git multistage --stage agent-a commit -m "Add input validation"
+git multistage add --edits
+git multistage commit -m "Add input validation"
 ```
 
 The plugin also provides shared-checkout rules and blocks commands such as `git commit` and `git stash` that could interfere with other agents. Its hooks run only in checkouts that opt in:
