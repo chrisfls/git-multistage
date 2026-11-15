@@ -10,7 +10,7 @@
 - [x] 1.6 Wrap the harness table and its notes in a `<details>` block under "### Other harnesses", as D1 says. Verify: every harness row and note remains, with a blank line after `</summary>` and before `</details>`.
 
 - [x] 1.7 Add the shared-working-tree sentence after the first quick-start example. Verify: it says that builds and tests see every uncommitted change.
-- [ ] 1.8 Apply the wording edits of the proposal to the quick start, "How stages work", and "Specs". Verify: each new sentence is in the README, and no new contraction appears.
+- [x] 1.8 Apply the wording edits of the proposal to the quick start, "How stages work", and "Specs". Verify: each new sentence is in the README, and no new contraction appears.
 
 ## 2. Checks
 

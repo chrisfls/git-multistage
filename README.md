@@ -44,7 +44,7 @@ git multistage --stage fix-login add src/login.ts
 git multistage --stage fix-login commit -m "Honor returnTo after login"
 ```
 
-The first command creates `fix-login` if it does not exist yet. The commit contains only changes staged under `fix-login`. Other changes in the checkout stay in the working tree, or in their own stages.
+The first command creates the `fix-login` stage if it does not exist yet. The commit contains only changes staged under `fix-login`. Other changes remain in the working tree or in their own stages.
 
 Stages keep staged changes apart, but they share the working tree: builds and tests see every uncommitted change in the checkout.
 
@@ -94,7 +94,7 @@ $ git status --short
 
 ### Set the stage once
 
-To skip `--stage` on every command, set it for the shell:
+To avoid passing `--stage` on every command, set the stage ID in your shell:
 
 ```bash
 export GIT_MULTISTAGE_ID=fix-login
@@ -114,7 +114,7 @@ Each stage has its own Git index. All stages share the working tree, and a stage
 
 `add <path>` stages the whole file as it is on disk, with every change in it. To stage part of a file, use `add --hunk`, as in the quick start.
 
-A deleted or moved file in the shared working tree might belong to another task, so `add` does not stage a deletion or a move. Use `rm` or `mv` to stage one.
+A file deleted or moved in the shared working tree might belong to another task, so `add` does not stage a deletion or a move. Use `rm` or `mv` to stage one.
 
 Commands that you run in the checkout, such as a build or the tests, see every uncommitted change in the working tree. To run something without them, use a separate worktree from `git worktree add`.
 
@@ -277,7 +277,7 @@ The tests run Claude Code and Codex hooks as those tools send them. For the othe
 
 ## Specs
 
-The specs in [openspec/specs/](openspec/specs/) give the behavior of every command, one spec for each capability: stages, staging, commits, crash recovery, the agent hooks and plugins, the CLI, releases, and the local checks.
+The specs in [openspec/specs/](openspec/specs/) document each command's behavior, one spec for each capability: stages, staging, commits, crash recovery, the agent hooks and plugins, the CLI, releases, and the local checks.
 
 ## Contributing
 
