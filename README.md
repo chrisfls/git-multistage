@@ -159,7 +159,9 @@ Commands that you run in the checkout, such as a build or the tests, see every u
 
 ## Coding agents
 
-Give each coding agent its own stage ID, such as its agent ID. An agent can use git-multistage by following [the agent guide](skills/git-multistage/SKILL.md), or through the plugin, which also records the edits that it makes with its file tools.
+Coding agents use git-multistage like any other command-line tool: give each agent its own stage ID, such as its agent ID, and point it to [the agent guide](skills/git-multistage/SKILL.md).
+
+The optional plugin adds edit tracking. It records the lines that an agent changes through its file tools, so the agent can stage only those lines, even when other agents edit the same file at the same time. The plugin also gives the agent the rules of a shared checkout, and refuses the Git commands that change shared state.
 
 ### Without the plugin
 
