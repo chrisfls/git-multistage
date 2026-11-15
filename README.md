@@ -166,9 +166,11 @@ Commands that you run in the checkout, such as a build or the tests, see every u
 
 ## Coding agents
 
-Coding agents use git-multistage like any other command-line tool: give each agent its own stage ID, such as its agent ID, and point it to [the agent guide](skills/git-multistage/SKILL.md).
+git-multistage works on its own as a command-line tool, and coding agents run the same commands. Give each agent its own stage ID, such as its agent ID, and point it to [the agent guide](skills/git-multistage/SKILL.md).
 
-The optional plugin adds edit tracking. It records the lines that an agent changes through its file tools, so the agent can stage only those lines, even when other agents edit the same file at the same time. The plugin also gives the agent the rules of a shared checkout, and refuses the Git commands that change shared state.
+The optional plugin adds edit tracking. It records the lines that an agent changes through its file tools, so the agent can stage only those lines with `add --edits`, even when other agents edit the same file at the same time. The plugin also gives the agent the rules of a shared checkout, and refuses the Git commands that change shared state.
+
+The plugin tracks only edits made through an agent's file tools. Stage the changes of a shell command, such as a formatter, with `add` or `add --hunk`, or with `rm` and `mv` for a deleted or moved file.
 
 ### Without the plugin
 
@@ -180,7 +182,7 @@ Other agents may edit files in this checkout and commit to this branch while you
 
 ### With the plugin
 
-The plugin records each edit that an agent makes with its file tools in that agent's stage, and teaches the agent the commands. Its hooks act only in a checkout that opts in, so a repository that one agent uses alone stays as it is. In each checkout that agents share, run:
+The plugin's hooks act only in a checkout that opts in, so a repository that one agent uses alone stays as it is. In each checkout that agents share, run:
 
 ```bash
 git config multistage.shared true
@@ -220,8 +222,6 @@ git multistage --stage <id> commit -m "Add input validation"
 ```
 
 `add --edits` stages only the lines that the agent itself changed, even when another agent changed the next line. It stages them from the plugin's record, so the stage keeps the agent's work even after another writer overwrote those lines or deleted the file.
-
-The plugin records only the edits of an agent's file tools. Stage the changes of a shell command, such as a formatter, with `add` or `add --hunk`, or with `rm` and `mv` for a deleted or moved file.
 
 ### Other harnesses
 
