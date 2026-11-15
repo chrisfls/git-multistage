@@ -227,6 +227,9 @@ git multistage --stage <id> commit -m "Add input validation"
 
 The plugin also installs in the harnesses below. `<clone>` is a clone of this repository. The binary must be on your `PATH`, and the checkout must set `multistage.shared`, as for Claude Code.
 
+<details>
+<summary>Install steps for each harness</summary>
+
 | Harness | Install |
 | --- | --- |
 | Antigravity | `agy plugin install https://github.com/chrisfls/git-multistage` |
@@ -267,6 +270,8 @@ Each harness above gets the skill, and records the edits of its file tools, exce
 - Grok Build, Kimi Code, and Goose may not show the first-edit message to the model. An agent that receives no message stages its files by path, as the skill says.
 
 The tests run Claude Code and Codex hooks as those tools send them. For the other harnesses, they replay each harness's documented hook input, or drive the plugin in a fake host. A real session in the harness has not been run.
+
+</details>
 
 ## Specs
 

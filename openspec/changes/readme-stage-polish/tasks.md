@@ -7,7 +7,7 @@
 - [x] 1.3 Replace the setup paragraph of "Stage part of a file" with the goal. Verify: the paragraph names no pre-existing `validation` stage, and the commands and output of the example are unchanged.
 - [x] 1.4 Rewrite the opening of "Coding agents" as the proposal says, move the shell-edit sentence into it, and start "With the plugin" with the opt-in. Verify: the opening says the CLI works without the plugin and names `add --edits`, the rules, the refused commands, and the shell-edit limit; every other sentence and block of "Coding agents" remains.
 - [x] 1.5 Split the install as D3 says. Verify: "Install" holds the mise command, the Git version, `doctor`, `version`, and a link to "Other ways to install"; the new section holds every block of the old "Other ways" and follows "Compared with plain Git".
-- [ ] 1.6 Wrap the harness table and its notes in a `<details>` block under "### Other harnesses", as D1 says. Verify: every harness row and note remains, with a blank line after `</summary>` and before `</details>`.
+- [x] 1.6 Wrap the harness table and its notes in a `<details>` block under "### Other harnesses", as D1 says. Verify: every harness row and note remains, with a blank line after `</summary>` and before `</details>`.
 
 - [ ] 1.7 Add the shared-working-tree sentence after the first quick-start example. Verify: it says that builds and tests see every uncommitted change.
 - [ ] 1.8 Apply the wording edits of the proposal to the quick start, "How stages work", and "Specs". Verify: each new sentence is in the README, and no new contraction appears.
