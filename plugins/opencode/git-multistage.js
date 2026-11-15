@@ -19,9 +19,10 @@ const fileTools = new Set(["edit", "write", "multiedit", "patch", "apply_patch"]
 const skills = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../skills");
 
 // editorName names the stages after the host: kilo, mimo, or codearts when
-// the host's binary has that name, and opencode otherwise.
+// the host's binary has that name, and opencode otherwise. The npm package of
+// Kilo Code runs its binary as .kilo.
 function editorName() {
-  const exe = path.basename(process.execPath).toLowerCase();
+  const exe = path.basename(process.execPath).toLowerCase().replace(/^\./, "");
   return ["kilo", "mimo", "codearts"].find((name) => exe.startsWith(name)) ?? "opencode";
 }
 
@@ -65,7 +66,7 @@ function messageText(out) {
 export const GitMultistagePlugin = async ({ directory }) => {
   const editor = editorName();
   const started = new Set();
-  const notices = new Map(); // call ID -> the session start notice
+  const notices = new Map(); // session ID -> the session start notice, until a call result carries it
   const call = (input, event, args) => ({
     hook_event_name: event,
     session_id: input.sessionID,
@@ -86,16 +87,17 @@ export const GitMultistagePlugin = async ({ directory }) => {
       if (!started.has(input.sessionID)) {
         started.add(input.sessionID);
         const notice = await runHook(editor, { hook_event_name: "SessionStart", session_id: input.sessionID, cwd: directory });
-        if (notice) notices.set(input.callID, notice);
+        if (notice) notices.set(input.sessionID, notice);
       }
       await runHook(editor, call(input, "PreToolUse", output.args));
     },
     "tool.execute.after": async (input, output) => {
       if (!fileTools.has(input.tool)) return;
       const message = await runHook(editor, call(input, "PostToolUse", input.args));
-      const text = [notices.get(input.callID), message].filter(Boolean).join("\n\n");
-      notices.delete(input.callID);
-      if (text && typeof output.output === "string") output.output += `\n\n${text}`;
+      const text = [notices.get(input.sessionID), message].filter(Boolean).join("\n\n");
+      if (!text || typeof output.output !== "string") return;
+      output.output += `\n\n${text}`;
+      notices.delete(input.sessionID);
     },
   };
 };

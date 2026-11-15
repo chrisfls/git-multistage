@@ -1,5 +1,5 @@
-// The git-multistage extension for Pi. Oh My Pi runs it too, through
-// hooks/pre/git-multistage.js, with the stage prefix omp.
+// The git-multistage extension for Pi. Oh My Pi loads it too, from the
+// package's "pi" field, and its stages get the prefix omp.
 //
 // Before and after each call of a file tool, it runs `git multistage hook`,
 // which records the call's edit in the session's git-multistage stage. It adds
@@ -49,9 +49,9 @@ function messageText(out) {
   return "";
 }
 
-export default function gitMultistage(pi, editor = "pi") {
+export default function gitMultistage(pi, editor = process.title === "omp" ? "omp" : "pi") {
   const started = new Set();
-  const notices = new Map(); // tool call ID -> the session start notice
+  const notices = new Map(); // session ID -> the session start notice, until a call result carries it
   const call = (event, ctx, eventName) => {
     const agent = ctx.agent?.kind === "sub" ? ctx.agent.id : undefined; // Oh My Pi subagents
     return {
@@ -71,7 +71,7 @@ export default function gitMultistage(pi, editor = "pi") {
     if (!started.has(input.session_id)) {
       started.add(input.session_id);
       const notice = await runHook(editor, { hook_event_name: "SessionStart", session_id: input.session_id, cwd: ctx.cwd });
-      if (notice) notices.set(event.toolCallId, notice);
+      if (notice) notices.set(input.session_id, notice);
     }
     await runHook(editor, input);
     return undefined;
@@ -79,9 +79,10 @@ export default function gitMultistage(pi, editor = "pi") {
 
   pi.on("tool_result", async (event, ctx) => {
     if (!fileTools.has(event.toolName)) return undefined;
-    const message = await runHook(editor, call(event, ctx, event.isError ? "PostToolUseFailure" : "PostToolUse"));
-    const text = [notices.get(event.toolCallId), message].filter(Boolean).join("\n\n");
-    notices.delete(event.toolCallId);
+    const input = call(event, ctx, event.isError ? "PostToolUseFailure" : "PostToolUse");
+    const message = await runHook(editor, input);
+    const text = [notices.get(input.session_id), message].filter(Boolean).join("\n\n");
+    notices.delete(input.session_id);
     if (!text) return undefined;
     return { content: [...event.content, { type: "text", text }], structuredContent: event.structuredContent };
   });

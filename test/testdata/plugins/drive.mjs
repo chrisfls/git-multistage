@@ -5,7 +5,9 @@
 //
 //   node drive.mjs <host> <plugin file> <repository> <file> <new content> <session>
 //
-// host is opencode, pi, omp, or amp.
+// host is opencode, pi, omp, or amp. Before the edit, the session makes one
+// call of a file tool that fails before it runs, so the host never reports
+// its result; the session start notice must still reach the model.
 
 import { writeFileSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -28,6 +30,7 @@ switch (host) {
   case "opencode": {
     const hooks = await mod.default({ directory: repo });
     const input = { tool: "edit", sessionID: session, callID: "call-1" };
+    await hooks["tool.execute.before"]({ ...input, callID: "call-0" }, { args: { filePath: abs } });
     const output = { args: { filePath: abs, oldString: before, newString: content } };
     await hooks["tool.execute.before"](input, output);
     edit();
@@ -38,9 +41,11 @@ switch (host) {
   }
   case "pi":
   case "omp": {
+    if (host === "omp") process.title = "omp"; // as Oh My Pi's process is named
     mod.default({ on });
     const ctx = { cwd: repo, sessionManager: { getSessionId: () => session } };
     const input = { path: abs, edits: [{ oldText: before, newText: content }] };
+    await handlers.tool_call({ toolName: "edit", toolCallId: "call-0", input: { path: abs } }, ctx);
     await handlers.tool_call({ toolName: "edit", toolCallId: "call-1", input }, ctx);
     edit();
     const content0 = [{ type: "text", text: "Edit applied." }];
@@ -51,6 +56,7 @@ switch (host) {
   case "amp": {
     mod.default({ on });
     const event = { tool: "edit_file", toolUseID: "call-1", input: { path: abs, old_str: before, new_str: content }, thread: { id: session } };
+    await handlers["tool.call"]({ ...event, toolUseID: "call-0", input: { path: abs } });
     const allow = await handlers["tool.call"](event);
     if (allow?.action !== "allow") throw new Error(`tool.call returned ${JSON.stringify(allow)}`);
     edit();

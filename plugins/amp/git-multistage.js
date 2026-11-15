@@ -53,7 +53,7 @@ function messageText(out) {
 
 export default function gitMultistage(amp) {
   const started = new Set();
-  const notices = new Map(); // tool use ID -> the session start notice
+  const notices = new Map(); // session ID -> the session start notice, until a call result carries it
   const call = (event, eventName) => ({
     hook_event_name: eventName,
     session_id: event.thread.id,
@@ -68,7 +68,7 @@ export default function gitMultistage(amp) {
     if (!started.has(event.thread.id)) {
       started.add(event.thread.id);
       const notice = await runHook({ hook_event_name: "SessionStart", session_id: event.thread.id, cwd: process.cwd() });
-      if (notice) notices.set(event.toolUseID, notice);
+      if (notice) notices.set(event.thread.id, notice);
     }
     await runHook(call(event, "PreToolUse"));
     return { action: "allow" };
@@ -77,9 +77,9 @@ export default function gitMultistage(amp) {
   amp.on("tool.result", async (event) => {
     if (!fileTools.has(event.tool)) return undefined;
     const message = await runHook(call(event, event.status === "done" ? "PostToolUse" : "PostToolUseFailure"));
-    const text = [notices.get(event.toolUseID), message].filter(Boolean).join("\n\n");
-    notices.delete(event.toolUseID);
+    const text = [notices.get(event.thread.id), message].filter(Boolean).join("\n\n");
     if (!text || typeof event.output !== "string") return undefined;
+    notices.delete(event.thread.id);
     const result = { status: event.status, output: `${event.output}\n\n${text}` };
     return event.error ? { ...result, error: event.error } : result;
   });
