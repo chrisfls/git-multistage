@@ -152,10 +152,10 @@ Commands that you run in the checkout, such as a build or the tests, see every u
 | --- | --- | --- |
 | Stage a file | `git add src/a.ts`, into the shared index | `git multistage --stage a add src/a.ts` |
 | Stage part of a file from a script | Build a patch and run `git apply --cached` (`git add -p` is interactive) | `git multistage --stage a add src/shared.ts --hunk d94c87b26e90` |
-| See what you staged | `git diff --cached`, which shows every agent's changes | `git multistage --stage a diff --cached` |
+| See what you staged | `git diff --cached`, which shows everything staged in the checkout | `git multistage --stage a diff --cached` |
 | Delete or move a file | `git rm` or `git mv`, into the shared index | `git multistage --stage a rm src/old.ts` or `git multistage --stage a mv src/a.ts src/b.ts` |
 | Commit | `git commit`, which takes the whole shared index | `git multistage --stage a commit -m "Fix login"` |
-| Keep agents apart | One worktree per agent | One stage per agent, in one checkout |
+| Keep changes separate | Commit one change at a time, or use one worktree per change | One stage per change, in one checkout |
 
 ## Coding agents
 
