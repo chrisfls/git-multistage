@@ -5,6 +5,8 @@
 # RuleSync generates the agent folders and AGENTS.md from .rulesync/ and
 # rulesync.jsonc. Run `rulesync install && rulesync generate` to create them.
 /.rulesync/skills/.curated/
+# scripts/setup.sh writes the RuleSync targets of this machine here.
+/rulesync.local.jsonc
 /AGENTS.md
 /.agent/
 /.claude/

@@ -210,7 +210,7 @@ The plugin also installs in the harnesses below. `<clone>` is a clone of this re
 | --- | --- |
 | Antigravity | `agy plugin install https://github.com/chrisfls/git-multistage` |
 | Factory Droid | `droid plugin marketplace add https://github.com/chrisfls/git-multistage`, then `droid plugin install git-multistage@git-multistage` |
-| GitHub Copilot CLI | `copilot plugin install chrisfls/git-multistage` |
+| GitHub Copilot CLI | `copilot plugin marketplace add chrisfls/git-multistage`, then `copilot plugin install git-multistage@git-multistage` |
 | Devin CLI | `devin plugins install chrisfls/git-multistage` |
 | Grok Build | `grok plugin install chrisfls/git-multistage --trust` |
 | CodeBuddy | `codebuddy plugin add github:chrisfls/git-multistage` |
@@ -219,19 +219,19 @@ The plugin also installs in the harnesses below. `<clone>` is a clone of this re
 | MiniMax Code | `git clone https://github.com/chrisfls/git-multistage ~/.minimax/plugins/git-multistage` |
 | Goose | `goose plugin install https://github.com/chrisfls/git-multistage.git` |
 | OpenHands | `install_plugin("github:chrisfls/git-multistage")` in the SDK, or copy `skills/git-multistage` to `~/.agents/skills/` and `hooks/hooks.json` to `.openhands/hooks.json` |
-| Oh My Pi | `/marketplace add chrisfls/git-multistage`, then `/marketplace install git-multistage@git-multistage` |
+| Oh My Pi | `omp plugin marketplace add chrisfls/git-multistage`, then `omp plugin install git-multistage@git-multistage` |
 | Cursor CLI | `cursor-agent plugin marketplace add https://github.com/chrisfls/git-multistage`, then install it from `/plugin` |
 | Kimi Code | `/plugins install https://github.com/chrisfls/git-multistage` |
 | Muse Code | `muse plugins marketplace add git-multistage https://github.com/chrisfls/git-multistage`, `muse plugins install git-multistage@git-multistage`, then `muse plugins approve git-multistage` |
 | Hermes Agent | `hermes plugins install chrisfls/git-multistage --enable` |
-| OpenCode | `opencode plugin add https://github.com/chrisfls/git-multistage` |
-| Kilo Code | `kilo plugin git:https://github.com/chrisfls/git-multistage` |
-| MiMo Code | save [`plugins/opencode/git-multistage.js`](plugins/opencode/git-multistage.js) in `~/.config/mimocode/plugins/` |
-| CodeArts Agent | save [`plugins/opencode/git-multistage.js`](plugins/opencode/git-multistage.js) in the project's `.codeartsdoer/plugin/` |
+| OpenCode | add `"file://<clone>/plugins/opencode/git-multistage.js"` to the `plugin` list of `opencode.json`; `opencode plugin` installs only packages from the npm registry |
+| Kilo Code | `kilo plugin git:https://github.com/chrisfls/git-multistage`, and copy `<clone>/skills/git-multistage` to `~/.config/kilo/skills/`, because Kilo loads no skills from a plugin |
+| MiMo Code | add `"file://<clone>/plugins/opencode/git-multistage.js"` to the `plugin` list of `~/.config/mimocode/mimocode.json` |
+| CodeArts Agent | save [`plugins/opencode/git-multistage.js`](plugins/opencode/git-multistage.js) in the project's `.codeartsdoer/plugin/`, and point the agent to the skill file |
 | Pi | `pi install git:github.com/chrisfls/git-multistage` |
 | Amp | `amp plugins add https://raw.githubusercontent.com/chrisfls/git-multistage/master/plugins/amp/git-multistage.js`, then `amp skill add chrisfls/git-multistage` |
-| Qwen Code | `qwen extensions install chrisfls/git-multistage`, and merge [`hooks/qwen.json`](hooks/qwen.json) into `~/.qwen/settings.json` |
-| Gemini CLI | `gemini extensions install <clone>/plugins/gemini` |
+| Qwen Code | `qwen extensions install chrisfls/git-multistage`, then confirm the plugin and its install in the prompts |
+| Gemini CLI | `gemini extensions install <clone>/plugins/gemini`, then confirm the prompt to trust the folder |
 | Mistral Vibe | `cp -R <clone>/plugins/vibe ~/.vibe/plugins/git-multistage`, then `/reload-plugins` |
 | Kiro CLI | copy [`hooks/kiro.json`](hooks/kiro.json) to `~/.kiro/hooks/git-multistage.json`, and add `skill://<clone>/skills/git-multistage/SKILL.md` to the agent's `resources` |
 | Cline | on macOS and Linux, copy the files of [`hooks/cline/`](hooks/cline/) to `~/Documents/Cline/Hooks/`, and `skills/git-multistage/SKILL.md` to the project's `.clinerules/` |
@@ -253,16 +253,15 @@ The tests run Claude Code and Codex hooks as those tools send them. For the othe
 
 ## Contributing
 
-[RuleSync](https://github.com/dyoshikawa/rulesync) generates `AGENTS.md` and the skills in each coding agent's folder, such as `.claude/skills/`, so a fresh clone has neither. Install RuleSync, such as with `brew install rulesync`, and run:
+Run the setup script once after a clone. It installs the tool versions that [mise.toml](mise.toml) pins, and generates the agent files, such as `AGENTS.md` and the skills in each coding agent's folder, for the coding agents installed on this machine. It needs [mise](https://mise.jdx.dev) and [RuleSync](https://github.com/dyoshikawa/rulesync), such as `brew install rulesync`:
 
 ```bash
-rulesync install && rulesync generate
+scripts/setup.sh
 ```
 
-Every change starts as an [OpenSpec](https://openspec.dev) change in `openspec/changes/`, as `AGENTS.md` describes. [mise](https://mise.jdx.dev) installs the tool versions that [mise.toml](mise.toml) pins:
+Every change starts as an [OpenSpec](https://openspec.dev) change in `openspec/changes/`, as `AGENTS.md` describes. Run the checks before you push:
 
 ```bash
-mise install
 mise run ci          # format, lint, vet, tests, and OpenSpec validation; run it before you push
 mise run ci:stress   # repeat the concurrency and crash tests
 ```
