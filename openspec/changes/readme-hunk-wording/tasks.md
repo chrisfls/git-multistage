@@ -2,10 +2,11 @@
 
 ## 1. README
 
-- [ ] 1.1 Rewrite the hunk sentence of the overview as the proposal and D1 say. Verify: the overview says that the user can stage single hunks, and no sentence says that a stage picks its hunks by itself.
-- [ ] 1.2 Replace the closing sentence of "The problem" as D2 says. Verify: the sentence names a stage for each task, and no sentence says that a task owns an index.
-- [ ] 1.3 Rewrite the setup and the staging sentence of "Stage part of a file" as the proposal and D3 say. Verify: the setup starts with "Next, suppose", and the commands and output are unchanged.
-- [ ] 1.4 Merge the plugin's first two sentences as D4 says. Verify: the agent is the subject of the staging clause, and the sentences on the rules, the refused commands, and shell-command edits remain.
+- [ ] 1.1 Rewrite the overview as the proposal and D1, D2, D3, and D6 say. Verify: the overview opens with "lets you manage multiple independent staging areas", says that the user chooses the stage and can stage single hunks, names the working tree and the branch, and holds the four-line example; it does not use "task".
+- [ ] 1.2 Rewrite "The problem" in terms of changes, with the closing sentence of the proposal. Verify: the section does not use "task", keeps "interactive and hard to script", and no sentence says that a task or a change owns an index.
+- [ ] 1.3 Replace "another task" in "How stages work" with "another change". Verify: the only "task" left in the README is in the rules block for a shared checkout and the comparison table's "Task" column.
+- [ ] 1.4 Rewrite the setup and the staging sentence of "Stage part of a file" as the proposal and D4 say. Verify: the setup starts with "Next, suppose", and the commands and output are unchanged.
+- [ ] 1.5 Merge the plugin's first two sentences as D5 says. Verify: the agent is the subject of the staging clause, and the sentences on the rules, the refused commands, and shell-command edits remain.
 
 ## 2. Checks
 
