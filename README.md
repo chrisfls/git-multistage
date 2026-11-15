@@ -12,7 +12,7 @@ It also works without agents, for example to keep unrelated changes separate. It
 
 A Git checkout has one staging area, the index, shared by every agent working in it. One agent's `git commit` takes what the others staged. Splitting a file that two agents edited takes `git add -p`, which is interactive.
 
-The usual workaround is one worktree per agent. Each worktree can need its own dependency install and build output, and its branch has to be merged back.
+A common workaround is to give each agent its own worktree. Each worktree can need its own dependency install and build output, and its branch has to be merged back.
 
 git-multistage keeps one checkout and gives each agent its own index.
 
@@ -28,7 +28,7 @@ mise use -g github:chrisfls/git-multistage
 
 ### Other ways
 
-Each way puts the `git-multistage` binary in a directory that must be on your `PATH`.
+Whichever way you use, make sure that the directory of the `git-multistage` binary is on your `PATH`.
 
 **From a release**, with no Go toolchain. [Releases](https://github.com/chrisfls/git-multistage/releases) hold archives for Linux, macOS, and Windows on amd64 and arm64, and a `checksums.txt`. Download the archive for your system and `checksums.txt`, then check and unpack it:
 
@@ -65,7 +65,7 @@ go build -o "$env:USERPROFILE\bin\git-multistage.exe" .\cmd\git-multistage
 
 ## Quick start
 
-Stage a file in a stage, and commit the stage:
+Stage and commit a file:
 
 ```bash
 git multistage --stage fix-login add src/login.ts
@@ -102,7 +102,7 @@ $ git multistage --stage validation commit -m "Cap input length"
  1 file(s) changed
 ```
 
-Each stage made its own commit:
+Both commits appear on the same branch:
 
 ```console
 $ git log --oneline
@@ -132,7 +132,7 @@ In PowerShell:
 $env:GIT_MULTISTAGE_ID = "fix-login"
 ```
 
-No stage ID yet? `git multistage init` creates a stage with a random ID and prints it.
+To create a stage with a random ID, run `git multistage init`. It prints the ID.
 
 ## How isolation works
 
@@ -259,7 +259,7 @@ The tests run Claude Code and Codex hooks as those tools send them. For the othe
 
 ## Specs
 
-[openspec/specs/](openspec/specs/) specifies the behavior of every command, one spec for each capability: stages, staging, commits, crash recovery, the agent hooks and plugins, the CLI, releases, and the local checks.
+The specs in [openspec/specs/](openspec/specs/) give the behavior of every command, one spec for each capability: stages, staging, commits, crash recovery, the agent hooks and plugins, the CLI, releases, and the local checks.
 
 ## Contributing
 
