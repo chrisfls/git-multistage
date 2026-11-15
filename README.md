@@ -50,7 +50,7 @@ Stages keep staged changes apart, but they share the working tree: builds and te
 
 ### Stage part of a file
 
-After `fix-login` is committed, `src/shared.ts` holds two unrelated edits. You want to commit an input-length check, and leave the other edit in the working tree.
+Next, suppose `src/shared.ts` contains two unrelated edits. You want to commit the input-length check and leave the other change in the working tree.
 
 List the hunks of the file:
 
@@ -66,7 +66,7 @@ diff src/shared.ts (modified)
 warning: created stage validation on refs/heads/main
 ```
 
-Stage only the first hunk by its ID, and commit:
+Stage the first hunk by its ID, then commit:
 
 ```console
 $ git multistage --stage validation add src/shared.ts --hunk d94c87b26e90
