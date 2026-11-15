@@ -9,6 +9,12 @@
 
 ## 2. Checks
 
-- [ ] 2.1 Compare the fenced blocks and the harness table rows of the old and new README. Verify: a script lists no block or row of the old README that the new one lacks, except blocks the proposal rewords.
-- [ ] 2.2 Check every `#anchor` and relative link of the new README. Verify: each anchor matches a heading, and each relative path exists.
-- [ ] 2.3 Run `openspec validate --all --strict`. Verify: it exits with code 0.
+- [x] 2.1 Compare the fenced blocks and the harness table rows of the old and new README. Verify: a script lists no block or row of the old README that the new one lacks, except blocks the proposal rewords.
+
+  Result: the old and new README both hold 20 fenced blocks and 39 table rows, and every block and row of the old README is in the new one.
+- [x] 2.2 Check every `#anchor` and relative link of the new README. Verify: each anchor matches a heading, and each relative path exists.
+
+  Result: the 3 anchors (`#coding-agents`, `#install`, `#other-harnesses`) match headings, and the 9 relative paths exist.
+- [x] 2.3 Run `openspec validate --all --strict`. Verify: it exits with code 0.
+
+  Result: 12 items passed, 0 failed.
