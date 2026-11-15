@@ -10,4 +10,6 @@
 
 ## 2. Checks
 
-- [ ] 2.1 Compare the fenced blocks, table rows, and links of the old and new README, and run `openspec validate --all --strict`. Verify: no block or row is missing, each link resolves, the README holds no contraction, and validation exits with code 0.
+- [x] 2.1 Compare the fenced blocks, table rows, and links of the old and new README, and run `openspec validate --all --strict`. Verify: no block or row is missing, each link resolves, the README holds no contraction, and validation exits with code 0.
+
+  Result: both versions hold 21 fenced blocks and 39 table rows, none missing; all 18 links resolve; the README holds no contraction; and `openspec validate --all --strict` passes 12 items with 0 failures.
