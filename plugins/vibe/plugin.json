@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "git-multistage",
-  "version": "0.1.10",
+  "version": "0.1.13",
   "description": "Records each agent's file edits in its own git-multistage stage, so agents that share a checkout commit only their own changes.",
   "homepage": "https://github.com/chrisfls/git-multistage",
   "license": "MIT",
