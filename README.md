@@ -2,19 +2,21 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
-git-multistage lets several coding agents work in one Git checkout, each with its own staging area.
+git-multistage gives a Git checkout several independent staging areas, so you can stage and commit unrelated changes separately.
 
-Agents stage and commit their changes independently, and a commit leaves out what other agents staged. The agents share the working tree and the branch, so no agent needs a worktree of its own.
+Each stage has its own index, and all stages share the working tree and the branch. A commit contains only the changes staged in its stage.
 
-It also works without agents, for example to keep unrelated changes separate. It runs as `git multistage`, and every commit is a regular Git commit.
+Use it to keep separate tasks apart, whether you work on them yourself or run several coding agents in one checkout. It runs as `git multistage`, and every commit is a regular Git commit.
 
 ## The problem
 
-A Git checkout has one staging area, the index, shared by every agent working in it. One agent's `git commit` takes what the others staged. Splitting a file that two agents edited takes `git add -p`, which is interactive.
+Git has one staging area, the index, for each checkout. When you work on several changes, everything that you stage goes into the same index, and `git commit` commits all of it together.
 
-A common workaround is to give each agent its own worktree. Each worktree can need its own dependency install and build output, and its branch has to be merged back.
+To keep unrelated changes apart, you stage one change at a time. For two changes in the same file, that takes `git add -p`, which is interactive and hard to script.
 
-git-multistage keeps one checkout and gives each agent its own index.
+Separate worktrees keep changes apart, but each worktree has its own working tree and branch. Each can need its own dependency install and build output, and its branch has to be merged back.
+
+git-multistage keeps one checkout and gives each change its own index, so each change is staged and committed on its own.
 
 ## Install
 
