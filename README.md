@@ -134,13 +134,15 @@ $env:GIT_MULTISTAGE_ID = "fix-login"
 
 No stage ID yet? `git multistage init` creates a stage with a random ID and prints it.
 
-## What it keeps apart
+## How isolation works
 
-Stages share a working tree, so agents can edit the same files. git-multistage keeps their staged changes and their commits apart. A file missing on disk can be another agent's deletion or move, so a stage takes a deletion or a move only through `rm` and `mv`.
+Stages share the working tree: every agent sees and edits the same files on disk. Each stage keeps apart only what is staged and committed.
 
-With the [agent plugin](#coding-agents), agents can edit the same file through their file tools at the same time. The plugin records the lines that each agent changed, so each agent stages only its own edits.
+`add <path>` stages the whole file as it is on disk, with the edits of every agent in it. To stage part of a file, use `add --hunk`, as in the quick start. With the [agent plugin](#coding-agents), `add --edits` stages only the lines that the agent itself changed, so agents can edit the same file through their file tools at the same time.
 
-Edits made through shell commands, such as a formatter, are not recorded. Stage them separately, with `add` or `add --hunk`, or with `rm` and `mv` for a deleted or moved file.
+Another agent might have deleted or moved a file, so `add` does not stage a deletion or a move. Use `rm` or `mv` to stage one.
+
+Commands that you run in the checkout, such as a build or the tests, see the uncommitted changes of every agent. To run something without them, use a separate worktree from `git worktree add`.
 
 ## Compared with plain Git
 
