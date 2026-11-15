@@ -29,7 +29,7 @@ The skill also sets which commands the agent runs, so its procedure decides how 
 
 ### Drop `diff --cached` from the commit procedure
 
-`add --edits` stages only the edits that the hook recorded, and prints each staged path, such as `staged: M  c.txt`. `diff --cached` then prints the whole change, which the agent wrote itself, so the agent reads its change a second time. The cost grows with the size of the change. The agent can still run `diff --cached` when it wants to see the change; the skill just no longer makes it a step.
+`add --edits` stages only the edits that the hook recorded, and prints each file it staged, such as `staged recorded edits in c.txt`. `diff --cached` then prints the whole change, which the agent wrote itself, so the agent reads its change a second time. The cost grows with the size of the change. The agent can still run `diff --cached` when it wants to see the change; the skill just no longer makes it a step.
 
 Alternative: replace it with `status`. Its output repeats the paths that `add` printed.
 
