@@ -46,6 +46,8 @@ git multistage --stage fix-login commit -m "Honor returnTo after login"
 
 The first command creates `fix-login` if it does not exist yet. The commit contains only changes staged under `fix-login`. Other changes in the checkout stay in the working tree, or in their own stages.
 
+Stages keep staged changes apart, but they share the working tree: builds and tests see every uncommitted change in the checkout.
+
 ### Stage part of a file
 
 After `fix-login` is committed, `src/shared.ts` holds two unrelated edits. You want to commit an input-length check, and leave the other edit in the working tree.

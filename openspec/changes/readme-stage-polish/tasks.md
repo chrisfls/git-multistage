@@ -9,7 +9,7 @@
 - [x] 1.5 Split the install as D3 says. Verify: "Install" holds the mise command, the Git version, `doctor`, `version`, and a link to "Other ways to install"; the new section holds every block of the old "Other ways" and follows "Compared with plain Git".
 - [x] 1.6 Wrap the harness table and its notes in a `<details>` block under "### Other harnesses", as D1 says. Verify: every harness row and note remains, with a blank line after `</summary>` and before `</details>`.
 
-- [ ] 1.7 Add the shared-working-tree sentence after the first quick-start example. Verify: it says that builds and tests see every uncommitted change.
+- [x] 1.7 Add the shared-working-tree sentence after the first quick-start example. Verify: it says that builds and tests see every uncommitted change.
 - [ ] 1.8 Apply the wording edits of the proposal to the quick start, "How stages work", and "Specs". Verify: each new sentence is in the README, and no new contraction appears.
 
 ## 2. Checks
