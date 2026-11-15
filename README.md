@@ -2,9 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
-git-multistage lets you manage multiple independent staging areas in a single Git checkout, so you can stage and commit unrelated changes separately.
-
-Each stage has its own Git index, and all stages share the working tree and the branch. You choose the stage on each command, and you can stage single hunks when unrelated changes touch the same file.
+git-multistage gives a Git checkout multiple staging areas. Each stage has its own index, so you can stage unrelated changes separately and commit them to the same branch. Stages share the working tree, and you can select individual hunks when two changes touch the same file.
 
 ```bash
 git multistage --stage feature-a add src/a.ts
@@ -13,27 +11,25 @@ git multistage --stage feature-a commit -m "Add feature A"
 git multistage --stage feature-b commit -m "Add feature B"
 ```
 
-Use it to work on several changes at once, or to let several coding agents share a checkout. Every commit is a regular Git commit.
+You can use it for your own changes or to let multiple coding agents work in one checkout. The commits are ordinary Git commits.
 
 ## The problem
 
-Git has one staging area, the index, for each checkout. When you work on several changes in one checkout, everything that you stage goes into the same index, and `git commit` commits all of it together.
+Git normally has one index per checkout. If you're working on unrelated changes, you have to stage and commit them one at a time. `git add -p` can separate changes within a file, but it's interactive and awkward to script.
 
-To keep the changes in separate commits, you stage one change at a time. When two changes touch the same file, `git add -p` can separate them, but it is interactive and hard to script.
+Worktrees give each change its own checkout and branch. That also means separate working trees, potentially separate dependencies and build outputs, and branches to merge back.
 
-Separate worktrees keep changes apart, but each worktree has its own working tree and branch. Each may need separate dependencies and build outputs, and its branch has to be merged back.
-
-git-multistage lets you use several independent staging areas in the same checkout, so you can stage and commit unrelated changes without mixing them.
+git-multistage keeps separate indexes in the same checkout.
 
 ## Install
 
-Requires Git 2.45 or newer. Install the `git-multistage` binary with [mise](https://mise.jdx.dev):
+Git 2.45 or newer is required. Install with [mise](https://mise.jdx.dev):
 
 ```bash
 mise use -g github:chrisfls/git-multistage
 ```
 
-`git multistage doctor` checks the setup, and `git multistage version` prints the version. To install from a release archive, with Go, or from a clone, see [Other ways to install](#other-ways-to-install).
+Check your installation with `git multistage doctor`, or run `git multistage version` to print the version. You can also install from a release archive, with Go, or from a clone; see [Other ways to install](#other-ways-to-install).
 
 ## Quick start
 
@@ -44,15 +40,13 @@ git multistage --stage fix-login add src/login.ts
 git multistage --stage fix-login commit -m "Honor returnTo after login"
 ```
 
-The first command creates the `fix-login` stage if it does not exist yet. The commit contains only changes staged under `fix-login`. Other changes remain in the working tree or in their own stages.
+The `fix-login` stage is created automatically if it doesn't exist. The commit includes only changes staged in `fix-login`; other changes stay in the working tree or in their own stages.
 
-Stages keep staged changes apart, but they share the working tree: builds and tests see every uncommitted change in the checkout.
+Because stages share a working tree, builds and tests see all uncommitted changes.
 
 ### Stage part of a file
 
-Next, suppose `src/shared.ts` contains two unrelated edits. You want to commit the input-length check and leave the other change in the working tree.
-
-List the hunks of the file:
+Suppose `src/shared.ts` has two unrelated edits and you want to commit only the input-length check. List the file's hunks:
 
 ```console
 $ git multistage --stage validation hunks src/shared.ts
@@ -66,7 +60,7 @@ diff src/shared.ts (modified)
 warning: created stage validation on refs/heads/main
 ```
 
-Stage the first hunk by its ID, then commit:
+Stage the first hunk by ID and commit it:
 
 ```console
 $ git multistage --stage validation add src/shared.ts --hunk d94c87b26e90
@@ -76,7 +70,7 @@ $ git multistage --stage validation commit -m "Cap input length"
  1 file(s) changed
 ```
 
-Both commits appear on the same branch:
+The commits are on the same branch:
 
 ```console
 $ git log --oneline
@@ -85,7 +79,7 @@ d2867cd Honor returnTo after login
 f2f2964 Initial commit
 ```
 
-The unrelated edit is still in the working tree:
+The other edit remains in the working tree:
 
 ```console
 $ git status --short
@@ -94,7 +88,7 @@ $ git status --short
 
 ### Set the stage once
 
-To avoid passing `--stage` on every command, set the stage ID in your shell:
+Set the stage ID in your shell to avoid passing `--stage` on every command:
 
 ```bash
 export GIT_MULTISTAGE_ID=fix-login
@@ -106,17 +100,17 @@ In PowerShell:
 $env:GIT_MULTISTAGE_ID = "fix-login"
 ```
 
-To create a stage with a random ID, run `git multistage init`. It prints the ID.
+`git multistage init` creates a stage with a random ID and prints it.
 
 ## How stages work
 
-Each stage has its own Git index. All stages share the working tree, and a stage commits to the branch that was checked out when the stage was created. Staging and committing in one stage leaves out what other stages staged.
+A stage commits to the branch that was checked out when the stage was created. Its index is independent of other stages, but they all use the same working tree.
 
-`add <path>` stages the whole file as it is on disk, with every change in it. To stage part of a file, use `add --hunk`, as in the quick start.
+`add <path>` stages the file as it currently appears on disk, including every change in it. Use `add --hunk` to stage individual hunks.
 
-A file deleted or moved in the shared working tree might belong to another change, so `add` does not stage a deletion or a move. Use `rm` or `mv` to stage one.
+A deletion or move in the shared working tree may belong to another change, so `add` leaves those alone. Use `rm` or `mv` to stage them explicitly.
 
-Commands that you run in the checkout, such as a build or the tests, see every uncommitted change in the working tree. To run something without them, use a separate worktree from `git worktree add`.
+Builds, tests, and other commands run against the shared working tree. For an isolated run, create a separate worktree with `git worktree add`.
 
 ## Compared with plain Git
 
@@ -131,9 +125,9 @@ Commands that you run in the checkout, such as a build or the tests, see every u
 
 ## Other ways to install
 
-Whichever way you use, make sure that the directory of the `git-multistage` binary is on your `PATH`.
+The directory containing `git-multistage` must be on your `PATH`.
 
-**From a release**, with no Go toolchain. [Releases](https://github.com/chrisfls/git-multistage/releases) hold archives for Linux, macOS, and Windows on amd64 and arm64, and a `checksums.txt`. Download the archive for your system and `checksums.txt`, then check and unpack it:
+**From a release (no Go required):** Download the archive for your OS and architecture and `checksums.txt` from [Releases](https://github.com/chrisfls/git-multistage/releases). Archives are available for Linux, macOS, and Windows on amd64 and arm64. Verify the checksum and extract the binary:
 
 ```bash
 shasum -a 256 -c checksums.txt --ignore-missing
@@ -150,7 +144,7 @@ On Windows, unpack `git-multistage.exe` from the `.zip` into a directory on your
 go install github.com/chrisfls/git-multistage/cmd/git-multistage@latest
 ```
 
-`go install` puts the binary in `GOBIN`, or in `$(go env GOPATH)/bin` when `GOBIN` is not set. Add that directory to your `PATH` if it is missing.
+`go install` writes the binary to `GOBIN`, or to `$(go env GOPATH)/bin` if `GOBIN` is unset. Make sure that directory is on your `PATH`.
 
 **From a clone:**
 
@@ -168,15 +162,13 @@ go build -o "$env:USERPROFILE\bin\git-multistage.exe" .\cmd\git-multistage
 
 ## Coding agents
 
-git-multistage works on its own as a command-line tool, and coding agents run the same commands. Give each agent its own stage ID, such as its agent ID, and point it to [the agent guide](skills/git-multistage/SKILL.md).
+git-multistage has features for coding agents sharing a checkout. Its optional plugin tracks edits made through each agent's file tools, so `add --edits` can stage only that agent's changes, even when other agents edit the same file. The plugin also provides shared-checkout rules and blocks Git commands that change shared state.
 
-The optional plugin tracks the edits that an agent makes through its file tools, so the agent can stage only its own changes with `add --edits`, even when other agents edit the same file. The plugin also gives the agent the rules of a shared checkout, and refuses the Git commands that change shared state.
-
-The plugin tracks only edits made through an agent's file tools. Stage the changes of a shell command, such as a formatter, with `add` or `add --hunk`, or with `rm` and `mv` for a deleted or moved file.
+Edits made by shell commands, such as formatters, aren't tracked by the plugin. Stage those with `add` or `add --hunk`, or with `rm` and `mv` for deleted or moved files.
 
 ### Without the plugin
 
-Point the agent to the agent guide, and put the rules of a shared checkout in the project's `AGENTS.md` or `CLAUDE.md`:
+Give each agent its own stage ID (its agent ID works fine). Have agents follow the [git-multistage skill](skills/git-multistage/SKILL.md) for staging and committing, and add these shared-checkout rules to the project's `AGENTS.md` or `CLAUDE.md`:
 
 ```markdown
 Other agents may edit files in this checkout and commit to this branch while you work. Commits, file changes, and stages that you did not make are theirs: do not review, revert, stage, or mention them unless they block your task, and keep their changes in the working tree, even for a moment. To run something without them, use a separate worktree from `git worktree add`. Do not run `git add`, `git commit`, `git rm`, `git mv`, `git stash`, `git restore`, `git reset`, `git checkout`, or `git switch`: they change state that every agent shares. Stage and commit with `git multistage`, as skills/git-multistage/SKILL.md describes.
@@ -184,15 +176,15 @@ Other agents may edit files in this checkout and commit to this branch while you
 
 ### With the plugin
 
-The plugin's hooks act only in a checkout that opts in, so a repository that one agent uses alone stays as it is. In each checkout that agents share, run:
+The plugin's hooks run only in checkouts that opt in. Enable them in a shared checkout:
 
 ```bash
 git config multistage.shared true
 ```
 
-In an opted-in checkout, the plugin gives each session and subagent the rules of a shared checkout at its start, and refuses the Git commands that change shared state, such as `git stash` and `git commit`. `git config multistage.shared false` turns the plugin off for the checkout.
+Once enabled, the plugin gives each session and subagent the shared-checkout rules and blocks commands that change shared Git state, such as `git stash` and `git commit`. Disable it with `git config multistage.shared false`.
 
-The plugin calls the `git-multistage` binary, so [install it](#install) first: the hooks report an error while the binary is not on your `PATH`. Install the plugin in Claude Code, in Codex, or in one of the [other harnesses](#other-harnesses).
+[Install the binary](#install) before installing the plugin. The hooks report an error if `git-multistage` isn't on your `PATH`. You can install the plugin in Claude Code, Codex, or one of the [other harnesses](#other-harnesses).
 
 Claude Code:
 
@@ -208,26 +200,26 @@ codex plugin marketplace add chrisfls/git-multistage
 codex plugin add git-multistage@git-multistage
 ```
 
-Codex asks you to trust the plugin's hooks the next time it starts. Its default sandbox makes `.git` read-only, so `git multistage` needs a rule to run outside it. Add the rule to `.codex/rules/multistage.rules` in a trusted project, or to a file in `~/.codex/rules/`:
+Codex asks you to trust the plugin's hooks at the next startup. Its default sandbox makes `.git` read-only, so `git multistage` needs permission to run outside the sandbox. Add this rule to `.codex/rules/multistage.rules` in a trusted project, or to a file in `~/.codex/rules/`:
 
 ```python
 prefix_rule(pattern = ["git", "multistage"], decision = "allow")
 ```
 
-This rule also lets the agent run commands that discard staged changes, such as `drop --force`, without asking. To allow single commands instead, use `pattern = ["git", "multistage", "add"]` and similar lines.
+The rule also permits commands that can discard staged changes, including `drop --force`. For narrower permissions, use separate rules such as `pattern = ["git", "multistage", "add"]`.
 
-With the plugin installed, the agent stages its recorded edits and commits them:
+To commit changes recorded by the plugin:
 
 ```bash
 git multistage --stage <id> add --edits
 git multistage --stage <id> commit -m "Add input validation"
 ```
 
-`add --edits` stages only the lines that the agent itself changed, even when another agent changed the next line. It stages them from the plugin's record, so the stage keeps the agent's work even after another writer overwrote those lines or deleted the file.
+`add --edits` stages only the lines the agent changed, even if another agent edited adjacent lines. It uses the plugin's edit record, so those changes can still be staged if another writer has since overwritten the lines or deleted the file.
 
 ### Other harnesses
 
-The plugin also installs in the harnesses below. `<clone>` is a clone of this repository. The binary must be on your `PATH`, and the checkout must set `multistage.shared`, as for Claude Code.
+The plugin also supports the harnesses below. `<clone>` refers to a clone of this repository. The binary must be on your `PATH`, and `multistage.shared` must be enabled in the checkout.
 
 <details>
 <summary>Install steps for each harness</summary>
@@ -264,37 +256,37 @@ The plugin also installs in the harnesses below. `<clone>` is a clone of this re
 | DeepSeek Harness | in the profile's YAML, add the plugin `@deepseek-ai/dsh-hooks-claude-code` with `configPath` set to `<clone>/hooks/hooks.json` |
 | Aider | `aider --read <clone>/skills/git-multistage/SKILL.md --no-auto-commits`, or `read:` and `auto-commits: false` in `.aider.conf.yml` |
 
-Each harness above gets the skill, and records the edits of its file tools, except where this list says otherwise:
+These installations include the skill and track file-tool edits, with a few exceptions:
 
 - Aider has no hooks, so it records no edits, and it prints the `git multistage` commands for you to run. `--no-auto-commits` keeps its own commits, which take whole files, out of the shared branch.
 - DeepSeek Harness loads no skills; point the agent to the skill file.
 - MiniMax Code 0.7.7 did not list a plugin placed in `~/.minimax/plugins`, so its step is untested.
 - Grok Build, Kimi Code, and Goose may not show the first-edit message to the model. An agent that receives no message stages its files by path, as the skill says.
 
-The tests run Claude Code and Codex hooks as those tools send them. For the other harnesses, they replay each harness's documented hook input, or drive the plugin in a fake host. A real session in the harness has not been run.
+Tests exercise the Claude Code and Codex hooks using the input those tools send. For the other harnesses, tests replay documented hook input or use a fake host; they haven't been tested in live sessions.
 
 </details>
 
 ## Specs
 
-The specs in [openspec/specs/](openspec/specs/) document each command's behavior, one spec for each capability: stages, staging, commits, crash recovery, the agent hooks and plugins, the CLI, releases, and the local checks.
+[openspec/specs/](openspec/specs/) documents the behavior of stages, staging, commits, crash recovery, agent hooks, plugins, the CLI, releases, and local checks.
 
 ## Contributing
 
-Run the setup script once after a clone. It installs the tool versions that [mise.toml](mise.toml) pins, and generates the agent files, such as `AGENTS.md` and the skills in each coding agent's folder, for the coding agents installed on this machine. It needs [mise](https://mise.jdx.dev) and [RuleSync](https://github.com/dyoshikawa/rulesync), such as `brew install rulesync`:
+After cloning, run the setup script once. It installs the tool versions pinned in [mise.toml](mise.toml) and generates agent files, including `AGENTS.md` and skills for the coding agents installed on your machine. You'll need [mise](https://mise.jdx.dev) and [RuleSync](https://github.com/dyoshikawa/rulesync) (for example, `brew install rulesync`):
 
 ```bash
 scripts/setup.sh
 ```
 
-Every change starts as an [OpenSpec](https://openspec.dev) change in `openspec/changes/`, as `AGENTS.md` describes. Run the checks before you push:
+Start each change in `openspec/changes/` using [OpenSpec](https://openspec.dev), as described in `AGENTS.md`. Run the checks before pushing:
 
 ```bash
 mise run ci          # format, lint, vet, tests, and OpenSpec validation; run it before you push
 mise run ci:stress   # repeat the concurrency and crash tests
 ```
 
-The CI workflow runs only when started from the Actions tab, and tests on Linux, macOS, and Windows. `act` runs its Linux job locally with a Docker engine.
+CI runs only when started from the Actions tab. It tests on Linux, macOS, and Windows; `act` can run the Linux job locally using Docker.
 
 ## License
 
