@@ -1,12 +1,12 @@
 # Using git-multistage with coding agents
 
-Multiple coding agents can edit the same checkout while keeping their commits separate. Each agent uses its own stage. When those stages are created on the same branch, their commits go to that branch. The files on disk are shared, so one agent can still see or overwrite another agent's uncommitted changes.
+Multiple coding agents can edit the same checkout while keeping their commits separate. In supported agent sessions, git-multistage automatically derives a stage ID from the session, giving each session its own index without manual stage assignment. Commits from stages created on the same branch go to that branch. The files on disk are shared, so agents can still see or overwrite one another's uncommitted changes.
 
 Install [git-multistage](README.md#install) first and make sure the binary is on your `PATH`.
 
 ## Without the plugin
 
-Give agents separate stage IDs when configuring them manually and have them follow the [git-multistage skill](skills/git-multistage/SKILL.md). The tool can also detect agent sessions in supported integrations.
+Have agents follow the [git-multistage skill](skills/git-multistage/SKILL.md). In supported agent environments, git-multistage derives the stage ID from each agent session automatically. You only need `--stage <id>` or `GIT_MULTISTAGE_ID` when session detection is unavailable or you want to override it.
 
 Add these rules to your project's `AGENTS.md` or `CLAUDE.md`:
 
@@ -55,8 +55,8 @@ This rule also allows potentially destructive commands such as `git multistage d
 ### Stage edits recorded by the plugin
 
 ```bash
-git multistage --stage agent-a add --edits
-git multistage --stage agent-a commit -m "Add input validation"
+git multistage add --edits
+git multistage commit -m "Add input validation"
 ```
 
 `add --edits` uses the plugin's edit records to stage only lines changed by that agent. It can stage changes even when another writer has since overwritten those lines or deleted the file.
