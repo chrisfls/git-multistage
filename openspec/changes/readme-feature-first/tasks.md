@@ -10,6 +10,12 @@
 
 ## 2. Checks
 
-- [ ] 2.1 Compare the fenced blocks and table rows of the old and new README. Verify: a script lists no block or row of the old README that the new one lacks, except the table rows that 1.4 rewords.
-- [ ] 2.2 List each use of "agent" before "## Coding agents", and each contraction that the old README lacks. Verify: the only "agent" is the overview's mention of coding agents, and no new contraction appears.
-- [ ] 2.3 Check every `#anchor` and relative link, and run `openspec validate --all --strict`. Verify: each link resolves, and validation exits with code 0.
+- [x] 2.1 Compare the fenced blocks and table rows of the old and new README. Verify: a script lists no block or row of the old README that the new one lacks, except the table rows that 1.4 rewords.
+
+  Result: both versions hold 20 fenced blocks and 39 table rows. The only old rows missing are the two that 1.4 rewords: `See what you staged` and `Keep agents apart`.
+- [x] 2.2 List each use of "agent" before "## Coding agents", and each contraction that the old README lacks. Verify: the only "agent" is the overview's mention of coding agents, and no new contraction appears.
+
+  Result: the only "agent" before "Coding agents" is the overview's "run several coding agents in one checkout", and neither version holds a contraction.
+- [x] 2.3 Check every `#anchor` and relative link, and run `openspec validate --all --strict`. Verify: each link resolves, and validation exits with code 0.
+
+  Result: all 17 links resolve, and `openspec validate --all --strict` passes 12 items with 0 failures.
