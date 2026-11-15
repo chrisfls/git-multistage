@@ -2,11 +2,18 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
-git-multistage gives a Git checkout several independent staging areas, so you can stage and commit unrelated changes separately.
+git-multistage gives each task its own staging area in one Git checkout, so you can stage and commit unrelated changes separately.
 
-Each stage has its own index, and all stages share the working tree and the branch. A commit contains only the changes staged in its stage.
+Each stage has its own Git index, and all stages share the working tree and the branch. A commit contains only the changes staged in its stage. When two tasks change the same file, each stage takes its own hunks.
 
-Use it to keep separate tasks apart, whether you work on them yourself or run several coding agents in one checkout. It runs as `git multistage`, and every commit is a regular Git commit.
+```bash
+git multistage --stage feature-a add src/a.ts
+git multistage --stage feature-b add src/b.ts
+git multistage --stage feature-a commit -m "Add feature A"
+git multistage --stage feature-b commit -m "Add feature B"
+```
+
+Use it to work on several changes at once, or to let several coding agents share a checkout. It runs as `git multistage`, and every commit is a regular Git commit.
 
 ## The problem
 

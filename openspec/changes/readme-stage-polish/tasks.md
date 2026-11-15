@@ -2,7 +2,7 @@
 
 ## 1. README
 
-- [ ] 1.1 Rewrite the overview as the proposal, D2, D5, and D6 say. Verify: the overview says once that stages keep changes apart, names the Git index, the shared working tree and branch, staging by hunk for one file, people and coding agents, `git multistage`, and regular Git commits, and holds the four-line two-file example.
+- [x] 1.1 Rewrite the overview as the proposal, D2, D5, and D6 say. Verify: the overview says once that stages keep changes apart, names the Git index, the shared working tree and branch, staging by hunk for one file, people and coding agents, `git multistage`, and regular Git commits, and holds the four-line two-file example.
 - [ ] 1.2 Rewrite "The problem" as the proposal says. Verify: it keeps "interactive and hard to script", no sentence says that a change or a task owns an index directly, and no new contraction appears.
 - [ ] 1.3 Replace the setup paragraph of "Stage part of a file" with the goal. Verify: the paragraph names no pre-existing `validation` stage, and the commands and output of the example are unchanged.
 - [ ] 1.4 Rewrite the opening of "Coding agents" as the proposal says, move the shell-edit sentence into it, and start "With the plugin" with the opt-in. Verify: the opening says the CLI works without the plugin and names `add --edits`, the rules, the refused commands, and the shell-edit limit; every other sentence and block of "Coding agents" remains.
