@@ -2,19 +2,11 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
-git-multistage lets several agents commit from the same Git checkout at the same time.
+git-multistage lets several coding agents work in one Git checkout, each with its own staging area.
 
-Each agent gets its own staging area and can commit independently, without including changes staged by other agents. It works without agents too, for example to keep two unrelated changes apart.
+Agents stage and commit their changes independently, and a commit leaves out what other agents staged. The agents share the working tree and the branch, so no agent needs a worktree of its own.
 
-It runs as `git multistage` and writes normal Git history.
-
-## What it keeps apart
-
-Stages share a working tree, so agents can edit the same files. git-multistage keeps their staged changes and their commits apart. A file missing on disk can be another agent's deletion or move, so a stage takes a deletion or a move only through `rm` and `mv`.
-
-With the [agent plugin](#coding-agents), agents can edit the same file through their file tools at the same time. The plugin records the lines that each agent changed, so each agent stages only its own edits.
-
-Edits made through shell commands, such as a formatter, are not recorded. Stage them separately, with `add` or `add --hunk`, or with `rm` and `mv` for a deleted or moved file.
+It also works without agents, for example to keep unrelated changes separate. It runs as `git multistage`, and every commit is a regular Git commit.
 
 ## The problem
 
@@ -23,17 +15,6 @@ A Git checkout has one staging area, the index, shared by every agent working in
 The usual workaround is one worktree per agent. Each worktree can need its own dependency install and build output, and its branch has to be merged back.
 
 git-multistage keeps one checkout and gives each agent its own index.
-
-## Compared with plain Git
-
-| Task | Plain Git | git-multistage |
-| --- | --- | --- |
-| Stage a file | `git add src/a.ts`, into the shared index | `git multistage --stage a add src/a.ts` |
-| Stage part of a file from a script | Build a patch and run `git apply --cached` (`git add -p` is interactive) | `git multistage --stage a add src/shared.ts --hunk d94c87b26e90` |
-| See what you staged | `git diff --cached`, which shows every agent's changes | `git multistage --stage a diff --cached` |
-| Delete or move a file | `git rm` or `git mv`, into the shared index | `git multistage --stage a rm src/old.ts` or `git multistage --stage a mv src/a.ts src/b.ts` |
-| Commit | `git commit`, which takes the whole shared index | `git multistage --stage a commit -m "Fix login"` |
-| Keep agents apart | One worktree per agent | One stage per agent, in one checkout |
 
 ## Install
 
@@ -152,6 +133,25 @@ $env:GIT_MULTISTAGE_ID = "fix-login"
 ```
 
 No stage ID yet? `git multistage init` creates a stage with a random ID and prints it.
+
+## What it keeps apart
+
+Stages share a working tree, so agents can edit the same files. git-multistage keeps their staged changes and their commits apart. A file missing on disk can be another agent's deletion or move, so a stage takes a deletion or a move only through `rm` and `mv`.
+
+With the [agent plugin](#coding-agents), agents can edit the same file through their file tools at the same time. The plugin records the lines that each agent changed, so each agent stages only its own edits.
+
+Edits made through shell commands, such as a formatter, are not recorded. Stage them separately, with `add` or `add --hunk`, or with `rm` and `mv` for a deleted or moved file.
+
+## Compared with plain Git
+
+| Task | Plain Git | git-multistage |
+| --- | --- | --- |
+| Stage a file | `git add src/a.ts`, into the shared index | `git multistage --stage a add src/a.ts` |
+| Stage part of a file from a script | Build a patch and run `git apply --cached` (`git add -p` is interactive) | `git multistage --stage a add src/shared.ts --hunk d94c87b26e90` |
+| See what you staged | `git diff --cached`, which shows every agent's changes | `git multistage --stage a diff --cached` |
+| Delete or move a file | `git rm` or `git mv`, into the shared index | `git multistage --stage a rm src/old.ts` or `git multistage --stage a mv src/a.ts src/b.ts` |
+| Commit | `git commit`, which takes the whole shared index | `git multistage --stage a commit -m "Fix login"` |
+| Keep agents apart | One worktree per agent | One stage per agent, in one checkout |
 
 ## Coding agents
 
