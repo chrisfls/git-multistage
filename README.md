@@ -114,7 +114,7 @@ Each stage has its own Git index. All stages share the working tree, and a stage
 
 `add <path>` stages the whole file as it is on disk, with every change in it. To stage part of a file, use `add --hunk`, as in the quick start.
 
-A file deleted or moved in the shared working tree might belong to another task, so `add` does not stage a deletion or a move. Use `rm` or `mv` to stage one.
+A file deleted or moved in the shared working tree might belong to another change, so `add` does not stage a deletion or a move. Use `rm` or `mv` to stage one.
 
 Commands that you run in the checkout, such as a build or the tests, see every uncommitted change in the working tree. To run something without them, use a separate worktree from `git worktree add`.
 
