@@ -213,16 +213,16 @@ The plugin also installs in the harnesses below. `<clone>` is a clone of this re
 | GitHub Copilot CLI | `copilot plugin marketplace add chrisfls/git-multistage`, then `copilot plugin install git-multistage@git-multistage` |
 | Devin CLI | `devin plugins install chrisfls/git-multistage` |
 | Grok Build | `grok plugin install chrisfls/git-multistage --trust` |
-| CodeBuddy | `codebuddy plugin add github:chrisfls/git-multistage` |
+| CodeBuddy | `codebuddy plugin add github:chrisfls/git-multistage`, then `codebuddy plugin enable git-multistage` and confirm, because the plugin installs disabled |
 | Qoder CLI | `qodercli plugins marketplace add chrisfls/git-multistage`, then `qodercli plugins install git-multistage` |
 | ZCode | `zcode plugins marketplace add <clone>`, then `zcode plugins install git-multistage@git-multistage --scope user` |
 | MiniMax Code | `git clone https://github.com/chrisfls/git-multistage ~/.minimax/plugins/git-multistage` |
 | Goose | `goose plugin install https://github.com/chrisfls/git-multistage.git` |
-| OpenHands | `install_plugin("github:chrisfls/git-multistage")` in the SDK, or copy `skills/git-multistage` to `~/.agents/skills/` and `hooks/hooks.json` to `.openhands/hooks.json` |
+| OpenHands | copy `skills/git-multistage` to `~/.agents/skills/`, and [`hooks/openhands.json`](hooks/openhands.json) to `.openhands/hooks.json`; OpenHands rejects the `SubagentStart` event of the plugin's `hooks/hooks.json` |
 | Oh My Pi | `omp plugin marketplace add chrisfls/git-multistage`, then `omp plugin install git-multistage@git-multistage` |
 | Cursor CLI | `cursor-agent plugin marketplace add https://github.com/chrisfls/git-multistage`, then install it from `/plugin` |
 | Kimi Code | `/plugins install https://github.com/chrisfls/git-multistage` |
-| Muse Code | `muse plugins marketplace add git-multistage https://github.com/chrisfls/git-multistage`, `muse plugins install git-multistage@git-multistage`, then `muse plugins approve git-multistage` |
+| Muse Code | set `MUSE_EXPERIMENTAL_PLUGINS=1` if `muse plugins` says that plugins are not available, then `muse plugins marketplace add git-multistage https://github.com/chrisfls/git-multistage`, `muse plugins install git-multistage@git-multistage`, then `muse plugins approve git-multistage` |
 | Hermes Agent | `hermes plugins install chrisfls/git-multistage --enable` |
 | OpenCode | add `"file://<clone>/plugins/opencode/git-multistage.js"` to the `plugin` list of `opencode.json`; `opencode plugin` installs only packages from the npm registry |
 | Kilo Code | `kilo plugin git:https://github.com/chrisfls/git-multistage`, and copy `<clone>/skills/git-multistage` to `~/.config/kilo/skills/`, because Kilo loads no skills from a plugin |
@@ -233,16 +233,16 @@ The plugin also installs in the harnesses below. `<clone>` is a clone of this re
 | Qwen Code | `qwen extensions install chrisfls/git-multistage`, then confirm the plugin and its install in the prompts |
 | Gemini CLI | `gemini extensions install <clone>/plugins/gemini`, then confirm the prompt to trust the folder |
 | Mistral Vibe | `cp -R <clone>/plugins/vibe ~/.vibe/plugins/git-multistage`, then `/reload-plugins` |
-| Kiro CLI | copy [`hooks/kiro.json`](hooks/kiro.json) to `~/.kiro/hooks/git-multistage.json`, and add `skill://<clone>/skills/git-multistage/SKILL.md` to the agent's `resources` |
+| Kiro CLI | merge the `hooks` of [`hooks/kiro.json`](hooks/kiro.json) into your agent's configuration in `~/.kiro/agents/`, and add `skill://<clone>/skills/git-multistage/SKILL.md` to its `resources` |
 | Cline | on macOS and Linux, copy the files of [`hooks/cline/`](hooks/cline/) to `~/Documents/Cline/Hooks/`, and `skills/git-multistage/SKILL.md` to the project's `.clinerules/` |
 | DeepSeek Harness | in the profile's YAML, add the plugin `@deepseek-ai/dsh-hooks-claude-code` with `configPath` set to `<clone>/hooks/hooks.json` |
 | Aider | `aider --read <clone>/skills/git-multistage/SKILL.md --no-auto-commits`, or `read:` and `auto-commits: false` in `.aider.conf.yml` |
 
 Each harness above gets the skill, and records the edits of its file tools, except where this list says otherwise:
 
-- Aider has no hooks, so it records no edits. `--no-auto-commits` keeps its own commits, which take whole files, out of the shared branch.
+- Aider has no hooks, so it records no edits, and it prints the `git multistage` commands for you to run. `--no-auto-commits` keeps its own commits, which take whole files, out of the shared branch.
 - DeepSeek Harness loads no skills; point the agent to the skill file.
-- The Cline CLI runs hooks of another format, so only the Cline extension records edits.
+- MiniMax Code 0.7.7 did not list a plugin placed in `~/.minimax/plugins`, so its step is untested.
 - Grok Build, Kimi Code, and Goose may not show the first-edit message to the model. An agent that receives no message stages its files by path, as the skill says.
 
 The tests run Claude Code and Codex hooks as those tools send them. For the other harnesses, they replay each harness's documented hook input, or drive the plugin in a fake host. A real session in the harness has not been run.
