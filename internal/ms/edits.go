@@ -1,8 +1,7 @@
 package ms
 
 import (
-	"crypto/rand"
-	"encoding/hex"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,13 +46,11 @@ func writeRecord(stageDir string, rec EditRecord) error {
 	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return err
 	}
-	b := make([]byte, 4)
-	_, _ = rand.Read(b)
 	data, err := json.Marshal(rec)
 	if err != nil {
 		return err
 	}
-	name := fmt.Sprintf("%020d-%s.json", rec.Time.UnixNano(), hex.EncodeToString(b))
+	name := fmt.Sprintf("%020d-%s.json", rec.Time.UnixNano(), randomHex())
 	return writeFileAtomic(filepath.Join(dir, name), data)
 }
 
@@ -717,7 +714,7 @@ func (r *Repo) applyRecord(v *indexView, rec EditRecord, force bool) error {
 	if err != nil {
 		return err
 	}
-	oid, err := r.Line(gitx.Opt{Stdin: strings.NewReader(string(out))}, "hash-object", "-w", "--stdin")
+	oid, err := r.Line(gitx.Opt{Stdin: bytes.NewReader(out)}, "hash-object", "-w", "--stdin")
 	if err != nil {
 		return err
 	}

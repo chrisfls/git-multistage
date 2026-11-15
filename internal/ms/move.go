@@ -1,8 +1,6 @@
 package ms
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,10 +34,10 @@ func (r *Repo) diskPath(p string) string { return filepath.Join(r.Top, filepath.
 // stage's index needs force.
 func (l *Stage) RemovePaths(paths []string, force bool) error {
 	i, err := l.pendingDisk(cmdRm, paths)
-	if err != nil || i >= 0 {
-		if err != nil {
-			return err
-		}
+	if err != nil {
+		return err
+	}
+	if i >= 0 {
 		return l.finishPending(i)
 	}
 	if err := l.canonicalPaths(paths); err != nil {
@@ -249,9 +247,7 @@ func targetErr(err error) error {
 // finishes the second rename.
 func (l *Stage) renameCaseOnly(d *DiskChange) error {
 	oldp, newp := d.Paths[0], d.Paths[1]
-	b := make([]byte, 4)
-	_, _ = rand.Read(b)
-	d.Temp = path.Join(path.Dir(oldp), ".git-multistage-"+hex.EncodeToString(b)+"-"+path.Base(oldp))
+	d.Temp = path.Join(path.Dir(oldp), ".git-multistage-"+randomHex()+"-"+path.Base(oldp))
 	if err := l.save(); err != nil {
 		return err
 	}
@@ -384,10 +380,10 @@ func (r *Repo) diskDiffers(idx, p string, entry indexEntry) (bool, error) {
 // is left alone.
 func (l *Stage) MovePath(oldp, newp string) error {
 	i, err := l.pendingDisk(cmdMv, []string{oldp, newp})
-	if err != nil || i >= 0 {
-		if err != nil {
-			return err
-		}
+	if err != nil {
+		return err
+	}
+	if i >= 0 {
 		return l.finishPending(i)
 	}
 	if oldp, err = l.canonical(oldp); err != nil {

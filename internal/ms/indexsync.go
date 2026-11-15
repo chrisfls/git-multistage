@@ -207,14 +207,6 @@ func (r *Repo) syncAfterCommit(branch, parent string) (SyncResult, error) {
 	return r.syncMoved(head, tip, parent)
 }
 
-// syncLanded is syncAfterCommit for a commit that this process just moved
-// branch to, from parent, while it held index.lock and HEAD pointed to
-// branch. It starts the sync with that commit and that branch, so that it
-// reads neither the tip nor HEAD again.
-func (r *Repo) syncLanded(branch, commit, parent string) (SyncResult, error) {
-	return r.syncMoved(branch, commit, parent)
-}
-
 // syncMoved synchronizes the default index with tip, the tip of head, after
 // head moved from parent.
 func (r *Repo) syncMoved(head, tip, parent string) (SyncResult, error) {
@@ -466,8 +458,6 @@ func (r *Repo) syncTreesOf(from, tip string) syncTrees {
 	return syncTrees{fromTree, tipTree}
 }
 
-type stagedEntry struct{ mode, oid string }
-
 // applyIndexChanges rewrites a copy of the default index and renames it into
 // place. The caller holds index.lock, so no Git process writes the index
 // meanwhile.
@@ -563,9 +553,9 @@ func (r *Repo) planIndexChanges(index string, changes []gitx.Entry, res *SyncRes
 		switch {
 		case conflicted[c.Path]:
 			res.Kept = append(res.Kept, c.Path)
-		case newAbsent && !present, present && cur == (stagedEntry{c.NewMode, c.NewOID}):
+		case newAbsent && !present, present && cur == (indexEntry{c.NewMode, c.NewOID}):
 			// Already matches the tip.
-		case oldAbsent && !present, present && cur == (stagedEntry{c.OldMode, c.OldOID}):
+		case oldAbsent && !present, present && cur == (indexEntry{c.OldMode, c.OldOID}):
 			if newAbsent {
 				fmt.Fprintf(&input, "0 %s\t%s\x00", r.ZeroOID, c.Path)
 			} else {
@@ -588,7 +578,7 @@ func (r *Repo) planIndexChanges(index string, changes []gitx.Entry, res *SyncRes
 // readIndexEntries reads the stage-0 entries of paths in index, and the
 // paths that have conflict stages. It reads the index file itself when it
 // can, and runs ls-files otherwise.
-func (r *Repo) readIndexEntries(index string, paths []string) (map[string]stagedEntry, map[string]bool, error) {
+func (r *Repo) readIndexEntries(index string, paths []string) (map[string]indexEntry, map[string]bool, error) {
 	if current, conflicted, ok := r.readIndexFile(index, paths); ok {
 		return current, conflicted, nil
 	}
@@ -596,8 +586,8 @@ func (r *Repo) readIndexEntries(index string, paths []string) (map[string]staged
 }
 
 // lsFilesEntries reads what readIndexEntries reads with ls-files.
-func (r *Repo) lsFilesEntries(index string, paths []string) (map[string]stagedEntry, map[string]bool, error) {
-	current := map[string]stagedEntry{}
+func (r *Repo) lsFilesEntries(index string, paths []string) (map[string]indexEntry, map[string]bool, error) {
+	current := map[string]indexEntry{}
 	conflicted := map[string]bool{}
 	for start := 0; start < len(paths); start += 200 {
 		end := min(start+200, len(paths))
@@ -618,7 +608,7 @@ func (r *Repo) lsFilesEntries(index string, paths []string) (map[string]stagedEn
 				conflicted[path] = true
 				continue
 			}
-			current[path] = stagedEntry{f[0], f[1]}
+			current[path] = indexEntry{f[0], f[1]}
 		}
 	}
 	return current, conflicted, nil
@@ -627,8 +617,8 @@ func (r *Repo) lsFilesEntries(index string, paths []string) (map[string]stagedEn
 // readIndexFile reads what readIndexEntries reads, from the index file. It
 // keeps the literal pathspecs of ls-files: a path matches itself and every
 // path below it. ok is false when only Git can read the file or the paths.
-func (r *Repo) readIndexFile(index string, paths []string) (current map[string]stagedEntry, conflicted map[string]bool, ok bool) {
-	current, conflicted = map[string]stagedEntry{}, map[string]bool{}
+func (r *Repo) readIndexFile(index string, paths []string) (current map[string]indexEntry, conflicted map[string]bool, ok bool) {
+	current, conflicted = map[string]indexEntry{}, map[string]bool{}
 	if len(paths) == 0 {
 		return current, conflicted, true
 	}
@@ -661,7 +651,7 @@ func (r *Repo) readIndexFile(index string, paths []string) (current map[string]s
 			conflicted[e.Path] = true
 			continue
 		}
-		current[e.Path] = stagedEntry{e.Mode, e.OID}
+		current[e.Path] = indexEntry{e.Mode, e.OID}
 	}
 	return current, conflicted, true
 }
@@ -698,12 +688,17 @@ func copyFile(from, to string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(dst, src); err != nil {
-		_ = dst.Close()
-		return err
+	_, err = io.Copy(dst, src)
+	if cerr := dst.Close(); err == nil {
+		err = cerr
 	}
-	if err := dst.Close(); err != nil {
-		return err
+	if err == nil {
+		err = os.Chtimes(to, info.ModTime(), info.ModTime())
 	}
-	return os.Chtimes(to, info.ModTime(), info.ModTime())
+	if err != nil {
+		// A partial copy is no index; remove it now rather than leave it to
+		// removeLeftovers.
+		_ = os.Remove(to)
+	}
+	return err
 }

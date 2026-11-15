@@ -67,6 +67,17 @@ func TestParseAndApply(t *testing.T) {
 	}
 }
 
+func TestApplyEmptiesFile(t *testing.T) {
+	old := "one\ntwo\n"
+	got, err := Apply([]byte(old), mustParse(t, "f", old, ""))
+	if err != nil || len(got) != 0 {
+		t.Fatalf("Apply = %q, %v; want no content", got, err)
+	}
+	if got, err := Apply(nil, nil); err != nil || len(got) != 0 {
+		t.Fatalf("Apply of nothing = %q, %v; want no content", got, err)
+	}
+}
+
 func TestIDsDependOnContentNotPosition(t *testing.T) {
 	old := "a\nb\nc\nd\ne\nf\n"
 	h1 := mustParse(t, "f", old, "a\nB\nc\nd\ne\nF\n")

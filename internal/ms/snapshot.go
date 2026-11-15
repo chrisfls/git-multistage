@@ -34,18 +34,20 @@ func (r *Repo) entryIfIndex(indexFile, path string) (indexEntry, bool, error) {
 // The file is added to a temporary index that holds only the entry of path,
 // without stat data, so Git always reads the file again.
 func (r *Repo) snapshotBlob(indexFile, path string) (string, error) {
-	full := filepath.Join(r.Top, filepath.FromSlash(path))
-	if info, err := os.Lstat(full); err == nil && info.Mode()&fs.ModeSymlink != 0 {
-		// An index stores a symbolic link as its target name, which
-		// hash-object would follow.
-		target, err := os.Readlink(full)
-		if err != nil {
-			return "", err
+	full := r.diskPath(path)
+	if info, err := os.Lstat(full); err == nil {
+		switch {
+		case info.Mode()&fs.ModeSymlink != 0:
+			// An index stores a symbolic link as its target name, which
+			// hash-object would follow.
+			target, err := os.Readlink(full)
+			if err != nil {
+				return "", err
+			}
+			return r.Line(gitx.Opt{Stdin: strings.NewReader(target)}, "hash-object", "-w", "--stdin")
+		case !info.Mode().IsRegular():
+			return r.Line(gitx.Opt{}, "hash-object", "-w", "--path="+path, "--", path)
 		}
-		return r.Line(gitx.Opt{Stdin: strings.NewReader(target)}, "hash-object", "-w", "--stdin")
-	} else if err == nil && !info.Mode().IsRegular() {
-		return r.Line(gitx.Opt{}, "hash-object", "-w", "--path="+path, "--", path)
-	} else if err == nil {
 		if id, ok, err := r.hashIfNoCR(full, path); ok || err != nil {
 			return id, err
 		}

@@ -2,8 +2,6 @@ package ms
 
 import (
 	"bytes"
-	crand "crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"math/rand"
 	"os"
@@ -94,10 +92,11 @@ func (r *Repo) checkOperation(parent, commit string, sync bool) error {
 // runHook runs a Git hook through `git hook run`, so core.hooksPath and
 // configured hooks apply. Hook output goes to stderr.
 func (r *Repo) runHook(index, name string, args ...string) error {
-	cmd := append([]string{"hook", "run", "--ignore-missing", name}, args...)
+	cmd := []string{"hook", "run", "--ignore-missing", name}
 	if len(args) > 0 {
-		cmd = append([]string{"hook", "run", "--ignore-missing", name, "--"}, args...)
+		cmd = append(cmd, "--")
 	}
+	cmd = append(cmd, args...)
 	_, err := r.Run(gitx.Opt{Index: index, User: true, Stdout: os.Stderr, Stderr: os.Stderr}, cmd...)
 	return err
 }
@@ -194,9 +193,7 @@ func stringOut(b []byte, err error) (string, error) { return string(b), err }
 // Each run has its own name, so a lock file that a hook orphaned by a killed
 // process still holds never blocks or meets a later run.
 func (l *Stage) hookIndexPath() string {
-	b := make([]byte, 4)
-	_, _ = crand.Read(b)
-	return filepath.Join(l.Dir, "hook-index-"+hex.EncodeToString(b))
+	return filepath.Join(l.Dir, "hook-index-"+randomHex())
 }
 
 // runPreCommit runs the pre-commit hook against an index that holds tree,
@@ -465,8 +462,11 @@ func (l *Stage) land(res *CommitResult, st *commitState, commit, tip string, att
 	}
 	fault("after-update-ref")
 	if lk != nil {
+		// This process just moved the branch from tip to commit, while it
+		// held index.lock and HEAD pointed to the branch, so the sync reads
+		// neither the tip nor HEAD again.
 		var err error
-		res.Sync, err = r.syncLanded(l.M.Branch, commit, tip)
+		res.Sync, err = r.syncMoved(l.M.Branch, commit, tip)
 		lk.release()
 		if err != nil {
 			res.Sync.Warnings = append(res.Sync.Warnings, fmt.Sprintf("default index not synchronized: %v; run `git multistage sync`", err))

@@ -159,13 +159,19 @@ func codexSection(patch, cwd, file string) (codexPatchSection, bool) {
 	return found, found.kind != ""
 }
 
+// codexHeaders are the headers that start a file section of a patch, with
+// the kind of each section. No line starts with two of them.
+var codexHeaders = [...]struct{ prefix, kind string }{
+	{"*** Add File: ", "add"},
+	{"*** Update File: ", codexUpdate},
+	{"*** Delete File: ", "delete"},
+}
+
 // codexHeader parses a line that starts a file section of a patch.
 func codexHeader(line string) (kind, path string, ok bool) {
-	for prefix, kind := range map[string]string{
-		"*** Add File: ": "add", "*** Update File: ": codexUpdate, "*** Delete File: ": "delete",
-	} {
-		if p, ok := strings.CutPrefix(line, prefix); ok {
-			return kind, strings.TrimSpace(p), true
+	for _, h := range codexHeaders {
+		if p, ok := strings.CutPrefix(line, h.prefix); ok {
+			return h.kind, strings.TrimSpace(p), true
 		}
 	}
 	return "", "", false

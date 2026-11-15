@@ -212,7 +212,7 @@ func quotePath(p string) string {
 	b.WriteByte('"')
 	for i := range len(p) {
 		c := p[i]
-		if j := strings.IndexByte(cEscapes, c); j >= 0 && c != 0 {
+		if j := strings.IndexByte(cEscapes, c); j >= 0 {
 			b.WriteByte('\\')
 			b.WriteByte(cEscapeNames[j])
 		} else if c < 0x20 || c == 0x7f {
@@ -639,7 +639,7 @@ func (l *Stage) moveBase(f Freshness, tip string) (Freshness, error) {
 		return f, nil
 	}
 	merged, err := l.r.integrate(l.M.Base, baseTree, staged, tip, l.M.Moves, nil)
-	e := &Error{}
+	var e *Error
 	if errors.As(err, &e) {
 		f.Stale = true
 		f.Conflicts = e.Paths

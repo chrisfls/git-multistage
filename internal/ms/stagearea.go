@@ -83,10 +83,14 @@ func sanitizeID(s string) string {
 }
 
 // NewStageID returns a random stage ID.
-func NewStageID() string {
+func NewStageID() string { return "stage-" + randomHex() }
+
+// randomHex returns 8 random hex digits, for a name that no other process
+// picks.
+func randomHex() string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
-	return "stage-" + hex.EncodeToString(b)
+	return hex.EncodeToString(b)
 }
 
 // Meta is the persistent state of one stage.
@@ -381,9 +385,6 @@ func (l *Stage) adoptIndex(name string, gen int) error {
 // reachable, so that `git gc` does not prune them.
 func (l *Stage) keepRef() string { return "refs/worktree/multistage/" + l.ID }
 
-// protect points keepRef at a commit whose tree holds the staged tree and
-// the blobs of recorded edits, while the stage has either; otherwise it
-// deletes the ref.
 // sparseState returns, from the default index, the paths that a sparse
 // checkout leaves out of the working tree and the set of all its paths; nil
 // maps without a sparse checkout.
@@ -576,6 +577,9 @@ func (l *Stage) readKeep() keepCommit {
 	return k
 }
 
+// protect points keepRef at a commit whose tree holds the staged tree and
+// the blobs of recorded edits, while the stage has either; otherwise it
+// deletes the ref.
 func (l *Stage) protect() error {
 	if l.Damaged {
 		return nil

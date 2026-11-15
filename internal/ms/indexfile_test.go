@@ -2,9 +2,13 @@ package ms
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -103,5 +107,20 @@ func TestICaseSpellingLeavesGlobsToGit(t *testing.T) {
 		if _, _, ok := r.icaseSpelling(r.IndexPath, spec, "a"); ok {
 			t.Errorf("icaseSpelling read the pathspec %q, which only ls-files reads", spec)
 		}
+	}
+}
+
+// TestCopyFileRemovesPartialCopy checks that a copy that fails after it
+// created the destination leaves no file behind.
+func TestCopyFileRemovesPartialCopy(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	to := filepath.Join(dir, "index-2")
+	// A directory opens and stats like a file, but reading it fails.
+	if err := copyFile(dir, to); err == nil {
+		t.Fatal("copyFile of a directory succeeded")
+	}
+	if _, err := os.Lstat(to); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the failed copy left %s: %v", to, err)
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -162,11 +161,5 @@ func (r *Repo) saveIndexTrees() {
 	for _, sum := range c.order {
 		fmt.Fprintf(&b, "%s %s\n", sum, c.trees[sum])
 	}
-	if os.MkdirAll(filepath.Dir(r.TreeCache), 0o777) != nil {
-		return
-	}
-	tmp := fmt.Sprintf("%s.tmp-%d", r.TreeCache, os.Getpid())
-	if os.WriteFile(tmp, []byte(b.String()), 0o666) != nil || os.Rename(tmp, r.TreeCache) != nil {
-		_ = os.Remove(tmp)
-	}
+	writeCacheFile(r.TreeCache, b.String())
 }

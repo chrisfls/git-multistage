@@ -415,9 +415,10 @@ func (r *Repo) run(o Opt, args ...string) ([]byte, error) {
 	if cmd.Dir == "" {
 		cmd.Dir = r.Top
 	}
-	cmd.Env = append([]string{}, r.baseEnv...)
 	if o.User {
 		cmd.Env = userEnv()
+	} else {
+		cmd.Env = slices.Clone(r.baseEnv)
 	}
 	if !o.User && o.Stdout == nil && o.Stderr == nil {
 		// git-multistage reads this output, such as an error that Run
@@ -462,9 +463,6 @@ func (r *Repo) Line(o Opt, args ...string) (string, error) {
 	return strings.TrimSpace(s), nil
 }
 
-// Env returns the environment that Git commands run with.
-func (r *Repo) Env() []string { return append([]string{}, r.baseEnv...) }
-
 // ResolveRef returns the object ID of ref, or "" when ref does not exist.
 // It reads HEAD and branches from the ref files when it can.
 func (r *Repo) ResolveRef(ref string) (string, error) {
@@ -503,13 +501,12 @@ func (r *Repo) SymbolicHead() (string, error) {
 // "--" makes every argument a revision, so a file named HEAD cannot stand in
 // for an unborn HEAD.
 func (r *Repo) TipAndHead(ref string) (tip, head string, err error) {
-	if head, headTip, ok := r.readRefFiles(headRef); ok {
-		tip, ok = headTip, head == ref
-		if !ok {
-			_, tip, ok = r.readRefFiles(ref)
+	if h, headTip, ok := r.readRefFiles(headRef); ok {
+		if h == ref {
+			return headTip, strings.TrimPrefix(h, headRef), nil
 		}
-		if ok {
-			return tip, strings.TrimPrefix(head, headRef), nil
+		if _, refTip, ok := r.readRefFiles(ref); ok {
+			return refTip, strings.TrimPrefix(h, headRef), nil
 		}
 	}
 	out, err := r.Run(Opt{}, "rev-parse", ref+"^{commit}", "--symbolic-full-name", "HEAD", "--")

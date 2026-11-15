@@ -234,11 +234,8 @@ func callFiles(c hookCall) []string {
 func patchFiles(patch, cwd string) []string {
 	var files []string
 	for _, line := range strings.Split(patch, "\n") {
-		line = strings.TrimRight(line, "\r")
-		for _, prefix := range []string{"*** Update File: ", "*** Add File: ", "*** Delete File: "} {
-			if p, ok := strings.CutPrefix(line, prefix); ok && strings.TrimSpace(p) != "" {
-				files = append(files, absPath(strings.TrimSpace(p), cwd))
-			}
+		if _, p, ok := codexHeader(strings.TrimRight(line, "\r")); ok && p != "" {
+			files = append(files, absPath(p, cwd))
 		}
 	}
 	return files

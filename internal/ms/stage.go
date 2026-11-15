@@ -124,12 +124,13 @@ func (l *Stage) stagedChanges() ([]Change, error) {
 }
 
 // otherStagesStaged returns, for each path that another stage of this worktree
-// has staged, the stages that staged it.
-func (l *Stage) otherStagesStaged() (map[string][]string, error) {
+// has staged, the stages that staged it. An unreadable stages directory holds
+// no other stages.
+func (l *Stage) otherStagesStaged() map[string][]string {
 	res := map[string][]string{}
 	entries, err := os.ReadDir(l.r.stagesDir())
 	if err != nil {
-		return res, nil //nolint:nilerr // an unreadable stages directory holds no other stages
+		return res
 	}
 	var names []string
 	for _, e := range entries {
@@ -153,7 +154,7 @@ func (l *Stage) otherStagesStaged() (map[string][]string, error) {
 			res[p] = append(res[p], name)
 		}
 	}
-	return res, nil
+	return res
 }
 
 // stageStagedPaths reads another stage's staged paths without locking it or
@@ -365,10 +366,7 @@ func errMissingPaths(paths []string) error {
 // refuseShared fails with shared-path when another stage has staged changes
 // in a changed file.
 func (l *Stage) refuseShared(changed []gitx.Entry) error {
-	others, err := l.otherStagesStaged()
-	if err != nil {
-		return err
-	}
+	others := l.otherStagesStaged()
 	var shared, details []string
 	for _, c := range changed {
 		if ids := others[c.Path]; len(ids) > 0 {
@@ -416,7 +414,7 @@ func (r *Repo) lsIndex(idx, p string) (indexEntry, bool, error) {
 		return indexEntry{}, false, err
 	}
 	e, ok := current[p]
-	return indexEntry(e), ok, nil
+	return e, ok, nil
 }
 
 // lsTree returns the entry of path in commit.
@@ -441,14 +439,7 @@ func (r *Repo) lsTree(commit, p string) (indexEntry, bool, error) {
 // not in the result.
 func (r *Repo) lsIndexMany(idx string, paths []string) (map[string]indexEntry, error) {
 	current, _, err := r.readIndexEntries(idx, paths)
-	if err != nil {
-		return nil, err
-	}
-	entries := make(map[string]indexEntry, len(current))
-	for p, e := range current {
-		entries[p] = indexEntry(e)
-	}
-	return entries, nil
+	return current, err
 }
 
 // lsTreeMany returns the blob entries of paths in commit, by path, with one
@@ -765,10 +756,7 @@ func (l *Stage) Hunks(paths []string, cached bool) ([]FileHunks, error) {
 	}
 	var others map[string][]string
 	if !cached {
-		var err error
-		if others, err = l.otherStagesStaged(); err != nil {
-			return nil, err
-		}
+		others = l.otherStagesStaged()
 	}
 	var res []FileHunks
 	for _, p := range paths {
@@ -810,13 +798,13 @@ func (l *Stage) markStagedBy(fh *FileHunks, ids []string) {
 		if err != nil {
 			continue
 		}
-		ids, places := map[string]bool{}, map[string]bool{}
+		stagedIDs, places := map[string]bool{}, map[string]bool{}
 		for _, h := range staged.Hunks {
-			ids[h.ID] = true
+			stagedIDs[h.ID] = true
 			places[placeKey(h.Hunk)] = true
 		}
 		for i := range fh.Hunks {
-			if ids[fh.Hunks[i].ID] || places[placeKey(fh.Hunks[i].Hunk)] {
+			if stagedIDs[fh.Hunks[i].ID] || places[placeKey(fh.Hunks[i].Hunk)] {
 				fh.Hunks[i].StagedBy = append(fh.Hunks[i].StagedBy, id)
 			}
 		}

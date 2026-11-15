@@ -169,12 +169,11 @@ func Main(argv []string, stdout, stderr io.Writer) int {
 		e = &Error{Code: ExitError, Kind: jsonError, Message: err.Error()}
 	}
 	addCodexHint(e)
+	a.flushWarnings()
 	if a.json {
-		a.flushWarnings()
 		a.emit(map[string]any{jsonError: e, jsonWarnings: a.warnings})
 		return e.Code
 	}
-	a.flushWarnings()
 	fmt.Fprintf(stderr, "error: %s\n", e.Message)
 	for _, p := range e.Paths {
 		fmt.Fprintf(stderr, "  %s\n", p)
@@ -226,13 +225,15 @@ func (a *app) flushWarnings() {
 	a.warnings = nil
 }
 
-// emit prints v as JSON. A jsonWarnings entry of v gets the stage's warnings
-// that are not collected yet.
+// emit prints v as JSON. A jsonWarnings entry of v gets the warnings,
+// including the stage's warnings that are not collected yet, and emit clears
+// them, so that a later error does not print them again.
 func (a *app) emit(v any) {
 	if m, ok := v.(map[string]any); ok {
 		if _, ok := m[jsonWarnings]; ok {
 			a.collectStageWarnings()
 			m[jsonWarnings] = a.warnings
+			a.warnings = nil
 		}
 	}
 	enc := json.NewEncoder(a.out)
@@ -598,7 +599,6 @@ func (a *app) status(l *Stage, f Freshness) error {
 	}
 	if a.json {
 		a.emit(map[string]any{"status": st, jsonWarnings: a.warnings})
-		a.warnings = nil
 		return nil
 	}
 	state := "up to date"
@@ -668,7 +668,6 @@ func (a *app) hunks(l *Stage, p *parsed) error {
 			files = []FileHunks{}
 		}
 		a.emit(map[string]any{"files": files, jsonWarnings: a.warnings})
-		a.warnings = nil
 		return nil
 	}
 	for _, f := range files {
@@ -736,7 +735,6 @@ func (a *app) addEdits(l *Stage, p *parsed) error {
 	}
 	if a.json {
 		a.emit(map[string]any{"staged_paths": staged, jsonWarnings: a.warnings})
-		a.warnings = nil
 		return nil
 	}
 	a.printf("staged recorded edits in %s\n", strings.Join(staged, ", "))
@@ -751,7 +749,6 @@ func (a *app) addHunks(l *Stage, p *parsed, paths, ids []string) error {
 	}
 	if a.json {
 		a.emit(map[string]any{"staged_paths": staged, "hunks": ids, jsonWarnings: a.warnings})
-		a.warnings = nil
 		return nil
 	}
 	a.printf("staged %d hunk(s) in %s\n", len(ids), strings.Join(staged, ", "))
@@ -765,15 +762,11 @@ func (a *app) addPaths(l *Stage, p *parsed, paths []string) error {
 		return err
 	}
 	if a.json {
-		var cs []Change
+		cs := make([]Change, 0, len(changed))
 		for _, c := range changed {
 			cs = append(cs, Change{Status: string(c.Status), Path: c.Path})
 		}
-		if cs == nil {
-			cs = []Change{}
-		}
 		a.emit(map[string]any{"staged": cs, jsonWarnings: a.warnings})
-		a.warnings = nil
 		return nil
 	}
 	if len(changed) == 0 {
@@ -820,7 +813,6 @@ func (a *app) apply(l *Stage, p *parsed) error {
 	}
 	if a.json {
 		a.emit(map[string]any{"staged": staged, jsonWarnings: a.warnings})
-		a.warnings = nil
 		return nil
 	}
 	a.printf("applied patch to stage %s\n", l.ID)
@@ -840,7 +832,6 @@ func (a *app) rm(l *Stage, p *parsed) error {
 	}
 	if a.json {
 		a.emit(map[string]any{"deleted_paths": paths, jsonWarnings: a.warnings})
-		a.warnings = nil
 		return nil
 	}
 	a.printf("deleted and staged: %s\n", strings.Join(paths, ", "))
@@ -860,7 +851,6 @@ func (a *app) mv(l *Stage, p *parsed) error {
 	}
 	if a.json {
 		a.emit(map[string]any{"moved": Move{Old: paths[0], New: paths[1]}, jsonWarnings: a.warnings})
-		a.warnings = nil
 		return nil
 	}
 	a.printf("moved and staged: %s -> %s\n", paths[0], paths[1])
@@ -888,7 +878,6 @@ func (a *app) restore(l *Stage, p *parsed) error {
 	}
 	if a.json {
 		a.emit(map[string]any{"unstaged_paths": restored, jsonWarnings: a.warnings})
-		a.warnings = nil
 		return nil
 	}
 	a.printf("unstaged: %s\n", strings.Join(restored, ", "))
@@ -914,7 +903,6 @@ func (a *app) commit(l *Stage, p *parsed) error {
 	a.warnings = append(a.warnings, res.Sync.Warnings...)
 	if a.json {
 		a.emit(map[string]any{"commit": res, jsonWarnings: a.warnings})
-		a.warnings = nil
 		return nil
 	}
 	branch := strings.TrimPrefix(res.Branch, "refs/heads/")
@@ -1061,7 +1049,6 @@ func (a *app) sync(p *parsed) error {
 	a.warnings = append(a.warnings, res.Warnings...)
 	if a.json {
 		a.emit(map[string]any{"index_sync": res, jsonWarnings: a.warnings})
-		a.warnings = nil
 		return nil
 	}
 	a.printf("default index: %d path(s) updated, %d kept\n", len(res.Updated), len(res.Kept))
@@ -1080,7 +1067,6 @@ func (a *app) drop(l *Stage, p *parsed) error {
 		}
 		if a.json {
 			a.emit(map[string]any{"dropped_edits": n, jsonWarnings: a.warnings})
-			a.warnings = nil
 			return nil
 		}
 		a.printf("forgot %d recorded edit(s)\n", n)
@@ -1092,7 +1078,6 @@ func (a *app) drop(l *Stage, p *parsed) error {
 	}
 	if a.json {
 		a.emit(map[string]any{"dropped": l.ID, "staged_tree": tree, jsonWarnings: a.warnings})
-		a.warnings = nil
 		return nil
 	}
 	a.printf("dropped stage %s\n", l.ID)

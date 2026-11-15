@@ -135,15 +135,15 @@ func newEditHooks(in hookCall, id string, files []string, stderr io.Writer) []*e
 // PostToolUseFailure event, and returns the exit code.
 func runEvent(event string, hooks []*editHook, stdout, stderr io.Writer) int {
 	switch event {
-	case "PreToolUse":
+	case eventPreTool:
 		for _, h := range hooks {
 			h.before(stderr)
 		}
-	case "PostToolUse":
+	case eventPostTool:
 		for _, h := range hooks {
 			h.after(stdout, stderr, true)
 		}
-	case "PostToolUseFailure":
+	case eventPostFailure:
 		for _, h := range hooks {
 			h.after(stdout, stderr, false)
 		}

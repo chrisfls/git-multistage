@@ -66,10 +66,7 @@ func (l *Stage) Status(f Freshness) (*StatusInfo, error) {
 		// A stage with nothing staged shares no path with another stage.
 		return st, nil
 	}
-	others, err := l.otherStagesStaged()
-	if err != nil {
-		return nil, err
-	}
+	others := l.otherStagesStaged()
 	for _, c := range st.Staged {
 		if a := others[c.Path]; len(a) > 0 {
 			st.Shared = append(st.Shared, SharedPath{c.Path, a})

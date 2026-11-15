@@ -3,6 +3,7 @@
 package hunks
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -197,7 +198,8 @@ func Apply(old []byte, chosen []Hunk) ([]byte, error) {
 	src := SplitLines(old)
 	hs := append([]Hunk{}, chosen...)
 	sort.Slice(hs, func(i, j int) bool { return hs[i].OldStart < hs[j].OldStart })
-	var b strings.Builder
+	var b bytes.Buffer
+	b.Grow(len(old))
 	pos := 0 // next unconsumed line of src, 0-based
 	for _, h := range hs {
 		start := h.OldStart - 1 // first removed line, 0-based
@@ -223,7 +225,7 @@ func Apply(old []byte, chosen []Hunk) ([]byte, error) {
 	for _, l := range src[pos:] {
 		b.WriteString(l)
 	}
-	return []byte(b.String()), nil
+	return b.Bytes(), nil
 }
 
 func atoi(s string) int { n, _ := strconv.Atoi(s); return n }
