@@ -2,7 +2,7 @@
 
 ## 1. Prepare the checkout for rulesync-deploy
 
-- [ ] 1.1 In `mise.toml`, set `node = "24.19.0"`. Verify with `mise install` and `node --version` inside the checkout.
+- [x] 1.1 In `mise.toml`, set `node = "24.19.0"`. Verify with `mise install` and `node --version` inside the checkout.
 - [ ] 1.2 Add `"features": ["rules", "skills", "subagents"]` to `rulesync.jsonc` and keep `"global": false`. Verify that `npx --yes rulesync-deploy` generates `AGENTS.md`, `CLAUDE.md`, and `.claude/skills/openspec-propose/SKILL.md` in the checkout, and that the modification times of `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` do not change.
 - [ ] 1.3 If `rulesync install --frozen` fails on the current `rulesync.lock`, rewrite the lock with the bundled RuleSync 43.10.0 at the same resolved commits. Verify that `npx --yes rulesync-deploy` passes twice in a row and that the second run leaves `rulesync.lock` unchanged.
 - [ ] 1.4 Replace the hand-written generated-path block in `.gitignore` with the block that `rulesync gitignore` writes during `npx --yes rulesync-deploy`. Keep `/rulesync.local.jsonc` and the `.agents/plugins/` exception. Verify that `git check-ignore -v .agents/plugins/marketplace.json` reports no match, that `git status --short` lists no generated file, and that a second run leaves `.gitignore` unchanged.

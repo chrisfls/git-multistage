@@ -3,7 +3,7 @@
 go = "1.27.4"
 golangci-lint = "2.15.0"
 # The OpenSpec CLI that the openspec-* skills run. Bump it with the ref in rulesync.jsonc.
-node = "22"
+node = "24.19.0"
 "npm:@fission-ai/openspec" = "2.0.0"
 # The Claude Code CLI that CI runs `claude plugin validate` with.
 "npm:@anthropic-ai/claude-code" = "2.1.310"
