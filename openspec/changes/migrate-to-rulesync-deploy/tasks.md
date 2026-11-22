@@ -18,8 +18,8 @@
 
 ## 4. Check the project
 
-- [ ] 4.1 Run `mise run ci` on Node 24. Verify that it passes.
-- [ ] 4.2 Run `claude plugin validate .` on Node 24. Verify that it passes.
+- [x] 4.1 Run `mise run ci` on Node 24. Verify that it passes.
+- [x] 4.2 Run `claude plugin validate .` on Node 24. Verify that it passes.
 
 ## Workflow follow-up
 
