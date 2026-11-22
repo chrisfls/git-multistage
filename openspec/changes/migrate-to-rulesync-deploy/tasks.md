@@ -9,7 +9,7 @@
 
 ## 2. Remove the old script
 
-- [ ] 2.1 Delete `scripts/setup.sh`. Verify that `grep -rn "setup.sh" README.md .rulesync mise.toml` finds nothing.
+- [x] 2.1 Delete `scripts/setup.sh`. Verify that `grep -rn "setup.sh" README.md .rulesync mise.toml` finds nothing.
 
 ## 3. Update the contributing commands
 
