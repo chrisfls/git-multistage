@@ -13,7 +13,9 @@ This concerns the contributor setup of this repository only: the rules and skill
 - Bump `node` in `mise.toml` from `22` to `24.19.0`, the minimum that `rulesync-deploy` requires, so `npx` works inside the checkout where mise activates Node.
 - Add `"features": ["rules", "skills", "subagents"]` to `rulesync.jsonc`. `rulesync-deploy` passes `--targets` and no `--features`, so the tracked config sets the features. **Behavior change for contributors:** every detected agent now gets the rules, the skills, and any subagents in `.rulesync/subagents/` (for example, `CLAUDE.md` for Claude Code), where `setup.sh` gave the rules only to Codex and generated no subagents.
 - Deploy in project scope only: the documented command is `npx --yes rulesync-deploy` with no `--global`, and `rulesync.jsonc` keeps `"global": false`. Generated files go into the checkout, never into the contributor's home configuration.
-- Replace the hand-written block of generated paths in `.gitignore` with the block that `rulesync gitignore` writes. Keep `/rulesync.local.jsonc` ignored and keep `.agents/plugins/` tracked.
+- Set `"gitignoreDestination": "gitexclude"` in `rulesync.jsonc`, so `rulesync gitignore` writes the generated paths to each clone's `.git/info/exclude` and a deploy leaves the tracked `.gitignore` unchanged. Remove the hand-written block of generated paths from `.gitignore`, and add `!/openspec/**/design.md`: RuleSync's `**/DESIGN.md` pattern also matches the OpenSpec `design.md` on case-insensitive file systems.
+- Set `targets: ["*"]` in `.rulesync/rules/overview.md`, so every agent gets the rule, not only Codex.
+- Tell contributors to delete the `rulesync.local.jsonc` that `scripts/setup.sh` wrote: its `targets` object conflicts with the top-level `features`, and RuleSync rejects the merged config.
 - Regenerate `rulesync.lock` if RuleSync 43.10.0, which `rulesync-deploy` bundles, cannot read the current lock. The current lock was written by RuleSync 17.
 - Replace `rulesync install && rulesync generate` with `npx --yes rulesync-deploy` in the `git-multistage-development` skill.
 
@@ -33,7 +35,8 @@ None. The change affects the repository's contributor tooling only, so `.openspe
 - `mise.toml`: `node` 24.19.0. CI installs `node` through `mise-action`, so CI also moves to Node 24.
 - `rulesync.jsonc`: new `features` key; `global` stays `false`.
 - `rulesync.lock`: may be rewritten in the RuleSync 43 format.
-- `.gitignore`: generated-path block replaced by the RuleSync block.
+- `.gitignore`: generated-path block removed; one exception for OpenSpec `design.md` files.
+- `.rulesync/rules/overview.md`: `targets` from `["codexcli"]` to `["*"]`.
 - `README.md`, `.rulesync/skills/git-multistage-development/SKILL.md`: contributing commands.
 - Plugins, `AGENT_SETUP.md`, and the plugin manifests: unchanged.
 - Release: no new version, because the change alters no CLI or plugin behavior.

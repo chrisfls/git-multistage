@@ -1,6 +1,6 @@
 ---
 root: true
-targets: ["codexcli"]
+targets: ["*"]
 description: How an agent commits and pushes its work in the git-multistage repository.
 ---
 

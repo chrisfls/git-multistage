@@ -2,6 +2,11 @@
   "$schema": "https://github.com/dyoshikawa/rulesync/releases/latest/download/config-schema.json",
   "delete": true,
   "global": false,
+  // rulesync-deploy passes the targets it detects and no features.
+  "features": ["rules", "skills", "subagents"],
+  // Write the generated paths to .git/info/exclude, so a deploy on any machine
+  // leaves the tracked .gitignore unchanged.
+  "gitignoreDestination": "gitexclude",
   "sources": [
     {
       // Go skills that apply to a standard-library CLI. The framework and

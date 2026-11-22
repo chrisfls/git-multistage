@@ -2,22 +2,7 @@
 /git-multistage.exe
 /dist/
 
-# RuleSync generates the agent folders and AGENTS.md from .rulesync/ and
-# rulesync.jsonc. Run `rulesync install && rulesync generate` to create them.
-/.rulesync/skills/.curated/
-# scripts/setup.sh writes the RuleSync targets of this machine here.
-/rulesync.local.jsonc
-/AGENTS.md
-/.agent/
-/.claude/
-/.codex/
-/.cursor/
-/.devin/
-/.gemini/
-/.grok/
-/.opencode/
-/.windsurf/
-# Everything under .agents/ except the Codex plugin marketplace.
-/.agents/**
-!/.agents/plugins/
-!/.agents/plugins/**
+# rulesync-deploy writes the generated agent paths to .git/info/exclude. Its
+# **/DESIGN.md pattern also matches the OpenSpec design.md on case-insensitive
+# file systems, and .gitignore takes precedence over .git/info/exclude.
+!/openspec/**/design.md
