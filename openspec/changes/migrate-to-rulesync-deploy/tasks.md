@@ -13,8 +13,8 @@
 
 ## 3. Update the contributing commands
 
-- [ ] 3.1 In the contributing section of `README.md`, replace `scripts/setup.sh` with `mise install`, and add `GITHUB_TOKEN=$(gh auth token) npx --yes rulesync-deploy` (project scope, no `--global`) as the optional step, with a note to delete a `rulesync.local.jsonc` left by `scripts/setup.sh`, that generates the repository's rules and skills for the contributor's agents. Leave the plugin install section and `AGENT_SETUP.md` unchanged. Verify with `git diff README.md AGENT_SETUP.md`.
-- [ ] 3.2 In `.rulesync/skills/git-multistage-development/SKILL.md`, replace `rulesync install && rulesync generate` with `GITHUB_TOKEN=$(gh auth token) npx --yes rulesync-deploy`, and keep `rulesync install --update` for moving the sources. Verify by reading the regenerated `.claude/skills/git-multistage-development/SKILL.md`.
+- [x] 3.1 In the contributing section of `README.md`, replace `scripts/setup.sh` with `mise install`, and add `GITHUB_TOKEN=$(gh auth token) npx --yes rulesync-deploy` (project scope, no `--global`) as the optional step, with a note to delete a `rulesync.local.jsonc` left by `scripts/setup.sh`, that generates the repository's rules and skills for the contributor's agents. Leave the plugin install section and `AGENT_SETUP.md` unchanged. Verify with `git diff README.md AGENT_SETUP.md`.
+- [x] 3.2 In `.rulesync/skills/git-multistage-development/SKILL.md`, replace `rulesync install && rulesync generate` with `GITHUB_TOKEN=$(gh auth token) npx --yes rulesync-deploy`, and run `rulesync install --update` through `npx`, since contributors no longer install RuleSync. Verify by reading the regenerated `.claude/skills/git-multistage-development/SKILL.md`.
 
 ## 4. Check the project
 

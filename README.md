@@ -136,7 +136,15 @@ On Windows, use `go build -o "$env:USERPROFILE\bin\git-multistage.exe" .\cmd\git
 
 The [specs](openspec/specs/) describe stages, commits, crash recovery, the CLI, and agent integrations.
 
-To contribute, clone the repository and run `scripts/setup.sh`. It requires [mise](https://mise.jdx.dev) and [RuleSync](https://github.com/dyoshikawa/rulesync), and generates local agent configuration. Changes start under `openspec/changes/` using [OpenSpec](https://openspec.dev), as described in `AGENTS.md`.
+To contribute, clone the repository and run `mise install`. It requires [mise](https://mise.jdx.dev). Changes start under `openspec/changes/` using [OpenSpec](https://openspec.dev), as described in `AGENTS.md`.
+
+Optionally, give your coding agents the rules and skills of this repository with [rulesync-deploy](https://github.com/chrisfls/rulesync-deploy). It detects the agents installed on your machine and writes their configuration into the checkout:
+
+```bash
+GITHUB_TOKEN=$(gh auth token) npx --yes rulesync-deploy
+```
+
+The token avoids GitHub's rate limit while it fetches the skill sources. If an earlier `scripts/setup.sh` left a `rulesync.local.jsonc`, delete it first.
 
 Before pushing, run:
 

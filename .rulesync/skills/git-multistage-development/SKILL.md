@@ -38,13 +38,13 @@ The `golang-*` skills come from `samber/cc-skills-golang`. Load the skills that 
 
 RuleSync generates the agent configuration from `rulesync.jsonc` and `.rulesync/`:
 
-- `.rulesync/rules/overview.md` generates `AGENTS.md`. Edit the rule, then regenerate. Do not edit `AGENTS.md` directly.
+- `.rulesync/rules/overview.md` generates `AGENTS.md`, `CLAUDE.md`, and the rule file of each other agent. Edit the rule, then regenerate. Do not edit the generated files directly.
 - `.rulesync/skills/` holds the skills of this repository.
 - `rulesync.lock` pins the commit of each skill source.
 
 ```bash
-rulesync install && rulesync generate   # fetch the pinned skills and write the agent files
-rulesync install --update               # move the skill sources to their latest commits
+GITHUB_TOKEN=$(gh auth token) npx --yes rulesync-deploy             # fetch the pinned skills and write the files of each installed agent
+GITHUB_TOKEN=$(gh auth token) npx --yes rulesync install --update   # move the skill sources to their latest commits
 ```
 
-The generated skill folders and the fetched skills are ignored by Git, so run `rulesync install && rulesync generate` after you clone the repository.
+`rulesync-deploy` lists the generated files in `.git/info/exclude`, so Git ignores them. Run it after you clone the repository.
